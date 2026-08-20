@@ -63,6 +63,27 @@ jobs:
         shell: bash
         run: brew install pkg-config
 
+      # The windows-latest image puts MinGW's c++ ahead of MSVC on PATH, so
+      # CMake's Ninja auto-detection picks GCC while vcpkg installs MSVC-ABI
+      # (x64-windows) dependencies -> every Catch2 symbol becomes an undefined
+      # reference at link time (Itanium vs MSVC name mangling). Source the
+      # official VS DevShell (shipped with the runner; no third-party action)
+      # so CMake selects cl and the toolchain matches the vcpkg ABI. GitHub
+      # runs each step in its own process, so persist the environment for the
+      # configure/build/test steps below.
+      - name: Set up MSVC environment (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw "Visual Studio C++ tools not found via vswhere" }
+          Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments "-arch=x64 -host_arch=x64"
+          Get-ChildItem env: | ForEach-Object {
+            Add-Content -Path $env:GITHUB_ENV -Value "$($_.Name)=$($_.Value)"
+          }
+
       # Download-only caches. Keys cover OS and dependency-lock content so a
       # cache hit can never serve wrong-version or cross-platform artifacts.
       - name: Cache vcpkg tool checkout
