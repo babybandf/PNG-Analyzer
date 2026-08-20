@@ -1,15 +1,13 @@
 {
-  "$schema": "https://json.schemastore.org/cmake-user-presets-2.0.json",
   "version": 6,
+  "description": "Example developer overrides for CMakeUserPresets.json (git-ignored). CMake 4.x forbids a user preset with the same name as a project preset, so a local dev preset must use a distinct name and 'inherits' the project preset to add a machine-specific Qt kit path. Alternatively (and simpler, keeping the exact --preset dev/asan/release names), set the CMAKE_PREFIX_PATH environment variable when configuring, e.g. 'CMAKE_PREFIX_PATH=/opt/homebrew/opt/qt cmake --preset dev'. This file is documentation only; copy what you need into CMakeUserPresets.json.",
   "configurePresets": [
     {
       "name": "dev-local",
-      "displayName": "Local development against a user-provided Qt",
-      "description": "Copy/rename the fields you need into CMakeUserPresets.json (git-ignored). The dev build with Qt is introduced by WP-001; this example only documents how a contributor points CMake at a locally installed Qt 6 kit.",
-      "hidden": true,
+      "inherits": "dev",
+      "displayName": "dev preset with a locally installed Qt",
       "cacheVariables": {
-        "CMAKE_PREFIX_PATH": "/absolute/path/to/Qt/6.11.2/macos",
-        "Qt6_DIR": "/absolute/path/to/Qt/6.11.2/macos/lib/cmake/Qt6"
+        "CMAKE_PREFIX_PATH": "/absolute/path/to/Qt/6.11.2/macos"
       }
     }
   ]
