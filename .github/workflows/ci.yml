@@ -1,0 +1,141 @@
+name: ci
+
+# WP-002 CI baseline: expose Linux / Windows / macOS build problems at PR time.
+#
+#   * Full three-platform matrix builds the real product presets (`dev` on all
+#     OSes, `asan` additionally on Linux for ASan/UBSan).
+#   * CI reuses the repository presets (`cmake --preset …`, `ctest --preset …`)
+#     verbatim; it never re-spells compile flags.
+#   * Caches cover dependency *downloads only* (vcpkg tool checkout and the
+#     vcpkg binary cache). Test results are never cached.
+#   * On failure we upload build/test logs generated on the runner. The path
+#     list never includes corpus or user data, and runner-generated logs carry
+#     no developer-machine absolute paths.
+#
+# The WP-00A `deps-smoke` gate stays separate (pinned-version lock check); this
+# workflow is the product build baseline.
+#
+# The GUI target is omitted on CI by design: Qt is optional at configure time
+# (WP-001) and not present on hosted runners. Installing a pinned Qt kit on CI
+# is a separate follow-up.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: build (${{ matrix.os }})${{ matrix.sanitize && ' · ASan/UBSan' || '' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            sanitize: true
+          - os: windows-latest
+            sanitize: false
+          - os: macos-latest
+            sanitize: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # catch2's vcpkg port runs vcpkg_fixup_pkgconfig and needs pkg-config at
+      # build time. Windows obtains it through vcpkg automatically; Linux and
+      # macOS require the system tool (bootstrap spec §7.1).
+      - name: Provide pkg-config (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: sudo apt-get update && sudo apt-get install -y pkg-config
+
+      - name: Provide pkg-config (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: brew install pkg-config
+
+      # Download-only caches. Keys cover OS and dependency-lock content so a
+      # cache hit can never serve wrong-version or cross-platform artifacts.
+      - name: Cache vcpkg tool checkout
+        uses: actions/cache@v4
+        with:
+          path: .deps/vcpkg
+          key: vcpkg-tool-${{ runner.os }}-${{ hashFiles('scripts/bootstrap.py') }}
+          restore-keys: |
+            vcpkg-tool-${{ runner.os }}-
+
+      - name: Cache vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-cache
+          key: vcpkg-bin-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'cmake/dependencies.lock.json') }}
+          restore-keys: |
+            vcpkg-bin-${{ runner.os }}-
+
+      - name: Static dependency audit
+        shell: bash
+        run: python scripts/verify_dependencies.py
+
+      - name: Bootstrap pinned vcpkg
+        shell: bash
+        run: python scripts/bootstrap.py
+
+      - name: Configure dev
+        shell: bash
+        env:
+          VCPKG_BINARY_SOURCES: "clear;files,${{ runner.temp }}/vcpkg-cache,readwrite"
+        run: cmake --preset dev
+
+      - name: Build dev
+        shell: bash
+        run: cmake --build --preset dev
+
+      - name: Test dev
+        shell: bash
+        run: ctest --preset dev
+
+      - name: Configure asan (Linux)
+        if: matrix.sanitize
+        shell: bash
+        env:
+          VCPKG_BINARY_SOURCES: "clear;files,${{ runner.temp }}/vcpkg-cache,readwrite"
+        run: cmake --preset asan
+
+      - name: Build asan (Linux)
+        if: matrix.sanitize
+        shell: bash
+        run: cmake --build --preset asan
+
+      - name: Test asan (Linux)
+        if: matrix.sanitize
+        shell: bash
+        env:
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1
+        run: ctest --preset asan
+
+      # Runner-generated logs only (CMake/ninja/ctest/vcpkg); no corpus, no
+      # user data, no developer-machine paths.
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-${{ matrix.os }}-logs
+          path: |
+            **/CMakeFiles/*.log
+            **/CMakeFiles/*.yaml
+            **/stdouterr.log
+            **/vcpkg-manifest-install.log
+            **/*.ninja_log
+            build/dev/Testing/Temporary/LastTest.log
+            build/asan/Testing/Temporary/LastTest.log
+          if-no-files-found: ignore
