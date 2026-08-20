@@ -32,7 +32,7 @@
 |---|---|---|---|---|---|
 | Qt 6 | GUI、model/view、线程与平台集成 | Qt Online Installer；CI 使用其命令行模式 | [Qt 官方安装文档](https://doc.qt.io/qt-6/get-and-install-qt.html) | CI 固定 6.11.2；源码兼容下限 6.8 | 是，动态库 |
 | libpng | Reference Backend、最终图像差分基准 | vcpkg manifest | [pnggroup/libpng](https://github.com/pnggroup/libpng) | 1.6.58，`libpng16` 稳定分支 | 是 |
-| zlib | Fast Inflate、Adler-32、checkpoint 恢复 | vcpkg manifest | [madler/zlib](https://github.com/madler/zlib) | 1.3.2.1 | 是 |
+| zlib | Fast Inflate、Adler-32、checkpoint 恢复 | vcpkg manifest | [madler/zlib](https://github.com/madler/zlib) | 1.3.2 | 是 |
 | Catch2 | Core 单元测试与测试发现 | vcpkg manifest，仅开发/CI | [catchorg/Catch2](https://github.com/catchorg/Catch2) | 3.11.0 | 否 |
 | CMake | 构建和 presets | 系统安装或官方安装包 | [cmake.org](https://cmake.org/download/) | 最低 3.28 | 否 |
 | Ninja | 默认本地/CI generator | 系统安装或官方 release | [ninja-build/ninja](https://github.com/ninja-build/ninja) | 最低 1.11 | 否 |
@@ -122,7 +122,7 @@ vcpkg 官方建议项目使用 manifest mode；`vcpkg.json` 的 `builtin-baselin
     },
     {
       "name": "zlib",
-      "version": "1.3.2.1"
+      "version": "1.3.2"
     },
     {
       "name": "catch2",
@@ -243,10 +243,9 @@ libs/deflate-trace/
 
 ```text
 /
-├─ CMakeLists.txt
-├─ CMakePresets.json
-├─ CMakeUserPresets.example.json
 ├─ vcpkg.json
+├─ CMakeUserPresets.example.json
+├─ .gitignore
 ├─ cmake/
 │  ├─ Dependencies.cmake
 │  └─ dependencies.lock.json
@@ -257,19 +256,26 @@ libs/deflate-trace/
 ├─ third_party/
 │  ├─ README.md
 │  └─ sources.lock.yaml
+├─ tests/bootstrap/
+│  ├─ CMakeLists.txt
+│  ├─ CMakePresets.json
+│  └─ version_smoke.cpp
 ├─ tests/corpus/
 │  ├─ README.md
 │  └─ manifest.yaml
 └─ THIRD_PARTY_NOTICES.md
 ```
 
+> 根 `CMakeLists.txt` 与根 `CMakePresets.json`（`dev`/`asan`/`release`）不属于 WP-00A，
+> 随 WP-001 根工程建立。WP-00A 的 `deps-smoke` 是 `tests/bootstrap` 下的独立工程。
+
 职责分工：
 
 | 文件 | 内容 |
 |---|---|
-| `vcpkg.json` | libpng、zlib、Catch2 及 registry baseline |
-| `dependencies.lock.json` | vcpkg tool commit、Qt CI 版本、CMake/Ninja/Python 最低版本 |
-| `CMakePresets.json` | dev、asan、release；不写开发机绝对路径 |
+| `vcpkg.json` | libpng、zlib、Catch2 及 registry baseline（`builtin-baseline` 固定 vcpkg commit） |
+| `dependencies.lock.json` | 产品依赖锁定版本、vcpkg release/commit、Qt CI 版本、CMake/Ninja/Python 最低版本 |
+| `tests/bootstrap/CMakePresets.json` | WP-00A 的 `deps-smoke` 预置（vcpkg manifest 模式、Ninja、`VCPKG_MANIFEST_DIR` 指向根）；不写开发机绝对路径 |
 | `CMakeUserPresets.example.json` | 演示如何指向本机 Qt；实际 UserPresets 被 `.gitignore` |
 | `bootstrap.py` | 环境检查、固定 commit 的 vcpkg clone/bootstrap、依赖安装 |
 | `verify_dependencies.py` | 检查占位符、浮动分支、哈希、许可和未登记 vendor 文件 |
@@ -294,12 +300,16 @@ macOS：
 - Xcode Command Line Tools。
 - Qt Online Installer：Qt 6.11.2 Desktop kit。
 - CMake、Ninja、Python 3.11+、Git。
+- `pkg-config`（`brew install pkg-config`）：catch2 的 vcpkg port 构建时需要。
 
 Linux：
 
 - GCC 或 Clang、标准 C/C++ 开发环境和 Qt 运行所需系统库。
 - Qt Online Installer：Qt 6.11.2 GCC 64-bit。
 - CMake、Ninja、Python 3.11+、Git。
+- `pkg-config`：catch2 的 vcpkg port 构建时需要。
+
+说明：Windows 上 catch2 所需的 pkg-config 由 vcpkg 在构建时自动获取，无需系统安装；Linux/macOS 需系统提供。
 
 ### 7.2 克隆和 bootstrap
 
@@ -356,6 +366,9 @@ allowed_paths:
   - third_party/**
   - THIRD_PARTY_NOTICES.md
   - tests/bootstrap/**
+  - tests/corpus/**
+  - .gitignore
+  - .github/workflows/deps-smoke.yml
 
 forbidden_changes:
   - 不实现 PNG parser、decoder 或 GUI
@@ -376,22 +389,30 @@ stop_conditions:
 2. 创建 manifest，验证三个依赖在本机可解析。
 3. 创建 `dependencies.lock.json` 和依赖来源/许可清单。
 4. 实现只做环境检查和依赖准备的 `bootstrap.py`。
-5. 创建 CMake presets 和 Qt 本机路径示例。
+5. 创建 `tests/bootstrap/CMakePresets.json`（`deps-smoke` 预置）和 Qt 本机路径示例（`CMakeUserPresets.example.json`）。
 6. 实现 `verify_dependencies.py`。
-7. 创建一个只链接 `PNG::PNG`、`ZLIB::ZLIB`、Catch2 的 dependency smoke target。
-8. 在 Windows、Linux、macOS CI 中完成干净 bootstrap；之后 WP-001 才创建正式 app/core targets。
+7. 在 `tests/bootstrap/` 创建只链接 `PNG::PNG`、`ZLIB::ZLIB`、Catch2 的 dependency smoke target，输出版本并与 lock 比对。
+8. 在 Windows、Linux、macOS CI 中完成干净 bootstrap（`deps-smoke.yml`）；之后 WP-001 才创建正式 app/core targets。
 
 ## 9. WP-00A 自我验证
 
 ### 9.1 自动验证命令
 
+`deps-smoke` 是 `tests/bootstrap` 下的独立 CMake 工程，其预置文件位于
+`tests/bootstrap/CMakePresets.json`（CMake 从当前工作目录读取预置），因此
+以下 smoke 命令在仓库根执行静态检查，在 `tests/bootstrap` 目录执行构建：
+
 ```bash
 python3 scripts/verify_dependencies.py
 python3 scripts/bootstrap.py --qt-root "$PNG_ANALYZER_QT_ROOT" --check-only
+cd tests/bootstrap
 cmake --preset deps-smoke
-cmake --build --preset deps-smoke -j
+cmake --build --preset deps-smoke
 ctest --preset deps-smoke --output-on-failure
 ```
+
+`vcpkg.json` 位于仓库根，由 `VCPKG_MANIFEST_DIR` 显式指向（smoke 工程作为
+子目录配置时 vcpkg manifest 需显式定位）。
 
 ### 9.2 二值验收条件
 

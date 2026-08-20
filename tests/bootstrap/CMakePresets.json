@@ -1,0 +1,33 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "deps-smoke",
+      "displayName": "WP-00A dependency smoke",
+      "description": "Configures the WP-00A bootstrap project so vcpkg manifest mode builds and links libpng, zlib and Catch2 at the versions pinned in cmake/dependencies.lock.json. Run all smoke commands from this directory (CMake reads presets from the working directory).",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_TOOLCHAIN_FILE": "${sourceDir}/../../.deps/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_MANIFEST_DIR": "${sourceDir}/../..",
+        "VCPKG_MANIFEST_INSTALL": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "deps-smoke",
+      "configurePreset": "deps-smoke"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "deps-smoke",
+      "configurePreset": "deps-smoke",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

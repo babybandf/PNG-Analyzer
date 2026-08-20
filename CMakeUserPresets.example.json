@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/cmake-user-presets-2.0.json",
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "dev-local",
+      "displayName": "Local development against a user-provided Qt",
+      "description": "Copy/rename the fields you need into CMakeUserPresets.json (git-ignored). The dev build with Qt is introduced by WP-001; this example only documents how a contributor points CMake at a locally installed Qt 6 kit.",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "/absolute/path/to/Qt/6.11.2/macos",
+        "Qt6_DIR": "/absolute/path/to/Qt/6.11.2/macos/lib/cmake/Qt6"
+      }
+    }
+  ]
+}

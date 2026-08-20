@@ -290,12 +290,13 @@ flowchart TD
 3. 创建 `deps-smoke` preset 与 dependency smoke target，输出实际编译时的 libpng/zlib/Catch2/Qt 版本并与 lock 文件比对。
 4. 明确依赖来源：Qt 官方安装器；libpng/zlib/Catch2 走 vcpkg manifest；`zran`/`puff` 仅在授权 WP 引入。
 
-自我验证：
+自我验证（`deps-smoke` 预置位于 `tests/bootstrap/CMakePresets.json`，构建在 `tests/bootstrap` 目录执行）：
 
 ```bash
 python3 scripts/verify_dependencies.py
-cmake --preset deps-smoke
-cmake --build --preset deps-smoke -j
+python3 scripts/bootstrap.py --check-only
+cd tests/bootstrap && cmake --preset deps-smoke
+cmake --build --preset deps-smoke
 ctest --preset deps-smoke --output-on-failure
 ```
 

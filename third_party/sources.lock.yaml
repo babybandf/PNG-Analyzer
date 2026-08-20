@@ -1,0 +1,18 @@
+# third_party/sources.lock.yaml
+#
+# Provenance records for every vendored or reference source copied into
+# third_party/. Schema:
+#
+#   <slug>:                 # directory name under third_party/
+#     upstream_url:         # exact origin
+#     upstream_commit:      # full 40-char commit or tag
+#     license:              # SPDX id
+#     sha256:               # upstream archive/file hash
+#     derived_into:         # libs path that consumes the derived code (optional)
+#     authorizing_wp:       # Work Package that approved the reuse
+#     notes:                # modification record / MODIFICATIONS.md pointer
+#
+# No entries yet: WP-00A introduces no vendored source. libpng/zlib/Catch2 come
+# from vcpkg; zlib's puff/zran are evaluation-only until an authorized WP adds
+# them here. verify_dependencies.py fails if a third_party/ item is unlisted.
+{}

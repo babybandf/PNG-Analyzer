@@ -1,0 +1,21 @@
+# tests/corpus/manifest.yaml
+#
+# Fixture audit records. Each external test image must appear here with source,
+# license, SHA-256, expected classification and linked tests (bootstrap spec §5,
+# REPOSITORY_LAYOUT.md §11). Programmatically generated boundary files are
+# produced by test generators and do not require a manifest entry.
+#
+# This is a top-level list. Record keys (bootstrap spec §5 example):
+#   - id: stable slug
+#     path: corpus-relative path (pngsuite/basn2c08.png)
+#     source_url: exact download origin (no placeholders)
+#     upstream_version: archive/tag/date
+#     upstream_commit: null or 40-hex
+#     sha256: 64-hex
+#     license: SPDX or reviewed value
+#     expected_class: valid | malformed | boundary | ...
+#     expected_features: [rgb, bit_depth_8, non_interlaced, ...]
+#     linked_tests: [wp-101-chunk-index, ...]
+#
+# Empty for now; the first fixtures arrive with WP-100.
+[]

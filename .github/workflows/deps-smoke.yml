@@ -1,0 +1,85 @@
+name: deps-smoke
+
+# WP-00A: prove the pinned toolchain and vcpkg manifest resolve and link the
+# approved libpng/zlib/Catch2 versions on all three supported platforms. The
+# full three-platform build matrix, ASan/UBSan and log upload belong to WP-002
+# (CI baseline); this is deliberately the minimal bootstrap gate.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  deps-smoke:
+    name: deps-smoke (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      VCPKG_BINARY_SOURCES: "clear;files,${{ runner.temp }}/vcpkg-cache,readwrite"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Provide CMake
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: "3.28.x"
+
+      - name: Provide Ninja
+        uses: michaeltrainor/setup-ninja@v3
+
+      # catch2's vcpkg port runs vcpkg_fixup_pkgconfig and needs pkg-config at
+      # build time. Windows obtains it through vcpkg automatically; Linux and
+      # macOS require the system tool (bootstrap spec §7.1).
+      - name: Provide pkg-config (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: sudo apt-get update && sudo apt-get install -y pkg-config
+
+      - name: Provide pkg-config (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: brew install pkg-config
+
+      - name: Verify dependencies (static audit)
+        shell: bash
+        run: python3 scripts/verify_dependencies.py
+
+      - name: Bootstrap pinned vcpkg
+        shell: bash
+        run: python3 scripts/bootstrap.py
+
+      - name: Configure deps-smoke (vcpkg manifest mode)
+        working-directory: tests/bootstrap
+        shell: bash
+        run: cmake --preset deps-smoke
+
+      - name: Build deps-smoke
+        working-directory: tests/bootstrap
+        shell: bash
+        run: cmake --build --preset deps-smoke
+
+      - name: Run deps-smoke
+        working-directory: tests/bootstrap
+        shell: bash
+        run: ctest --preset deps-smoke --output-on-failure
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deps-smoke-${{ matrix.os }}-logs
+          path: |
+            **/CMakeFiles/*.log
+            **/stdouterr.log
+            **/vcpkg-manifest-install.log
+            cmake-build*/**
+          if-no-files-found: ignore
