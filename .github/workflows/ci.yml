@@ -106,6 +106,10 @@ jobs:
         shell: bash
         run: python scripts/verify_dependencies.py
 
+      - name: Repository layout audit
+        shell: bash
+        run: python scripts/verify_repository_layout.py
+
       - name: Bootstrap pinned vcpkg
         shell: bash
         run: python scripts/bootstrap.py
