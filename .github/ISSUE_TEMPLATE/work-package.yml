@@ -1,0 +1,148 @@
+name: Work Package
+description: Define a scoped and independently verifiable engineering task
+title: "[WP-XXX] "
+labels:
+  - work-package
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read `AGENTS.md`, `REPOSITORY_LAYOUT.md` and the relevant ADRs before submitting. Replace every placeholder with concrete, binary-verifiable information.
+
+  - type: input
+    id: work-package-id
+    attributes:
+      label: Work Package ID
+      description: Use the milestone sequence, for example WP-101.
+      placeholder: WP-XXX
+    validations:
+      required: true
+
+  - type: input
+    id: milestone
+    attributes:
+      label: Milestone
+      placeholder: M0
+    validations:
+      required: true
+
+  - type: input
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: List prerequisite Work Packages, or write "none".
+      placeholder: WP-000, WP-00A
+    validations:
+      required: true
+
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk
+      options:
+        - low
+        - medium
+        - high
+    validations:
+      required: true
+
+  - type: dropdown
+    id: estimated-size
+    attributes:
+      label: Estimated Size
+      options:
+        - S
+        - M
+        - L
+    validations:
+      required: true
+
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: State the user-visible or downstream capability produced by this task.
+    validations:
+      required: true
+
+  - type: textarea
+    id: inputs
+    attributes:
+      label: Inputs And Invariants
+      description: List approved interfaces, specifications, fixtures and input/output invariants.
+    validations:
+      required: true
+
+  - type: textarea
+    id: allowed-paths
+    attributes:
+      label: Allowed Paths
+      description: List the only repository paths this task may modify.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: forbidden-changes
+    attributes:
+      label: Forbidden Changes And Non-goals
+      description: Identify adjacent behavior, APIs, dependencies and directories outside this task.
+    validations:
+      required: true
+
+  - type: textarea
+    id: implementation-steps
+    attributes:
+      label: Implementation Steps
+      description: Provide a small ordered sequence; do not describe an entire subsystem as one step.
+    validations:
+      required: true
+
+  - type: textarea
+    id: required-tests
+    attributes:
+      label: Required Tests
+      description: Include normal, boundary and malformed cases as applicable.
+    validations:
+      required: true
+
+  - type: textarea
+    id: verification-commands
+    attributes:
+      label: Verification Commands
+      description: List exact commands that produce acceptance evidence.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance Criteria
+      description: Every criterion must have a binary pass/fail result.
+    validations:
+      required: true
+
+  - type: textarea
+    id: stop-conditions
+    attributes:
+      label: Stop Conditions
+      description: State when the implementer must report BLOCKED instead of expanding scope.
+    validations:
+      required: true
+
+  - type: textarea
+    id: report-format
+    attributes:
+      label: Required Report Evidence
+      description: Specify changed files, tests, commands/results, limitations and follow-up evidence.
+      value: |
+        - Status: PASS | BLOCKED | FAIL
+        - Changed files and reasons
+        - Tests added
+        - Commands, exit codes and concise results
+        - Acceptance criteria evidence
+        - Self-review and known limitations
+        - Recommended next Work Package
+    validations:
+      required: true
