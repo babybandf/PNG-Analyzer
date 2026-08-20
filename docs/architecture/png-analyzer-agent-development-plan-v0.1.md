@@ -279,6 +279,28 @@ flowchart TD
 
 完成标准：新 Agent 只阅读这些文件就能知道哪些架构决策不能擅自改变。
 
+### WP-00A：Project Bootstrap
+
+目标：干净机器只需安装编译器、Qt、Git 和 Python，即可用仓库统一命令取得固定版本的 libpng、zlib、Catch2，并生成可审计的依赖报告。规范见《PNG Analyzer 项目准备与第三方代码引入规范 v0.1》。
+
+实施：
+
+1. 固定 vcpkg tool commit 与 registry `builtin-baseline`，创建 `vcpkg.json` 和 `cmake/dependencies.lock.json`。
+2. 实现 `scripts/bootstrap.py`（环境检查与依赖准备）和 `scripts/verify_dependencies.py`（占位符、浮动分支、哈希、许可检查）。
+3. 创建 `deps-smoke` preset 与 dependency smoke target，输出实际编译时的 libpng/zlib/Catch2/Qt 版本并与 lock 文件比对。
+4. 明确依赖来源：Qt 官方安装器；libpng/zlib/Catch2 走 vcpkg manifest；`zran`/`puff` 仅在授权 WP 引入。
+
+自我验证：
+
+```bash
+python3 scripts/verify_dependencies.py
+cmake --preset deps-smoke
+cmake --build --preset deps-smoke -j
+ctest --preset deps-smoke --output-on-failure
+```
+
+验收：三平台解析到同一 libpng、zlib、Catch2 版本；占位符、许可缺失或 registry 无法解析时任务失败并报告 `BLOCKED`，而不是静默降级到系统库。在 `WP-00A` 通过前，后续 Agent 不得自行选择包管理器、复制上游源码或开始产品代码实现。
+
 ### WP-001：CMake 与目录 Walking Skeleton
 
 目标：GUI、CLI、Core、测试可以在空实现状态下构建运行。
@@ -320,6 +342,7 @@ ctest --preset dev --output-on-failure
 
 ### M0 Gate
 
+- WP-00A 依赖 bootstrap 在三平台可复现，版本与 lock 文件一致。
 - 三平台 build 通过。
 - Core 确认无 Qt link dependency。
 - ASan preset 可运行。
@@ -1059,10 +1082,10 @@ contract or accessing zlib private structs.
 如果现在开始建仓库，第一轮只执行以下任务：
 
 ```text
-WP-000 → WP-001 → WP-002 → WP-100 → WP-101 → WP-103 → WP-104
+WP-000 → WP-00A → WP-001 → WP-002 → WP-100 → WP-101 → WP-103 → WP-104
 ```
 
-这七个 WP 完成后，应得到第一个 Walking Skeleton：
+这八个 WP 完成后，应得到第一个 Walking Skeleton：
 
 ```text
 打开 PNG

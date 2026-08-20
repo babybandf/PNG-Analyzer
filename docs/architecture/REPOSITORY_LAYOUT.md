@@ -67,6 +67,7 @@ png-analyzer/
 ├─ scripts/
 │
 ├─ tests/
+│  ├─ bootstrap/
 │  ├─ unit/
 │  ├─ integration/
 │  ├─ differential/
@@ -420,6 +421,7 @@ These are spelling and ownership corrections and do not require a new feature AD
 
 | Test type | Location |
 |---|---|
+| Dependency and toolchain smoke | `tests/bootstrap/` |
 | Single class/function/module | `tests/unit/<module>/` |
 | Multiple production modules | `tests/integration/<scenario>/` |
 | Trace Backend vs libpng | `tests/differential/` |

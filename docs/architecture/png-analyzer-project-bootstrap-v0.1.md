@@ -182,7 +182,7 @@ PNG Analyzer 不能原样使用 `zran` 的 `FILE*` 连续文件假设。派生�
 1. 在 WP-400 中只把 `zran` 作为设计 oracle，不复制源码。
 2. 完成自己的 `CheckpointRecord` 接口和 zlib API 验证。
 3. 如果 WP-401 仍决定复用，复制来自固定 tag/commit 的最小文件。
-4. 原样副本放在 `third_party/zlib-zran/original/`；派生实现放在 `libs/inflate_index/`。
+4. 原样副本放在 `third_party/zlib-zran/original/`；派生实现放在 `libs/deflate-index/`。
 5. `MODIFICATIONS.md` 逐项记录对 I/O、offset、dictionary 和错误处理的改动。
 
 ### 4.3 `puff`：适合做可读的 Deep Trace 起点，不适合 Fast Backend
@@ -196,8 +196,8 @@ third_party/zlib-puff/
   UPSTREAM.md
   LICENSE
   original/
-libs/deflate_trace/
-  include/pnga/deflate_trace/
+libs/deflate-trace/
+  include/pnga/deflate-trace/
   src/
   MODIFICATIONS.md
 ```

@@ -513,29 +513,41 @@ png-analyzer/
 │  ├─ io/
 │  ├─ png-format/
 │  ├─ trace-model/
-│  ├─ png-reconstruction/
+│  ├─ deflate-runtime/
+│  ├─ deflate-index/
 │  ├─ deflate-trace/
+│  ├─ png-reconstruction/
 │  ├─ backend-libpng/
+│  ├─ analysis-engine/
 │  ├─ validation/
 │  ├─ compare/
 │  ├─ statistics/
-│  ├─ rendering/
-│  └─ plugin-sdk/
+│  └─ rendering/
+├─ ui/
+│  └─ qt/
 ├─ plugins/
-│  ├─ chunks-standard/
-│  └─ exporters/
+├─ sdk/
+│  └─ plugin-api/
+├─ tools/
+├─ scripts/
 ├─ tests/
 │  ├─ unit/
-│  ├─ conformance/
+│  ├─ integration/
 │  ├─ differential/
-│  ├─ golden-traces/
-│  └─ fuzz/
+│  ├─ golden/
+│  ├─ gui/
+│  ├─ fuzz/
+│  ├─ performance/
+│  └─ corpus/
 ├─ samples/
+├─ benchmarks/
 ├─ docs/
 │  ├─ architecture/
+│  ├─ adr/
 │  ├─ formats/
-│  ├─ plugin-sdk/
-│  └─ adr/
+│  ├─ development/
+│  └─ plugin-sdk/
+├─ third_party/
 ├─ packaging/
 ├─ cmake/
 ├─ .github/
@@ -545,11 +557,15 @@ png-analyzer/
 ├─ CMakeLists.txt
 ├─ CMakePresets.json
 ├─ vcpkg.json
+├─ REPOSITORY_LAYOUT.md
+├─ THIRD_PARTY_NOTICES.md
 ├─ LICENSE
 ├─ SECURITY.md
 ├─ CONTRIBUTING.md
 └─ README.md
 ```
+
+模块职责、库内标准布局、依赖方向和命名规则的规范性定义见 [REPOSITORY_LAYOUT.md](REPOSITORY_LAYOUT.md)。目录仅在首个需要它的已批准工作包出现时创建，不在建仓时预置空目录。
 
 CLI 不是附属功能。`pnga-cli` 与 GUI 使用同一 core，可用于 CI、批量统计、fuzz 重现、golden trace 和 bug report：
 
@@ -653,18 +669,20 @@ pnga compare a.png b.png --first-difference
 
 这些数值是工程目标，不是对所有输入的保证；在 Phase 0 建立基准机和 corpus 后再冻结。
 
-## 17. Architecture Decision Records（ADR）建议
+## 17. Architecture Decision Records（ADR）
 
-首批应提交到 `docs/adr/`：
+首批 ADR 已提交到 `docs/adr/` 并处于 `Accepted` 状态：
 
-- ADR-0001：C++20 + Qt 6。
+- ADR-0001：C++20 + Qt 6 + CMake，Qt 官方安装器，pinned vcpkg manifest。
 - ADR-0002：libpng Reference Backend 与 Trace Backend 双路径。
-- ADR-0003：统一 SemanticNode/Selection/Provenance 模型。
-- ADR-0004：Fast index + on-demand Deep Trace。
-- ADR-0005：mmap + VirtualByteStream，不拼接复制 IDAT。
-- ADR-0006：Core 不依赖 Qt，GUI/CLI 共用。
+- ADR-0003：Core 不依赖 Qt。
+- ADR-0004：SemanticNode、StageArtifact、Selection、Provenance 统一模型。
+- ADR-0005：Virtual IDAT Stream，不复制拼接 IDAT。
+- ADR-0006：Fast Index + On-demand Deep Trace。
 - ADR-0007：先 static PNG，数据模型从第一天兼容 APNG。
-- ADR-0008：公开插件使用版本化 C ABI，首版静态注册。
+- ADR-0008：只使用 libpng 公开 API，禁止访问私有结构。
+
+插件版本化 C ABI 等后续决策在对应工作包启动前单独建立 ADR，不占用首批编号。
 
 ## 18. 最终建议
 
