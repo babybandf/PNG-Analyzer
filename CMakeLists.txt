@@ -28,6 +28,7 @@ option(PNGA_BUILD_TESTS "Build PNG Analyzer tests" ON)
 
 add_subdirectory(libs/core)
 add_subdirectory(libs/io)
+add_subdirectory(libs/png-format)
 add_subdirectory(apps/pnga-cli)
 if(PNGA_HAVE_QT)
   add_subdirectory(apps/png-analyzer-gui)

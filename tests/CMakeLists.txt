@@ -3,3 +3,4 @@
 
 add_subdirectory(unit/core)
 add_subdirectory(unit/io)
+add_subdirectory(unit/png_format)
