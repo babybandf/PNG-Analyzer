@@ -24,15 +24,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: pip
 
-      - name: Provide CMake
-        uses: jwlawson/actions-setup-cmake@v2
-        with:
-          cmake-version: "3.28.x"
-
-      - name: Provide Ninja
-        uses: michaeltrainor/setup-ninja@v3
+      # GitHub-hosted runner images already ship CMake and Ninja on all three
+      # OSes, so no third-party setup actions are required (avoids an
+      # unresolvable/unvetted action dependency). Print them for audit trails.
+      - name: Print toolchain versions
+        shell: bash
+        run: |
+          cmake --version | head -1
+          ninja --version
+          python --version
 
       # catch2's vcpkg port runs vcpkg_fixup_pkgconfig and needs pkg-config at
       # build time. Windows obtains it through vcpkg automatically; Linux and
@@ -49,11 +50,11 @@ jobs:
 
       - name: Verify dependencies (static audit)
         shell: bash
-        run: python3 scripts/verify_dependencies.py
+        run: python scripts/verify_dependencies.py
 
       - name: Bootstrap pinned vcpkg
         shell: bash
-        run: python3 scripts/bootstrap.py
+        run: python scripts/bootstrap.py
 
       - name: Configure deps-smoke (vcpkg manifest mode)
         working-directory: tests/bootstrap
