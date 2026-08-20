@@ -18,8 +18,6 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    env:
-      VCPKG_BINARY_SOURCES: "clear;files,${{ runner.temp }}/vcpkg-cache,readwrite"
     steps:
       - uses: actions/checkout@v4
 
@@ -60,16 +58,22 @@ jobs:
       - name: Configure deps-smoke (vcpkg manifest mode)
         working-directory: tests/bootstrap
         shell: bash
+        env:
+          VCPKG_BINARY_SOURCES: "clear;files,${{ runner.temp }}/vcpkg-cache,readwrite"
         run: cmake --preset deps-smoke
 
       - name: Build deps-smoke
         working-directory: tests/bootstrap
         shell: bash
+        env:
+          VCPKG_BINARY_SOURCES: "clear;files,${{ runner.temp }}/vcpkg-cache,readwrite"
         run: cmake --build --preset deps-smoke
 
       - name: Run deps-smoke
         working-directory: tests/bootstrap
         shell: bash
+        env:
+          VCPKG_BINARY_SOURCES: "clear;files,${{ runner.temp }}/vcpkg-cache,readwrite"
         run: ctest --preset deps-smoke --output-on-failure
 
       - name: Upload failure logs
