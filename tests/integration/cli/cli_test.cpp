@@ -110,8 +110,13 @@ CliResult run_cli(const std::string& args) {
   std::ifstream in(outfile, std::ios::binary);
   std::string content((std::istreambuf_iterator<char>(in)),
                       std::istreambuf_iterator<char>());
-  // Drop a single trailing newline emitted by puts() so goldens are exact.
+  // Normalize the line ending emitted by puts(): Windows cmd redirection
+  // writes CRLF (CRT text mode), POSIX writes LF. Drop both so goldens are
+  // byte-exact on every platform.
   if (!content.empty() && content.back() == '\n') {
+    content.pop_back();
+  }
+  if (!content.empty() && content.back() == '\r') {
     content.pop_back();
   }
   return {exit_code, content};
