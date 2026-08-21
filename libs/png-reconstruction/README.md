@@ -7,7 +7,7 @@ Deterministic PNG reconstruction after Inflate (REPOSITORY_LAYOUT.md §5.8).
 - Pass and scanline splitting.
 - All five reverse filters.
 - Adam7 geometry, pass unfiltering and placement (WP-303).
-- Packed sample extraction and native samples (later WP).
+- Packed sample extraction and native samples (WP-304).
 - Palette, transparency and approved delivery transforms.
 
 ## Non-goals

@@ -7,6 +7,8 @@
 
 #include "pnga/png-reconstruction/reverse_filter.h"
 
+#include "bit_util.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -24,35 +26,6 @@ std::optional<std::uint64_t> checked_mul(std::uint64_t a,
     return std::nullopt;
   }
   return a * b;
-}
-
-// Big-endian bit access within packed PNG rows (MSB-first, spec §2.2). Reads
-// `bits` (1, 2 or 4) starting at bit offset `bit_pos`. A single sample never
-// straddles a byte boundary for these widths, but the loop is written to stay
-// correct if it ever does.
-std::uint8_t read_bits(const std::byte* data, std::uint64_t bit_pos,
-                       unsigned bits) noexcept {
-  std::uint8_t value = 0;
-  for (unsigned b = 0; b < bits; ++b) {
-    const std::uint64_t pos = bit_pos + b;
-    const unsigned shift = 7 - static_cast<unsigned>(pos % 8);
-    const unsigned bit =
-        (static_cast<unsigned>(data[pos / 8]) >> shift) & 1u;
-    value = static_cast<std::uint8_t>((value << 1) | bit);
-  }
-  return value;
-}
-
-void write_bits(std::byte* data, std::uint64_t bit_pos, unsigned bits,
-                std::uint8_t value) noexcept {
-  for (unsigned b = 0; b < bits; ++b) {
-    const std::uint64_t pos = bit_pos + b;
-    const unsigned shift = 7 - static_cast<unsigned>(pos % 8);
-    const unsigned bit = (static_cast<unsigned>(value) >> (bits - 1 - b)) & 1u;
-    std::byte& byte = data[pos / 8];
-    byte = static_cast<std::byte>(
-        (static_cast<unsigned>(byte) & ~(1u << shift)) | (bit << shift));
-  }
 }
 
 }  // namespace
@@ -154,9 +127,9 @@ PassReconstructionOutcome reconstruct_image(
             return fail("pass sample outside image width");
           }
           const std::uint8_t value =
-              read_bits(row.data(), sx * sample_bits, sample_bits);
-          write_bits(out.target.data() + y * (*target_row_bytes),
-                     x * sample_bits, sample_bits, value);
+              detail::read_bits(row.data(), sx * sample_bits, sample_bits);
+          detail::write_bits(out.target.data() + y * (*target_row_bytes),
+                             x * sample_bits, sample_bits, value);
         }
       } else {
         // Pass rows are laid out per pixel (channels * bytes_per_sample
