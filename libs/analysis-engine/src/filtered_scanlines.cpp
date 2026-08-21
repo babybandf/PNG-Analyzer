@@ -4,37 +4,12 @@
 
 #include <pnga/deflate-runtime/inflate.h>
 
+#include "virtual_idat_source.h"
+
 #include <algorithm>
 #include <cstdint>
 
 namespace pnga::analysis_engine {
-
-namespace {
-
-// Adapts a VirtualIDATStream to IByteSource for the generic inflate wrapper.
-// Only read() is meaningful; there is no contiguous backing to view.
-class VirtualIdatSource final : public pnga::io::IByteSource {
- public:
-  VirtualIdatSource(const pnga::png_format::VirtualIDATStream& stream,
-                    const pnga::io::IByteSource& file)
-      : stream_(stream), file_(file) {}
-
-  std::uint64_t size() const noexcept override { return stream_.size(); }
-  bool read(std::uint64_t offset, std::byte* out,
-            std::size_t length) const noexcept override {
-    return stream_.read(file_, offset, out, length);
-  }
-  std::optional<pnga::io::ByteView> view(std::uint64_t,
-                                         std::size_t) const noexcept override {
-    return std::nullopt;  // non-contiguous
-  }
-
- private:
-  const pnga::png_format::VirtualIDATStream& stream_;
-  const pnga::io::IByteSource& file_;
-};
-
-}  // namespace
 
 FilteredOutcome inflate_filtered(
     const pnga::png_format::VirtualIDATStream& stream,

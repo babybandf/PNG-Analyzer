@@ -6,6 +6,7 @@ add_library(pnga_analysis_engine
   src/filtered_scanlines.cpp
   src/job_scheduler.cpp
   src/reference_decode.cpp
+  src/scanline_anchor.cpp
   src/stage_analysis.cpp
 )
 add_library(pnga::analysis_engine ALIAS pnga_analysis_engine)
@@ -19,6 +20,7 @@ target_link_libraries(pnga_analysis_engine PUBLIC
   pnga::png_format
   pnga::png_reconstruction
   pnga::deflate_runtime
+  pnga::deflate_index
   pnga::io
 )
 target_compile_features(pnga_analysis_engine PUBLIC cxx_std_20)
