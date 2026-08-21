@@ -549,6 +549,64 @@ pnga validate tests/corpus/malformed/truncated-chunk.png --json \
 
 验证：自动模拟100次交替选择，无递归、卡死或 stale selection。
 
+### WP-206：About 菜单与项目联系信息
+
+目标：在现有 `Help → About` 入口中展示项目名称、版本、GitHub 地址和维护者公开联系邮箱；GitHub 地址和邮箱均可被用户复制或通过系统默认应用打开。
+
+属性：M2，低风险，S。
+
+依赖：WP-104、WP-204。
+
+输入与不变量：
+
+- GitHub 地址固定为 `https://github.com/babybandf/PNG-Analyzer`，不得依赖网络请求才能显示。
+- 公开联系邮箱必须由项目维护者在实现前明确提供；不得猜测、抓取或提交私人邮箱。
+- About 内容使用稳定的项目版本信息，不写入构建时间、机器路径或其他非确定性字段。
+
+允许修改：
+
+- `ui/qt/**`
+- `apps/png-analyzer-gui/**`
+- `tests/gui/**`
+
+非目标与禁止修改：
+
+- 不修改 PNG parser、decoder、analysis-engine 或任何 `libs/` 模块。
+- 不新增网络、浏览器或第三方依赖。
+- 不在 About 对话框中实现在线更新、遥测、许可证下载或动态远程内容。
+
+实施：
+
+1. 将项目名称、版本、GitHub HTTPS URL 和经确认的邮箱集中到 About 内容定义中。
+2. 在 About 对话框中提供可访问、可复制的 GitHub 和邮箱文本/链接。
+3. GitHub 链接使用 `https`，邮箱链接使用 `mailto`；打开外部应用失败时仍保留可复制文本。
+4. 增加 GUI 测试，验证菜单入口、固定 URL、邮箱、版本文本和无网络依赖。
+
+必测：
+
+- 菜单可以打开 About 对话框。
+- GitHub URL 与邮箱文本准确显示且可复制。
+- 链接 scheme 分别为 `https` 和 `mailto`。
+- 版本文本来自项目版本接口，并且测试输出不包含时钟或机器路径。
+- 未配置公开邮箱时，任务必须停止并报告 `BLOCKED`，不得用占位邮箱交付。
+
+验收：
+
+- 用户可从 GUI 菜单打开 About 对话框。
+- 对话框显示项目名称、当前版本、`https://github.com/babybandf/PNG-Analyzer` 和维护者确认的公开联系邮箱。
+- GUI 测试在 dev 与 ASan/UBSan 配置下通过，且不访问网络。
+
+验证命令：
+
+```shell
+cmake --build --preset dev
+ctest --preset dev -R gui_about --output-on-failure
+cmake --build --preset asan
+ctest --preset asan -R gui_about --output-on-failure
+```
+
+停止条件：公开邮箱未确认、需要新增依赖、需要修改 ADR/仓库布局，或 About 内容必须依赖网络才能完成。
+
 ### M2 Gate
 
 - GUI 可显示最终图像。
@@ -1122,4 +1180,3 @@ WP-200 → WP-201 → WP-202 → WP-203 → WP-204 → WP-205
 > 任务范围足够小，错误能够自动暴露，产物能够独立验收，失败不会污染主干，下一个 Agent 不需要猜测上一个 Agent 做了什么。
 
 只要严格执行 Work Package、依赖关系、Gate 和 Verification Report，当前架构就能从设计文档逐步转化为可维护、可回归、适合开源协作的实现，而不是一次性生成后难以验证的大型代码堆。
-
