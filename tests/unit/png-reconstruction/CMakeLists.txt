@@ -16,6 +16,9 @@ target_link_libraries(pnga_png_reconstruction_tests PRIVATE
   ZLIB::ZLIB
   Catch2::Catch2WithMain
 )
+target_include_directories(pnga_png_reconstruction_tests PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../common
+)
 target_compile_features(pnga_png_reconstruction_tests PRIVATE cxx_std_20)
 
 add_test(NAME png_reconstruction_scanline_layout_tests COMMAND pnga_png_reconstruction_tests)

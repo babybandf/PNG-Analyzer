@@ -287,12 +287,14 @@ struct EncodedPng {
   std::vector<std::byte> png_bytes; // complete file for the libpng oracle
 };
 
-inline EncodedPng encode_png(std::uint32_t w, std::uint32_t h, std::uint8_t bd,
-                             std::uint8_t ct, bool interlace, bool all_none,
-                             unsigned seed = 7) {
+// Encodes an explicitly provided packed raw image (fault-injection tests).
+inline EncodedPng encode_png_raw(const std::vector<std::byte>& raw,
+                                 std::uint32_t w, std::uint32_t h,
+                                 std::uint8_t bd, std::uint8_t ct,
+                                 bool interlace, bool all_none) {
   EncodedPng out;
   out.header = pnga::png_reconstruction::ImageHeader{w, h, bd, ct, interlace};
-  out.raw = make_raw_image(w, h, bd, ct, seed);
+  out.raw = raw;
   const std::uint64_t rb = test_row_bytes(w, bd, ct);
   const std::uint64_t bpp = test_bpp(bd, ct);
   const bool sub = bd < 8;
@@ -365,6 +367,14 @@ inline EncodedPng encode_png(std::uint32_t w, std::uint32_t h, std::uint8_t bd,
 
   out.png_bytes = build_png_file(w, h, bd, ct, interlace, out.filtered);
   return out;
+}
+
+// Convenience wrapper: generates a deterministic raw image internally.
+inline EncodedPng encode_png(std::uint32_t w, std::uint32_t h, std::uint8_t bd,
+                             std::uint8_t ct, bool interlace, bool all_none,
+                             unsigned seed = 7) {
+  return encode_png_raw(make_raw_image(w, h, bd, ct, seed), w, h, bd, ct,
+                        interlace, all_none);
 }
 
 // ---------------------------------------------------------------------------
