@@ -160,7 +160,11 @@ std::optional<ScanlineLayout> compute_scanline_layout(
     }
 
     if (pass.width == 0 || pass.height == 0) {
-      continue;  // empty Adam7 pass: no rows, no bytes
+      // Empty Adam7 pass: normalize both dimensions so consumers iterating
+      // rows never see a pass with a nonzero row count but zero width.
+      pass.width = 0;
+      pass.height = 0;
+      continue;
     }
 
     const auto rb = row_bytes(static_cast<std::uint32_t>(pass.width),

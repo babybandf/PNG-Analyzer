@@ -3,6 +3,7 @@
 
 add_library(pnga_analysis_engine
   src/artifact_store.cpp
+  src/filtered_scanlines.cpp
   src/reference_decode.cpp
 )
 add_library(pnga::analysis_engine ALIAS pnga_analysis_engine)
@@ -13,6 +14,9 @@ target_include_directories(pnga_analysis_engine PUBLIC
 target_link_libraries(pnga_analysis_engine PUBLIC
   pnga::trace_model
   pnga::backend_libpng
+  pnga::png_format
+  pnga::png_reconstruction
+  pnga::deflate_runtime
   pnga::io
 )
 target_compile_features(pnga_analysis_engine PUBLIC cxx_std_20)
