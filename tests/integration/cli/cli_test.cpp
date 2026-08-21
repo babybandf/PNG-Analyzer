@@ -71,6 +71,13 @@ void write_file(const std::filesystem::path& path,
 
 std::string quote(const std::string& s) { return "\"" + s + "\""; }
 
+// Windows cmd /c strips the outermost quotes when a command starts with a
+// quoted token, which breaks the command and forces errorlevel 1. Only quote
+// tokens that actually need it (contain a space) so exit codes propagate.
+std::string quote_if_needed(const std::string& s) {
+  return s.find(' ') == std::string::npos ? s : quote(s);
+}
+
 // Mirrors the CLI's JSON escaping so expected strings stay exact on every
 // platform (Windows temp paths contain backslashes that JSON must escape).
 std::string json_escape(const std::string& s) {
@@ -92,7 +99,7 @@ struct CliResult {
 CliResult run_cli(const std::string& args) {
   const std::string outfile =
       (std::filesystem::temp_directory_path() / "pnga_cli_stdout.txt").string();
-  const std::string cmd = quote(kCliPath) + " " + args + " > " +
+  const std::string cmd = quote_if_needed(kCliPath) + " " + args + " > " +
                           quote(outfile) + " 2>&1";
   const int rc = std::system(cmd.c_str());
 #ifdef _WIN32
@@ -139,7 +146,8 @@ TEST_CASE("pnga validate --json reports a clean file as valid",
   write_file(path, png_bytes({chunk_bytes("IHDR", 13), chunk_bytes("IEND", 0)}));
 
   const CliResult r = run_cli("validate " + quote(path.string()) + " --json");
-  const std::string expected = std::string("{\"file\":\"") + path.string() +
+  const std::string expected = std::string("{\"file\":\"") +
+                               json_escape(path.string()) +
                                "\",\"size\":45,\"valid\":true,\"issues\":[]}";
   REQUIRE(r.exit_code == 0);
   REQUIRE(r.stdout_text == expected);
