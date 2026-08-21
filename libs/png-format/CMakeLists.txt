@@ -3,6 +3,7 @@
 
 add_library(pnga_png_format
   src/chunk_index.cpp
+  src/virtual_idat_stream.cpp
 )
 add_library(pnga::png_format ALIAS pnga_png_format)
 
