@@ -61,3 +61,16 @@ target_include_directories(pnga_gui_stage_inspector_tests PRIVATE
 target_compile_features(pnga_gui_stage_inspector_tests PRIVATE cxx_std_20)
 
 add_test(NAME gui_stage_inspector_tests COMMAND pnga_gui_stage_inspector_tests)
+
+add_executable(pnga_gui_about_tests
+  about_dialog_test.cpp
+)
+set_target_properties(pnga_gui_about_tests PROPERTIES AUTOMOC ON)
+target_link_libraries(pnga_gui_about_tests PRIVATE
+  pnga::ui_qt
+  pnga::core
+  Qt6::Test
+)
+target_compile_features(pnga_gui_about_tests PRIVATE cxx_std_20)
+
+add_test(NAME gui_about_tests COMMAND pnga_gui_about_tests)

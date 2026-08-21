@@ -3,6 +3,7 @@
 
 #include "main_window.h"
 
+#include <pnga/ui/qt/about_dialog.h>
 #include <pnga/ui/qt/chunk_model.h>
 #include <pnga/ui/qt/delivered_image_view.h>
 #include <pnga/ui/qt/hex_view.h>
@@ -115,8 +116,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
   QMenu* helpMenu = menuBar()->addMenu(QStringLiteral("&Help"));
   helpMenu->addAction(QStringLiteral("About"), this, [this] {
-    QMessageBox::about(this, QStringLiteral("About PNG Analyzer"),
-                       QStringLiteral("PNG Analyzer (WP-104/204)."));
+    pnga::ui::qt::AboutDialog dialog(
+        pnga::ui::qt::default_about_content(), this);
+    dialog.exec();
   });
 
   // Initial empty model so the selection-model connection is valid from the

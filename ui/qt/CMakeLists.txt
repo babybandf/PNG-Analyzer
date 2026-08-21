@@ -7,6 +7,7 @@
 # pnga_analysis_engine + pnga_trace_model + pnga_rendering per layout §7.
 
 add_library(pnga_ui_qt
+  include/pnga/ui/qt/about_dialog.h
   include/pnga/ui/qt/chunk_model.h
   include/pnga/ui/qt/delivered_image_view.h
   include/pnga/ui/qt/hex_view.h
@@ -14,6 +15,7 @@ add_library(pnga_ui_qt
   include/pnga/ui/qt/selection_bus.h
   include/pnga/ui/qt/stage_inspector.h
   include/pnga/ui/qt/stage_inspector_model.h
+  src/about_dialog.cpp
   src/chunk_model.cpp
   src/delivered_image_view.cpp
   src/hex_view.cpp
@@ -34,6 +36,7 @@ target_link_libraries(pnga_ui_qt PUBLIC
   pnga::analysis_engine
   pnga::png_format
   pnga::io
+  pnga::core
   pnga::trace_model
 )
 set_target_properties(pnga_ui_qt PROPERTIES
