@@ -4,6 +4,7 @@
 
 add_library(pnga_trace_model
   src/selection.cpp
+  src/stage_artifact.cpp
 )
 add_library(pnga::trace_model ALIAS pnga_trace_model)
 
