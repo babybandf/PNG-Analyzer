@@ -4,6 +4,7 @@
 add_library(pnga_analysis_engine
   src/artifact_store.cpp
   src/filtered_scanlines.cpp
+  src/job_scheduler.cpp
   src/reference_decode.cpp
   src/stage_analysis.cpp
 )
