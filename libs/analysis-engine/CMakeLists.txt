@@ -5,6 +5,7 @@ add_library(pnga_analysis_engine
   src/artifact_store.cpp
   src/filtered_scanlines.cpp
   src/job_scheduler.cpp
+  src/pixel_provenance.cpp
   src/query_coordinator.cpp
   src/reference_decode.cpp
   src/scanline_anchor.cpp
@@ -22,6 +23,7 @@ target_link_libraries(pnga_analysis_engine PUBLIC
   pnga::png_reconstruction
   pnga::deflate_runtime
   pnga::deflate_index
+  pnga::deflate_trace
   pnga::io
 )
 target_compile_features(pnga_analysis_engine PUBLIC cxx_std_20)

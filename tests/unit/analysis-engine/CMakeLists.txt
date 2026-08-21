@@ -4,6 +4,7 @@ add_executable(pnga_analysis_engine_tests
   artifact_store_test.cpp
   filtered_scanlines_test.cpp
   job_scheduler_test.cpp
+  pixel_provenance_test.cpp
   query_coordinator_test.cpp
   scanline_anchor_test.cpp
   stage_analysis_test.cpp

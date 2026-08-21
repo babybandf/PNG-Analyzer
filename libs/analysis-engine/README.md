@@ -5,6 +5,8 @@ Orchestration rather than codec algorithms (REPOSITORY_LAYOUT.md §5.10, ADR-000
 ## Responsibility
 
 - Fast Index and on-demand Deep Trace task graphs.
+- On-demand pixel/channel provenance queries from native samples to physical
+  IDAT bit spans (WP-504).
 - Worker scheduling, cancellation and generation IDs (later WP).
 - Artifact cache, memory budgets and stale-result suppression.
 - Backend selection and publication of immutable results.

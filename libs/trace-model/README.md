@@ -7,7 +7,7 @@ Backend-neutral analysis data model (REPOSITORY_LAYOUT.md §5.4, ADR-0004).
 - `SemanticNode` and stable `NodeId`.
 - `StageArtifact` and stage identifiers (later WP).
 - `Selection` with spans and image coordinates.
-- `Provenance` and reversible coordinate mapping records (later WP).
+- `ProvenanceSpan` spaces for reversible pixel/stage/file-bit mappings (WP-504).
 - Structured diagnostics and analysis events.
 
 ## Non-goals
