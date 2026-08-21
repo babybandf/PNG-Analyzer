@@ -9,11 +9,15 @@ Large-file random-access facilities over generic byte streams
   block's type, BFINAL and input/output ranges (WP-401).
 - Sparse checkpoints, bit alignment and 32 KiB dictionary snapshots (later WP).
 - Bounded replay from a checkpoint to a requested scanline (later WP).
+- Versioned persistent cache for block indexes and portable access points
+  (WP-405), stored below the OS cache directory and keyed by source identity,
+  analyzer schema, dependency versions and decode options.
 
 ## Non-goals
 
 - Token-level Deflate trace (`libs/deflate-trace`).
 - Qt or libpng dependencies.
+- Process-local `inflateCopy` snapshots; those remain session-only (WP-404).
 
 ## Public targets
 

@@ -5,6 +5,7 @@
 add_library(pnga_deflate_index
   src/access_points.cpp
   src/block_index.cpp
+  src/index_cache.cpp
   src/session_index.cpp
 )
 add_library(pnga::deflate_index ALIAS pnga_deflate_index)
