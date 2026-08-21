@@ -1,15 +1,17 @@
 #ifndef PNGA_DEFLATE_TRACE_TOKEN_DECODER_H
 #define PNGA_DEFLATE_TRACE_TOKEN_DECODER_H
 
-// WP-501/502: token-level Deflate decoder for stored, fixed- and
-// dynamic-huffman blocks (RFC 1951 §3.2). A readable, self-contained decoder
-// emits one event per literal byte and per length-distance match, with exact
-// input bit ranges and output byte ranges. The reconstructed output lets
-// callers compare byte-for-byte with zlib.
+// WP-501/502/503: token-level Deflate decoder for stored, fixed- and
+// dynamic-huffman blocks (RFC 1951 §3.2), with a bounded LZ window and
+// output/source interval provenance. A readable, self-contained decoder emits
+// one event per literal byte and per length-distance match, with exact input
+// bit ranges and output byte ranges. The reconstructed output lets callers
+// compare byte-for-byte with zlib.
 
 #include <pnga/io/byte_source.h>
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -35,6 +37,37 @@ struct HuffmanTableTrace {
   std::vector<HuffmanTableEntry> entries;
 };
 
+// An inflated output interval and the token that produced it. Intervals are
+// half-open and non-empty in TokenOutputIntervalIndex. A match source uses
+// the same type, so callers can follow a copied byte back to an earlier
+// token's output without knowing about the decoder's ring-buffer layout.
+struct TokenOutputRange {
+  std::uint64_t begin = 0;
+  std::uint64_t end = 0;
+  std::uint64_t token_index = 0;
+
+  bool operator==(const TokenOutputRange&) const = default;
+};
+
+// Sorted interval index for token output coverage. Deep Trace callers use it
+// to map an inflated byte/range to the token(s) that produced it. The index
+// owns only compact ranges, not another copy of the inflated output.
+class TokenOutputIntervalIndex {
+ public:
+  void add(TokenOutputRange range);
+
+  const std::vector<TokenOutputRange>& ranges() const noexcept {
+    return ranges_;
+  }
+
+  std::optional<TokenOutputRange> containing(std::uint64_t offset) const;
+  std::vector<TokenOutputRange> overlapping(std::uint64_t begin,
+                                            std::uint64_t end) const;
+
+ private:
+  std::vector<TokenOutputRange> ranges_;
+};
+
 // One decoded token. Bit offsets are relative to the start of the Deflate
 // data (i.e. just after the zlib wrapper); output ranges are inflated bytes.
 struct TokenEvent {
@@ -49,6 +82,11 @@ struct TokenEvent {
   std::uint16_t distance = 0;
   std::uint64_t match_source_begin = 0;  // copied output range [begin, end)
   std::uint64_t match_source_end = 0;
+  // Root output intervals for the bytes copied by this match. Overlap copies
+  // are resolved through the 32 KiB window, so every range points to an
+  // earlier token even when the immediate source address is in this token's
+  // own output range.
+  std::vector<TokenOutputRange> match_source_ranges;
 };
 
 struct TokenDecodeResult {
@@ -56,6 +94,7 @@ struct TokenDecodeResult {
   std::string error;  // stable message on failure
   std::vector<TokenEvent> tokens;
   std::vector<HuffmanTableTrace> huffman_tables;
+  TokenOutputIntervalIndex output_index;
   std::vector<std::byte> output;  // reconstructed (for zlib comparison)
   bool stream_ended = false;
   std::uint64_t output_bytes = 0;

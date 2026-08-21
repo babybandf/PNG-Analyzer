@@ -6,8 +6,9 @@ Deep Deflate trace facilities (REPOSITORY_LAYOUT.md §5.7, ADR-0006).
 
 - Transparent zlib wrapper trace: CMF/FLG/FCHECK/FDICT/FLEVEL/DICTID and the
   trailing Adler-32, each as a trace-model field node with a bit span (WP-500).
-- Stored/fixed/dynamic block token traces (later WP).
-- LZ window and token output ranges (later WP).
+- Stored/fixed/dynamic block token traces (WP-501/502).
+- Fixed 32 KiB LZ window, overlap-safe match provenance and token output
+  interval queries (WP-503).
 
 ## Non-goals
 

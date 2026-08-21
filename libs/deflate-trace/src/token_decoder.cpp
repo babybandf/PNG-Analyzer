@@ -1,7 +1,7 @@
-// WP-501 token decoder implementation. Reads the Deflate stream bit by bit
-// (LSB-first, bounds-checked), decodes stored and fixed-huffman blocks and
-// emits one event per literal byte and per length-distance match. Dynamic
-// blocks are deferred to WP-502. Reconstructed output is for zlib comparison.
+// WP-501/502/503 token decoder implementation. Reads the Deflate stream bit
+// by bit (LSB-first, bounds-checked), decodes stored/fixed/dynamic-huffman
+// blocks and emits token, output-range and LZ-source provenance events.
+// Reconstructed output is for zlib comparison.
 
 #include "pnga/deflate-trace/token_decoder.h"
 
@@ -12,13 +12,144 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <iterator>
+#include <limits>
+#include <vector>
 #include <utility>
 
 namespace pnga::deflate_trace {
 
+void TokenOutputIntervalIndex::add(TokenOutputRange range) {
+  if (range.begin >= range.end) {
+    return;
+  }
+  if (ranges_.empty() || ranges_.back().begin <= range.begin) {
+    ranges_.push_back(range);
+    return;
+  }
+  const auto it = std::lower_bound(
+      ranges_.begin(), ranges_.end(), range.begin,
+      [](const TokenOutputRange& current, std::uint64_t begin) {
+        return current.begin < begin;
+      });
+  ranges_.insert(it, range);
+}
+
+std::optional<TokenOutputRange> TokenOutputIntervalIndex::containing(
+    std::uint64_t offset) const {
+  const auto it = std::upper_bound(
+      ranges_.begin(), ranges_.end(), offset,
+      [](std::uint64_t value, const TokenOutputRange& range) {
+        return value < range.begin;
+      });
+  if (it == ranges_.begin()) {
+    return std::nullopt;
+  }
+  const auto& candidate = *std::prev(it);
+  if (offset < candidate.end) {
+    return candidate;
+  }
+  return std::nullopt;
+}
+
+std::vector<TokenOutputRange> TokenOutputIntervalIndex::overlapping(
+    std::uint64_t begin, std::uint64_t end) const {
+  std::vector<TokenOutputRange> result;
+  if (begin >= end) {
+    return result;
+  }
+  const auto it = std::lower_bound(
+      ranges_.begin(), ranges_.end(), begin,
+      [](const TokenOutputRange& range, std::uint64_t value) {
+        return range.end <= value;
+      });
+  for (auto current = it; current != ranges_.end() && current->begin < end;
+       ++current) {
+    result.push_back(*current);
+  }
+  return result;
+}
+
 namespace {
 
 constexpr std::size_t kMaxTraceInput = 1u << 26;  // 64 MiB
+constexpr std::uint64_t kLzWindowSize = 32768;
+
+bool checked_add(std::uint64_t left, std::uint64_t right,
+                 std::uint64_t* result) {
+  if (right > std::numeric_limits<std::uint64_t>::max() - left) {
+    return false;
+  }
+  *result = left + right;
+  return true;
+}
+
+struct WindowOrigin {
+  std::uint64_t begin = 0;
+  std::uint64_t end = 0;
+  std::uint64_t token_index = 0;
+};
+
+struct WindowEntry {
+  std::byte value{0};
+  WindowOrigin origin;
+};
+
+// A fixed-size ring indexed by absolute inflated output offset. Keeping the
+// origin beside each byte is what makes overlap copies traceable: after the
+// first distance bytes, a source lookup may hit bytes written by the current
+// match, but those bytes already carry the earlier token's root origin.
+class LzWindow {
+ public:
+  LzWindow() : entries_(static_cast<std::size_t>(kLzWindowSize)) {}
+
+  bool read(std::uint64_t output_offset, WindowEntry* entry) const noexcept {
+    if (output_offset >= total_output_ ||
+        total_output_ - output_offset > kLzWindowSize) {
+      return false;
+    }
+    *entry = entries_[static_cast<std::size_t>(output_offset % kLzWindowSize)];
+    return true;
+  }
+
+  bool append(std::byte value, WindowOrigin origin) noexcept {
+    if (total_output_ == std::numeric_limits<std::uint64_t>::max()) {
+      return false;
+    }
+    entries_[static_cast<std::size_t>(total_output_ % kLzWindowSize)] =
+        WindowEntry{value, origin};
+    ++total_output_;
+    return true;
+  }
+
+  std::uint64_t total_output() const noexcept { return total_output_; }
+
+ private:
+  // Keep the roughly 1 MiB window off the decoder stack. The capacity is
+  // fixed by Deflate, but its storage is still owned by this short-lived
+  // deep-trace operation.
+  std::vector<WindowEntry> entries_;
+  std::uint64_t total_output_ = 0;
+};
+
+void append_source_range(std::vector<TokenOutputRange>* ranges,
+                         const WindowOrigin& origin) {
+  if (origin.begin >= origin.end) {
+    return;
+  }
+  if (!ranges->empty() && ranges->back().token_index == origin.token_index) {
+    if (ranges->back().end == origin.begin) {
+      ranges->back().end = origin.end;
+      return;
+    }
+    if (ranges->back().begin == origin.begin &&
+        ranges->back().end == origin.end) {
+      return;
+    }
+  }
+  ranges->push_back(
+      TokenOutputRange{origin.begin, origin.end, origin.token_index});
+}
 
 // LSB-first bit reader over a borrowed byte buffer.
 class BitReader {
@@ -444,6 +575,7 @@ TokenDecodeResult decode_stored_and_fixed(const pnga::io::IByteSource& source,
   out.deflate_data_begin = start_byte;
   BitReader reader(data.data() + start_byte,
                    (*wrapper.adler_offset - start_byte) * 8);
+  LzWindow window;
 
   bool done = false;
   while (!done) {
@@ -478,11 +610,25 @@ TokenDecodeResult decode_stored_and_fixed(const pnga::io::IByteSource& source,
         token.input_bit_begin = begin;
         token.input_bit_end = reader.pos();
         token.output_begin = out.output_bytes;
-        token.output_end = out.output_bytes + 1;
+        if (!checked_add(token.output_begin, 1, &token.output_end)) {
+          out.error = "output range overflow";
+          return out;
+        }
         token.literal = static_cast<std::uint8_t>(b);
+        const std::uint64_t output_end = token.output_end;
+        const std::uint64_t token_index = out.tokens.size();
         out.tokens.push_back(std::move(token));
+        out.output_index.add(
+            TokenOutputRange{out.output_bytes, output_end,
+                             token_index});
         out.output.push_back(b);
-        ++out.output_bytes;
+        if (!window.append(b, WindowOrigin{out.output_bytes,
+                                           out.output_bytes + 1,
+                                           token_index})) {
+          out.error = "LZ window output overflow";
+          return out;
+        }
+        out.output_bytes = token.output_end;
         if (out.output_bytes > max_output_bytes) {
           out.error = "output cap exceeded";
           return out;
@@ -525,11 +671,26 @@ TokenDecodeResult decode_stored_and_fixed(const pnga::io::IByteSource& source,
           token.input_bit_begin = begin;
           token.input_bit_end = reader.pos();
           token.output_begin = out.output_bytes;
-          token.output_end = out.output_bytes + 1;
+          if (!checked_add(token.output_begin, 1, &token.output_end)) {
+            out.error = "output range overflow";
+            return out;
+          }
           token.literal = static_cast<std::uint8_t>(symbol);
+          const std::uint64_t output_end = token.output_end;
+          const std::uint64_t token_index = out.tokens.size();
           out.tokens.push_back(std::move(token));
-          out.output.push_back(static_cast<std::byte>(symbol));
-          ++out.output_bytes;
+          const std::byte value = static_cast<std::byte>(symbol);
+          out.output_index.add(
+              TokenOutputRange{out.output_bytes, output_end,
+                               token_index});
+          out.output.push_back(value);
+          if (!window.append(value, WindowOrigin{out.output_bytes,
+                                                 out.output_bytes + 1,
+                                                 token_index})) {
+            out.error = "LZ window output overflow";
+            return out;
+          }
+          out.output_bytes = token.output_end;
           if (out.output_bytes > max_output_bytes) {
             out.error = "output cap exceeded";
             return out;
@@ -587,23 +748,58 @@ TokenDecodeResult decode_stored_and_fixed(const pnga::io::IByteSource& source,
             return out;
           }
           const std::uint64_t src = out.output_bytes - distance;
+          std::uint64_t source_end = 0;
+          if (!checked_add(src, std::min<std::uint64_t>(length, distance),
+                          &source_end)) {
+            out.error = "match source range overflow";
+            return out;
+          }
+          std::uint64_t output_end = 0;
+          if (!checked_add(out.output_bytes, length, &output_end)) {
+            out.error = "output range overflow";
+            return out;
+          }
           TokenEvent token;
           token.kind = TokenKind::kLengthDistance;
           token.input_bit_begin = begin;
           token.input_bit_end = reader.pos();
           token.output_begin = out.output_bytes;
-          token.output_end = out.output_bytes + length;
+          token.output_end = output_end;
           token.length = static_cast<std::uint16_t>(length);
           token.distance = static_cast<std::uint16_t>(distance);
           token.match_source_begin = src;
-          token.match_source_end =
-              src + std::min<std::uint64_t>(length, distance);
+          token.match_source_end = source_end;
+          const std::uint64_t token_index = out.tokens.size();
           out.tokens.push_back(std::move(token));
-          // Overlap-safe byte copy from the already-decoded window.
+          out.output_index.add(
+              TokenOutputRange{out.output_bytes, output_end, token_index});
+
+          // Overlap-safe byte copy from the fixed 32 KiB window. Looking up
+          // by the current output cursor, rather than indexing the original
+          // output vector, makes the ring-buffer wrap and overlap semantics
+          // explicit and keeps source provenance attached to each byte.
+          std::uint64_t cursor = out.output_bytes;
           for (std::uint64_t i = 0; i < length; ++i) {
-            out.output.push_back(out.output[src + i]);
+            if (distance > cursor) {
+              out.error = "distance beyond available window";
+              return out;
+            }
+            const std::uint64_t source_offset = cursor - distance;
+            WindowEntry source_entry;
+            if (!window.read(source_offset, &source_entry)) {
+              out.error = "distance beyond available window";
+              return out;
+            }
+            append_source_range(&out.tokens[token_index].match_source_ranges,
+                                source_entry.origin);
+            out.output.push_back(source_entry.value);
+            if (!window.append(source_entry.value, source_entry.origin)) {
+              out.error = "LZ window output overflow";
+              return out;
+            }
+            ++cursor;
           }
-          out.output_bytes += length;
+          out.output_bytes = output_end;
         } else {
           out.error = "invalid literal/length symbol";
           return out;

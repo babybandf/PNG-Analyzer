@@ -1,7 +1,8 @@
-// WP-501 token decoder tests: stored and fixed-huffman blocks decode into
-// literal/length-distance/EOB tokens whose reconstructed output matches the
-// source byte-for-byte and is cross-checked with zlib. Dynamic table failures
-// and truncated input are rejected.
+// WP-501/502/503 token decoder tests: stored, fixed- and dynamic-huffman
+// blocks decode into literal/length-distance/EOB tokens whose reconstructed
+// output matches the source byte-for-byte and is cross-checked with zlib.
+// Dynamic table failures, truncated input and LZ source/output boundaries are
+// rejected or traced deterministically.
 
 #include <pnga/deflate-trace/token_decoder.h>
 #include <pnga/deflate-runtime/inflate.h>
@@ -21,6 +22,7 @@ using pnga::deflate_runtime::inflate_stream;
 using pnga::deflate_trace::decode_stored_and_fixed;
 using pnga::deflate_trace::TokenDecodeResult;
 using pnga::deflate_trace::TokenKind;
+using pnga::io::IByteSource;
 using pnga::io::MemoryByteSource;
 
 namespace {
@@ -93,6 +95,63 @@ class BitWriter {
  private:
   std::vector<std::byte> bytes_;
   std::size_t bit_pos_ = 0;
+};
+
+// Models IDAT payloads split at arbitrary byte boundaries. The decoder only
+// sees the generic IByteSource contract, while read() exercises a logical
+// range that crosses several backing segments.
+class SegmentedByteSource final : public IByteSource {
+ public:
+  explicit SegmentedByteSource(std::vector<std::byte> data,
+                               std::size_t segment_size) {
+    for (std::size_t begin = 0; begin < data.size(); begin += segment_size) {
+      const std::size_t end = std::min(data.size(), begin + segment_size);
+      segments_.emplace_back(data.begin() + begin, data.begin() + end);
+      total_size_ += end - begin;
+    }
+  }
+
+  std::uint64_t size() const noexcept override { return total_size_; }
+
+  bool read(std::uint64_t offset, std::byte* out,
+            std::size_t length) const noexcept override {
+    if (out == nullptr && length != 0) {
+      return false;
+    }
+    if (offset > total_size_ ||
+        static_cast<std::uint64_t>(length) > total_size_ - offset) {
+      return false;
+    }
+    std::uint64_t cursor = offset;
+    std::size_t written = 0;
+    for (const auto& segment : segments_) {
+      if (cursor >= segment.size()) {
+        cursor -= segment.size();
+        continue;
+      }
+      const std::size_t available = segment.size() -
+                                    static_cast<std::size_t>(cursor);
+      const std::size_t count = std::min(available, length - written);
+      std::copy_n(segment.data() + cursor, count, out + written);
+      written += count;
+      cursor = 0;
+      if (written == length) {
+        return true;
+      }
+    }
+    return written == length;
+  }
+
+  std::optional<pnga::io::ByteView> view(
+      std::uint64_t, std::size_t) const noexcept override {
+    // A logical IDAT range may span segments, so this source intentionally
+    // exposes only the checked read() path.
+    return std::nullopt;
+  }
+
+ private:
+  std::vector<std::vector<std::byte>> segments_;
+  std::uint64_t total_size_ = 0;
 };
 
 BitWriter dynamic_header(const std::array<unsigned, 4>& code_lengths) {
@@ -242,6 +301,69 @@ TEST_CASE("Repeated data yields maximum-length distance matches",
   }
   REQUIRE(saw_max_length);  // deflate emits the maximum 258-byte matches
   REQUIRE(saw_overlap);
+}
+
+TEST_CASE("Output intervals and overlap sources remain traceable",
+          "[deflate-trace][wp503]") {
+  const auto raw = std::vector<std::byte>(200 * 1024, B(0x41));
+  const auto stream = zlib_compress(raw, 6, Z_FIXED);
+  MemoryByteSource source(stream);
+  const auto result = decode_stored_and_fixed(source, 1u << 20);
+  require_output_matches(result, raw);
+
+  const auto output_token_count = static_cast<std::size_t>(std::count_if(
+      result.tokens.begin(), result.tokens.end(), [](const auto& token) {
+        return token.output_begin < token.output_end;
+      }));
+  REQUIRE(result.output_index.ranges().size() == output_token_count);
+  for (const auto& range : result.output_index.ranges()) {
+    REQUIRE(range.begin < range.end);
+    REQUIRE(result.output_index.containing(range.begin).has_value());
+    const auto containing = result.output_index.containing(range.begin);
+    REQUIRE(containing->token_index == range.token_index);
+    const auto overlaps = result.output_index.overlapping(range.begin,
+                                                           range.end);
+    REQUIRE(std::find(overlaps.begin(), overlaps.end(), range) !=
+            overlaps.end());
+  }
+
+  bool saw_wrapped_match = false;
+  for (std::size_t i = 0; i < result.tokens.size(); ++i) {
+    const auto& token = result.tokens[i];
+    if (token.kind != TokenKind::kLengthDistance) {
+      continue;
+    }
+    if (token.output_begin >= 32768) {
+      saw_wrapped_match = true;
+    }
+    REQUIRE_FALSE(token.match_source_ranges.empty());
+    for (const auto& source_range : token.match_source_ranges) {
+      REQUIRE(source_range.begin < source_range.end);
+      REQUIRE(source_range.end <= token.output_begin);
+      REQUIRE(source_range.token_index < i);
+      REQUIRE(result.output_index.containing(source_range.begin).has_value());
+    }
+  }
+  REQUIRE(saw_wrapped_match);
+}
+
+TEST_CASE("LZ provenance survives arbitrary IDAT-like source splits",
+          "[deflate-trace][wp503]") {
+  const auto raw = make_raw(96 * 1024, 0x27);
+  const auto stream = zlib_compress(raw, 6, Z_FIXED);
+  SegmentedByteSource source(stream, 5);
+  const auto result = decode_stored_and_fixed(source, 1u << 20);
+  require_output_matches(result, raw);
+
+  bool saw_match_after_a_segment_boundary = false;
+  for (const auto& token : result.tokens) {
+    if (token.kind == TokenKind::kLengthDistance &&
+        token.output_begin > 32768 && !token.match_source_ranges.empty()) {
+      saw_match_after_a_segment_boundary = true;
+      break;
+    }
+  }
+  REQUIRE(saw_match_after_a_segment_boundary);
 }
 
 TEST_CASE("Dynamic huffman blocks decode with table provenance",
