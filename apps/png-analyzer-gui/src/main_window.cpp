@@ -6,6 +6,7 @@
 #include <pnga/ui/qt/chunk_model.h>
 #include <pnga/ui/qt/delivered_image_view.h>
 #include <pnga/ui/qt/hex_view.h>
+#include <pnga/ui/qt/selection_bus.h>
 
 #include <QAbstractItemView>
 #include <QAction>
@@ -73,6 +74,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   tree_->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
   chunks->setWidget(tree_);
   addDockWidget(Qt::LeftDockWidgetArea, chunks);
+
+  bus_ = new pnga::ui::qt::SelectionBus(this);
 
   image_view_ = new pnga::ui::qt::DeliveredImageView(this);
   auto* imageDock = new QDockWidget(QStringLiteral("Delivered Image"), this);
@@ -156,6 +159,7 @@ void MainWindow::resetDocument() {
 
 void MainWindow::startDecode() {
   ++generation_;
+  bus_->setDocumentGeneration(generation_);
   if (decode_worker_ != nullptr) {
     // A previous decode may still be running; its result will be ignored
     // because its generation is stale. Drop the reference now.
@@ -212,6 +216,16 @@ void MainWindow::onChunkSelectionChanged(const QModelIndex& current,
 
   hex_->verticalScrollBar()->setValue(
       static_cast<int>(node.header_offset / 16));
+
+  // Publish the canonical selection through the bus (single controller).
+  pnga::trace_model::Selection sel;
+  sel.node = static_cast<pnga::trace_model::NodeId>(current.row());
+  sel.physical_spans = {
+      pnga::trace_model::BitSpan{node.header_offset, kHeaderSpanLength},
+      pnga::trace_model::BitSpan{node.data_offset, node.data_length},
+      pnga::trace_model::BitSpan{node.crc_offset, kCrcSpanLength}};
+  sel.stage = pnga::trace_model::Stage::kChunk;
+  bus_->publish(kChunkPanelOrigin, generation_, sel);
 }
 
 void MainWindow::onPixelSelected(int x, int y) {
@@ -221,6 +235,7 @@ void MainWindow::onPixelSelected(int x, int y) {
                                                  static_cast<std::uint64_t>(y),
                                                  0};
   sel.stage = pnga::trace_model::Stage::kDelivered;
+  bus_->publish(kImagePanelOrigin, generation_, sel);
   const auto rgba = image_view_->rgbaAt(x, y);
   if (rgba.has_value()) {
     pixel_label_->setText(

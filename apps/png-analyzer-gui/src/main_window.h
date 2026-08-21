@@ -26,7 +26,14 @@ namespace pnga::ui::qt {
 class ChunkModel;
 class DeliveredImageView;
 class HexView;
+class SelectionBus;
 }  // namespace pnga::ui::qt
+
+namespace {
+constexpr int kChunkPanelOrigin = 1;
+constexpr int kImagePanelOrigin = 2;
+constexpr int kHexPanelOrigin = 3;
+}  // namespace
 
 // Decodes a shared source on a worker thread. Owns its own source copy so a
 // newly opened file cannot invalidate an in-flight decode.
@@ -77,6 +84,7 @@ class MainWindow final : public QMainWindow {
   pnga::ui::qt::ChunkModel* model_ = nullptr;
   pnga::ui::qt::HexView* hex_ = nullptr;
   pnga::ui::qt::DeliveredImageView* image_view_ = nullptr;
+  pnga::ui::qt::SelectionBus* bus_ = nullptr;
   QTreeView* tree_ = nullptr;
   DecodeWorker* decode_worker_ = nullptr;
   std::uint64_t generation_ = 0;

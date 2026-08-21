@@ -28,3 +28,16 @@ target_link_libraries(pnga_gui_image_transform_tests PRIVATE
 target_compile_features(pnga_gui_image_transform_tests PRIVATE cxx_std_20)
 
 add_test(NAME gui_image_transform_tests COMMAND pnga_gui_image_transform_tests)
+
+add_executable(pnga_gui_selection_bus_tests
+  selection_bus_test.cpp
+)
+set_target_properties(pnga_gui_selection_bus_tests PROPERTIES AUTOMOC ON)
+target_link_libraries(pnga_gui_selection_bus_tests PRIVATE
+  pnga::ui_qt
+  pnga::trace_model
+  Qt6::Test
+)
+target_compile_features(pnga_gui_selection_bus_tests PRIVATE cxx_std_20)
+
+add_test(NAME gui_selection_bus_tests COMMAND pnga_gui_selection_bus_tests)

@@ -11,10 +11,12 @@ add_library(pnga_ui_qt
   include/pnga/ui/qt/delivered_image_view.h
   include/pnga/ui/qt/hex_view.h
   include/pnga/ui/qt/image_transform.h
+  include/pnga/ui/qt/selection_bus.h
   src/chunk_model.cpp
   src/delivered_image_view.cpp
   src/hex_view.cpp
   src/image_transform.cpp
+  src/selection_bus.cpp
 )
 add_library(pnga::ui_qt ALIAS pnga_ui_qt)
 
@@ -27,6 +29,7 @@ target_link_libraries(pnga_ui_qt PUBLIC
   Qt6::Widgets
   pnga::png_format
   pnga::io
+  pnga::trace_model
 )
 set_target_properties(pnga_ui_qt PROPERTIES
   AUTOMOC ON
