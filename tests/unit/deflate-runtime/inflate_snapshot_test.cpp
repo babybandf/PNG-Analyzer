@@ -127,10 +127,17 @@ TEST_CASE("InflateSnapshot is move-only and reports size",
   REQUIRE(moved.output_offset() == 4096);
   REQUIRE(snap->approx_bytes() == 0);  // moved-from no longer owns state
 
+  // Move assignment also releases any prior destination state without
+  // leaking the copied z_stream.
+  InflateSnapshot assigned;
+  assigned = std::move(moved);
+  REQUIRE(assigned.output_offset() == 4096);
+  REQUIRE(moved.approx_bytes() == 0);
+
   // Restoring from the moved-to snapshot works; from the moved-from fails.
   z_stream resume{};
   REQUIRE(inflateInit(&resume) == Z_OK);
-  REQUIRE(moved.restore(resume));
+  REQUIRE(assigned.restore(resume));
   inflateEnd(&resume);
   z_stream dead{};
   REQUIRE(inflateInit(&dead) == Z_OK);

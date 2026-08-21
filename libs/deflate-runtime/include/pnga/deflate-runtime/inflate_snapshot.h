@@ -22,7 +22,7 @@ namespace pnga::deflate_runtime {
 // own copy of the state (including the 32 KiB window).
 class InflateSnapshot {
  public:
-  InflateSnapshot() = default;
+  InflateSnapshot();
   ~InflateSnapshot();
 
   InflateSnapshot(const InflateSnapshot&) = delete;
@@ -36,9 +36,10 @@ class InflateSnapshot {
   static std::optional<InflateSnapshot> capture(z_stream& stream,
                                                 std::uint64_t output_offset);
 
-  // Copies this snapshot's state into `dst` (which must be inflate-initialized)
-  // via inflateCopy; `dst` can then continue inflating as if it had been the
-  // captured stream. Returns false on failure.
+  // Copies this snapshot's state into `dst` via inflateCopy; `dst` may be
+  // zero-initialized or already inflate-initialized. An existing destination
+  // state is released before the copy. `dst` can then continue inflating as if
+  // it had been the captured stream. Returns false on failure.
   bool restore(z_stream& dst) const;
 
   std::uint64_t output_offset() const noexcept { return output_offset_; }

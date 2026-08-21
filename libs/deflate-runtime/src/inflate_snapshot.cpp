@@ -13,13 +13,17 @@ constexpr std::size_t kApproxSnapshotBytes = 48 * 1024;
 
 struct InflateSnapshot::Impl {
   z_stream stream{};
+
+  ~Impl() {
+    if (stream.state != nullptr) {
+      inflateEnd(&stream);
+    }
+  }
 };
 
-InflateSnapshot::~InflateSnapshot() {
-  if (impl_ != nullptr) {
-    inflateEnd(&impl_->stream);  // release the copied stream's window/tables
-  }
-}
+InflateSnapshot::InflateSnapshot() = default;
+
+InflateSnapshot::~InflateSnapshot() = default;
 
 InflateSnapshot::InflateSnapshot(InflateSnapshot&& other) noexcept
     : impl_(std::move(other.impl_)), output_offset_(other.output_offset_) {
@@ -49,6 +53,13 @@ std::optional<InflateSnapshot> InflateSnapshot::capture(z_stream& stream,
 bool InflateSnapshot::restore(z_stream& dst) const {
   if (impl_ == nullptr) {
     return false;
+  }
+  // inflateCopy does not release an already initialized destination. Release
+  // it first, then copy directly into `dst`: zlib stores a back-pointer to the
+  // destination z_stream in the copied internal state, so a shallow assignment
+  // from a temporary z_stream would leave that pointer dangling.
+  if (dst.state != nullptr) {
+    inflateEnd(&dst);
   }
   return inflateCopy(&dst, &impl_->stream) == Z_OK;
 }
