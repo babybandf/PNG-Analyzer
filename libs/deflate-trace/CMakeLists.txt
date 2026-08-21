@@ -5,6 +5,7 @@
 # with standard zlib (layout §7 dependency table).
 
 add_library(pnga_deflate_trace
+  src/token_decoder.cpp
   src/zlib_wrapper.cpp
 )
 add_library(pnga::deflate_trace ALIAS pnga_deflate_trace)

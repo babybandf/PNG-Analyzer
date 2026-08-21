@@ -2,6 +2,7 @@
 # the WP-500 cross-validation of the zlib wrapper against standard zlib.
 
 add_executable(pnga_deflate_trace_tests
+  token_decoder_test.cpp
   zlib_wrapper_test.cpp
 )
 target_link_libraries(pnga_deflate_trace_tests PRIVATE
