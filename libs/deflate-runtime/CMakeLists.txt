@@ -4,6 +4,7 @@
 
 add_library(pnga_deflate_runtime
   src/inflate.cpp
+  src/inflate_snapshot.cpp
 )
 add_library(pnga::deflate_runtime ALIAS pnga_deflate_runtime)
 

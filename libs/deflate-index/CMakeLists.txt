@@ -5,6 +5,7 @@
 add_library(pnga_deflate_index
   src/access_points.cpp
   src/block_index.cpp
+  src/session_index.cpp
 )
 add_library(pnga::deflate_index ALIAS pnga_deflate_index)
 
@@ -14,6 +15,7 @@ target_include_directories(pnga_deflate_index PUBLIC
 target_link_libraries(pnga_deflate_index PUBLIC
   pnga::core
   pnga::io
+  pnga::deflate_runtime
   ZLIB::ZLIB
 )
 target_compile_features(pnga_deflate_index PUBLIC cxx_std_20)

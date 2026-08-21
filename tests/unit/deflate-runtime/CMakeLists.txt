@@ -1,6 +1,7 @@
 # Unit tests for libs/deflate-runtime. Catch2 is test-only (layout §8.4).
 
 add_executable(pnga_deflate_runtime_tests
+  inflate_snapshot_test.cpp
   inflate_test.cpp
 )
 target_link_libraries(pnga_deflate_runtime_tests PRIVATE

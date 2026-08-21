@@ -3,6 +3,7 @@
 add_executable(pnga_deflate_index_tests
   access_points_test.cpp
   block_index_test.cpp
+  session_index_test.cpp
 )
 target_link_libraries(pnga_deflate_index_tests PRIVATE
   pnga::deflate_index
