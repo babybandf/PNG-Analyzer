@@ -1,7 +1,7 @@
 // WP-200 Selection model tests: equality, merge idempotence, multiple spans,
 // invalid coordinates, deterministic serialization round-trip and dedup.
 
-#include <pnga/trace_model/selection.h>
+#include <pnga/trace-model/selection.h>
 
 #include <catch2/catch_test_macros.hpp>
 

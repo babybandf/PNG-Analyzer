@@ -3,7 +3,7 @@
 //   node:3;physical:8,4;logical:0,100;image:0,1,2,3,4,0;stage:filtered
 // Every value is decimal; parsing is strict (no locale, no order dependence).
 
-#include "pnga/trace_model/selection.h"
+#include "pnga/trace-model/selection.h"
 
 #include <charconv>
 #include <cstdint>

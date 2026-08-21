@@ -71,6 +71,19 @@ void write_file(const std::filesystem::path& path,
 
 std::string quote(const std::string& s) { return "\"" + s + "\""; }
 
+// Mirrors the CLI's JSON escaping so expected strings stay exact on every
+// platform (Windows temp paths contain backslashes that JSON must escape).
+std::string json_escape(const std::string& s) {
+  std::string out;
+  for (char c : s) {
+    if (c == '"' || c == '\\') {
+      out.push_back('\\');
+    }
+    out.push_back(c);
+  }
+  return out;
+}
+
 struct CliResult {
   int exit_code;
   std::string stdout_text;
@@ -107,7 +120,7 @@ TEST_CASE("pnga inspect --json emits a deterministic chunk tree",
 
   const CliResult r = run_cli("inspect " + quote(path.string()) + " --json");
   const std::string expected =
-      std::string("{\"file\":\"") + path.string() +
+      std::string("{\"file\":\"") + json_escape(path.string()) +
       "\",\"size\":65,\"signature_valid\":true,\"chunks\":["
       "{\"type\":\"IHDR\",\"header_offset\":8,\"data_offset\":16,"
       "\"data_length\":13,\"crc_offset\":29},"
@@ -141,7 +154,7 @@ TEST_CASE("pnga validate --json reports trailing bytes after IEND",
 
   const CliResult r = run_cli("validate " + quote(path.string()) + " --json");
   const std::string expected =
-      std::string("{\"file\":\"") + path.string() +
+      std::string("{\"file\":\"") + json_escape(path.string()) +
       "\",\"size\":48,\"valid\":false,"
       "\"issues\":[{\"kind\":\"trailing_bytes_after_iend\",\"offset\":45}]}";
   REQUIRE(r.exit_code == 3);  // validation issue
@@ -159,7 +172,7 @@ TEST_CASE("pnga inspect --json reports a truncated header as format error",
 
   const CliResult r = run_cli("inspect " + quote(path.string()) + " --json");
   const std::string expected =
-      std::string("{\"file\":\"") + path.string() +
+      std::string("{\"file\":\"") + json_escape(path.string()) +
       "\",\"size\":11,\"signature_valid\":true,\"chunks\":[],"
       "\"issues\":[{\"kind\":\"truncated_header\",\"offset\":8}]}";
   REQUIRE(r.exit_code == 2);  // format error
@@ -172,7 +185,7 @@ TEST_CASE("pnga inspect --json reports a missing file with exit code 1",
   const CliResult r = run_cli("inspect " + quote(path.string()) + " --json");
   REQUIRE(r.exit_code == 1);
   REQUIRE(r.stdout_text.find("\"error\":true") != std::string::npos);
-  REQUIRE(r.stdout_text.find("{\"file\":\"" + path.string()) == 0);
+  REQUIRE(r.stdout_text.find("{\"file\":\"" + json_escape(path.string())) == 0);
 }
 
 TEST_CASE("pnga rejects an unknown command with the format-error exit code",
