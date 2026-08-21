@@ -5,6 +5,7 @@ add_library(pnga_analysis_engine
   src/artifact_store.cpp
   src/filtered_scanlines.cpp
   src/reference_decode.cpp
+  src/stage_analysis.cpp
 )
 add_library(pnga::analysis_engine ALIAS pnga_analysis_engine)
 

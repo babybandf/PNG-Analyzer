@@ -3,6 +3,7 @@
 add_executable(pnga_analysis_engine_tests
   artifact_store_test.cpp
   filtered_scanlines_test.cpp
+  stage_analysis_test.cpp
 )
 target_link_libraries(pnga_analysis_engine_tests PRIVATE
   pnga::analysis_engine
@@ -10,8 +11,12 @@ target_link_libraries(pnga_analysis_engine_tests PRIVATE
   pnga::png_format
   pnga::png_reconstruction
   pnga::io
+  PNG::PNG
   ZLIB::ZLIB
   Catch2::Catch2WithMain
+)
+target_include_directories(pnga_analysis_engine_tests PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../common
 )
 target_compile_features(pnga_analysis_engine_tests PRIVATE cxx_std_20)
 

@@ -20,6 +20,7 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <vector>
@@ -273,7 +274,12 @@ inline std::vector<std::byte> build_png_file(
       compress2(reinterpret_cast<Bytef*>(comp.data()), &used,
                 reinterpret_cast<const Bytef*>(filtered.data()),
                 static_cast<uLong>(filtered.size()), Z_DEFAULT_COMPRESSION);
-  REQUIRE(rc == Z_OK);  // compressBound guarantees capacity
+  if (rc != Z_OK) {
+    // compressBound guarantees capacity, so this is a programming error that
+    // must not silently produce a corrupt fixture. Keep the helper free of any
+    // test-framework dependency so QTest and Catch2 binaries can both include it.
+    throw std::runtime_error("test encoder: compress2 failed");
+  }
   comp.resize(static_cast<std::size_t>(used));
   push_chunk("IDAT", comp);
   push_chunk("IEND", {});

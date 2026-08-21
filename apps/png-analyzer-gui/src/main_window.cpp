@@ -7,6 +7,7 @@
 #include <pnga/ui/qt/delivered_image_view.h>
 #include <pnga/ui/qt/hex_view.h>
 #include <pnga/ui/qt/selection_bus.h>
+#include <pnga/ui/qt/stage_inspector.h>
 
 #include <QAbstractItemView>
 #include <QAction>
@@ -56,6 +57,21 @@ void DecodeWorker::run() {
 }
 
 // ---------------------------------------------------------------------------
+// StageWorker
+// ---------------------------------------------------------------------------
+
+StageWorker::StageWorker(std::uint64_t generation,
+                         std::shared_ptr<pnga::io::IByteSource> source,
+                         QObject* parent)
+    : QThread(parent), generation_(generation), source_(std::move(source)) {}
+
+void StageWorker::run() {
+  result_ = std::make_shared<pnga::analysis_engine::StageSet>(
+      pnga::analysis_engine::analyze_source(*source_));
+  emit stageDone(generation_);
+}
+
+// ---------------------------------------------------------------------------
 // MainWindow
 // ---------------------------------------------------------------------------
 
@@ -83,6 +99,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   imageDock->setWidget(image_view_);
   addDockWidget(Qt::RightDockWidgetArea, imageDock);
 
+  inspector_ = new pnga::ui::qt::StageInspector(this);
+  auto* stageDock = new QDockWidget(QStringLiteral("Stage Inspector"), this);
+  stageDock->setObjectName(QStringLiteral("stageDock"));
+  stageDock->setWidget(inspector_);
+  addDockWidget(Qt::RightDockWidgetArea, stageDock);
+
   pixel_label_ = new QLabel(QStringLiteral("No image"), this);
   statusBar()->addWidget(pixel_label_);
 
@@ -108,6 +130,25 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
           this, &MainWindow::onPixelSelected);
 }
 
+void MainWindow::startStageAnalysis() {
+  if (stage_worker_ != nullptr) {
+    stage_worker_ = nullptr;  // in-flight stage result becomes stale
+  }
+  auto* worker = new StageWorker(generation_, source_, this);
+  stage_worker_ = worker;
+  connect(worker, &StageWorker::stageDone, this, &MainWindow::onStageDone);
+  connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+  worker->start();
+}
+
+void MainWindow::onStageDone(std::uint64_t generation) {
+  if (generation != generation_ || stage_worker_ == nullptr) {
+    return;  // stale stage analysis; never overwrite the current document
+  }
+  inspector_->setStageSet(stage_worker_->result());
+  stage_worker_ = nullptr;
+}
+
 bool MainWindow::openFile(const QString& path) {
   std::unique_ptr<pnga::io::IByteSource> opened;
   const std::error_code ec = pnga::io::open_mapped_file(
@@ -121,8 +162,11 @@ bool MainWindow::openFile(const QString& path) {
       std::shared_ptr<pnga::io::IByteSource>(opened.release());
   source_ = source;
   index_ = pnga::png_format::index_chunks(*source_);
+  ++generation_;
+  bus_->setDocumentGeneration(generation_);
   resetDocument();
   startDecode();
+  startStageAnalysis();
   return true;
 }
 
@@ -158,8 +202,6 @@ void MainWindow::resetDocument() {
 }
 
 void MainWindow::startDecode() {
-  ++generation_;
-  bus_->setDocumentGeneration(generation_);
   if (decode_worker_ != nullptr) {
     // A previous decode may still be running; its result will be ignored
     // because its generation is stale. Drop the reference now.
@@ -189,6 +231,8 @@ void MainWindow::onDecodeDone(std::uint64_t generation) {
                 QImage::Format_RGBA8888);
   std::memcpy(qimage.bits(), img.rgba.data(), img.rgba.size());
   image_view_->setImage(qimage);
+  // Feed the delivered RGBA to the stage inspector's Delivered stage.
+  inspector_->setDeliveredPixels(img.width, img.height, img.rgba);
   pixel_label_->setText(QStringLiteral("%1 x %2  (bit depth %3, color type %4)")
                             .arg(img.width)
                             .arg(img.height)
@@ -229,6 +273,8 @@ void MainWindow::onChunkSelectionChanged(const QModelIndex& current,
 }
 
 void MainWindow::onPixelSelected(int x, int y) {
+  inspector_->onPixelSelected(static_cast<std::uint64_t>(x),
+                              static_cast<std::uint64_t>(y));
   pnga::trace_model::Selection sel;
   sel.image = pnga::trace_model::ImageCoordinate{0, 0, 0,
                                                  static_cast<std::uint64_t>(x),

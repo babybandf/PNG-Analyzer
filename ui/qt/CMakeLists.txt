@@ -12,11 +12,15 @@ add_library(pnga_ui_qt
   include/pnga/ui/qt/hex_view.h
   include/pnga/ui/qt/image_transform.h
   include/pnga/ui/qt/selection_bus.h
+  include/pnga/ui/qt/stage_inspector.h
+  include/pnga/ui/qt/stage_inspector_model.h
   src/chunk_model.cpp
   src/delivered_image_view.cpp
   src/hex_view.cpp
   src/image_transform.cpp
   src/selection_bus.cpp
+  src/stage_inspector.cpp
+  src/stage_inspector_model.cpp
 )
 add_library(pnga::ui_qt ALIAS pnga_ui_qt)
 
@@ -27,6 +31,7 @@ target_link_libraries(pnga_ui_qt PUBLIC
   Qt6::Core
   Qt6::Gui
   Qt6::Widgets
+  pnga::analysis_engine
   pnga::png_format
   pnga::io
   pnga::trace_model
