@@ -38,6 +38,8 @@ StageInspector::StageInspector(QWidget* parent) : QWidget(parent) {
   detail_ = new QLabel(QStringLiteral("no data"), this);
   detail_->setWordWrap(true);
 
+  query_status_label_ = new QLabel(QStringLiteral("row query: indexed"), this);
+
   auto* top = new QHBoxLayout;
   top->addWidget(new QLabel(QStringLiteral("Stage:"), this));
   top->addWidget(stage_combo_);
@@ -47,6 +49,7 @@ StageInspector::StageInspector(QWidget* parent) : QWidget(parent) {
   layout->addLayout(top);
   layout->addWidget(table_, 1);
   layout->addWidget(detail_);
+  layout->addWidget(query_status_label_);
 
   connect(stage_combo_, &QComboBox::currentIndexChanged, this,
           &StageInspector::onStageChanged);
@@ -70,10 +73,16 @@ void StageInspector::setDeliveredPixels(std::uint32_t width,
   model_->setDeliveredPixels(width, height, std::move(rgba));
 }
 
+void StageInspector::setRowQueryStatus(const QString& status_text) {
+  query_status_label_->setText(
+      QStringLiteral("row query: %1").arg(status_text));
+}
+
 void StageInspector::clear() {
   model_->clear();
   stage_combo_->setEnabled(false);
   detail_->setText(QStringLiteral("no data"));
+  query_status_label_->setText(QStringLiteral("row query: indexed"));
 }
 
 void StageInspector::onPixelSelected(std::uint64_t x, std::uint64_t y) {

@@ -137,6 +137,26 @@ ScanlineAnchorIndexResult build_scanline_anchors(
   return out;
 }
 
+std::optional<std::uint64_t> stream_row_for_pixel(
+    const pnga::png_reconstruction::ScanlineLayout& layout, std::uint64_t x,
+    std::uint64_t y) {
+  std::uint64_t cursor = 0;
+  for (std::size_t p = 0; p < layout.pass_count; ++p) {
+    const auto& pass = layout.passes[p];
+    if (pass.height == 0) {
+      continue;
+    }
+    if (x >= pass.x_start && (x - pass.x_start) % pass.x_step == 0 &&
+        (x - pass.x_start) / pass.x_step < pass.width &&
+        y >= pass.y_start && (y - pass.y_start) % pass.y_step == 0 &&
+        (y - pass.y_start) / pass.y_step < pass.height) {
+      return cursor + (y - pass.y_start) / pass.y_step;
+    }
+    cursor += pass.height;
+  }
+  return std::nullopt;
+}
+
 RowRestoreResult restore_scanline(
     const ScanlineAnchorIndexResult& index,
     const pnga::png_format::VirtualIDATStream& stream,

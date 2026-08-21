@@ -171,6 +171,27 @@ TEST_CASE("Interlaced scanlines restore byte-for-byte with pass-first anchors",
   }
 }
 
+TEST_CASE("stream_row_for_pixel maps image pixels to stream rows",
+          "[analysis-engine][wp403][wp406]") {
+  // Non-interlaced: stream row == image row.
+  const auto flat = compute_scanline_layout(ImageHeader{16, 12, 8, 6, false});
+  REQUIRE(flat.has_value());
+  REQUIRE(*pnga::analysis_engine::stream_row_for_pixel(*flat, 3, 7) == 7);
+  REQUIRE(pnga::analysis_engine::stream_row_for_pixel(*flat, 99, 7) ==
+          std::nullopt);
+
+  // Interlaced: pass 0 covers (x % 8 == 0, y % 8 == 0); its stream rows come
+  // first. For a 16x12 image pass 0 is 2x2, so pixel (0, 8) is pass-0 row 1.
+  const auto interlaced =
+      compute_scanline_layout(ImageHeader{16, 12, 8, 6, true});
+  REQUIRE(interlaced.has_value());
+  REQUIRE(*pnga::analysis_engine::stream_row_for_pixel(*interlaced, 0, 8) == 1);
+  // Pixel (1, 8) belongs to a later pass (x step 2), not pass 0.
+  const auto row = pnga::analysis_engine::stream_row_for_pixel(*interlaced, 1, 8);
+  REQUIRE(row.has_value());
+  REQUIRE(*row > 1);
+}
+
 TEST_CASE("Out-of-range scanline restore is rejected",
           "[analysis-engine][wp403]") {
   const EncodedPng e = encode_png(8, 8, 8, 6, false, true);

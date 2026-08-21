@@ -66,6 +66,13 @@ RowRestoreResult restore_scanline(
     const pnga::png_format::VirtualIDATStream& stream,
     const pnga::io::IByteSource& source, std::uint64_t stream_row);
 
+// Maps an image pixel (x, y) to its scanline in stream order (the Adam7 pass
+// that contains it, or y for non-interlaced images). std::nullopt when the
+// pixel lies outside the image.
+std::optional<std::uint64_t> stream_row_for_pixel(
+    const pnga::png_reconstruction::ScanlineLayout& layout, std::uint64_t x,
+    std::uint64_t y);
+
 }  // namespace pnga::analysis_engine
 
 #endif  // PNGA_ANALYSIS_ENGINE_SCANLINE_ANCHOR_H

@@ -13,6 +13,7 @@
 #include <QAbstractItemView>
 #include <QAction>
 #include <QColor>
+#include <QMetaObject>
 #include <QDockWidget>
 #include <QFileDialog>
 #include <QHeaderView>
@@ -130,6 +131,32 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
   connect(image_view_, &pnga::ui::qt::DeliveredImageView::pixelSelected,
           this, &MainWindow::onPixelSelected);
+
+  query_bridge_ = new QueryStatusBridge(this);
+  connect(query_bridge_, &QueryStatusBridge::rowStatus, this,
+          &MainWindow::onRowQueryStatus);
+}
+
+void MainWindow::openQueryCoordinator(
+    const pnga::png_reconstruction::ImageHeader& header) {
+  query_.reset();
+  query_ = std::make_unique<pnga::analysis_engine::QueryCoordinator>(
+      /*worker_count=*/2, /*replay_budget_bytes=*/1ull << 26);
+  const std::shared_ptr<const pnga::io::IByteSource> shared =
+      std::shared_ptr<const pnga::io::IByteSource>(source_);
+  if (!query_->open(shared, header, /*anchor_interval_bytes=*/16384)) {
+    query_.reset();
+    return;
+  }
+  // Bridge the worker-thread status callback onto the GUI thread.
+  query_->setStatusCallback(
+      [bridge = query_bridge_](std::uint64_t row, pnga::analysis_engine::QueryStatus status) {
+        QMetaObject::invokeMethod(
+            bridge, [bridge, row, status] {
+              emit bridge->rowStatus(row, static_cast<int>(status));
+            },
+            Qt::QueuedConnection);
+      });
 }
 
 void MainWindow::startStageAnalysis() {
@@ -147,8 +174,19 @@ void MainWindow::onStageDone(std::uint64_t generation) {
   if (generation != generation_ || stage_worker_ == nullptr) {
     return;  // stale stage analysis; never overwrite the current document
   }
-  inspector_->setStageSet(stage_worker_->result());
+  const auto stage = stage_worker_->result();
+  const auto header = stage->header;
+  inspector_->setStageSet(stage);
   stage_worker_ = nullptr;
+  openQueryCoordinator(header);
+}
+
+void MainWindow::onRowQueryStatus(std::uint64_t row, int status) {
+  // Worker-thread callback bridged to the GUI thread; show the latest status.
+  inspector_->setRowQueryStatus(QLatin1String(
+      pnga::analysis_engine::query_status_text(
+          static_cast<pnga::analysis_engine::QueryStatus>(status))));
+  (void)row;
 }
 
 bool MainWindow::openFile(const QString& path) {
@@ -277,6 +315,20 @@ void MainWindow::onChunkSelectionChanged(const QModelIndex& current,
 void MainWindow::onPixelSelected(int x, int y) {
   inspector_->onPixelSelected(static_cast<std::uint64_t>(x),
                               static_cast<std::uint64_t>(y));
+  if (query_ != nullptr && query_->has_index() &&
+      stage_worker_ == nullptr) {
+    // Map the clicked pixel to its stream row and issue a selection-priority
+    // replay if the row's data is not materialized yet.
+    const auto& layout = query_->anchors().layout;
+    const auto row = pnga::analysis_engine::stream_row_for_pixel(
+        layout, static_cast<std::uint64_t>(x), static_cast<std::uint64_t>(y));
+    if (row.has_value()) {
+      const auto result = query_->query_scanline(
+          *row, pnga::analysis_engine::JobPriority::kSelection);
+      inspector_->setRowQueryStatus(QLatin1String(
+          pnga::analysis_engine::query_status_text(result.status)));
+    }
+  }
   pnga::trace_model::Selection sel;
   sel.image = pnga::trace_model::ImageCoordinate{0, 0, 0,
                                                  static_cast<std::uint64_t>(x),

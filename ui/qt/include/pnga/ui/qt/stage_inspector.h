@@ -18,6 +18,7 @@
 class QComboBox;
 class QLabel;
 class QTableView;
+class QVBoxLayout;
 
 namespace pnga::ui::qt {
 
@@ -35,6 +36,9 @@ class StageInspector final : public QWidget {
 
  public slots:
   void onPixelSelected(std::uint64_t x, std::uint64_t y);
+  // WP-406: shows the large-file query status (indexed/replaying/ready/error)
+  // for the row under inspection.
+  void setRowQueryStatus(const QString& status_text);
 
  signals:
   // Published when the stage changes, so other panels can react (WP-205).
@@ -50,6 +54,7 @@ class StageInspector final : public QWidget {
   QComboBox* stage_combo_ = nullptr;
   QTableView* table_ = nullptr;
   QLabel* detail_ = nullptr;
+  QLabel* query_status_label_ = nullptr;
   std::uint64_t x_ = 0;
   std::uint64_t y_ = 0;
 };
