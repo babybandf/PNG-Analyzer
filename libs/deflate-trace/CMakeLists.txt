@@ -1,7 +1,7 @@
 # libs/deflate-trace — deep Deflate trace (REPOSITORY_LAYOUT.md §5.7).
-# WP-500: transparent zlib wrapper trace. Consumes a generic byte stream and
-# produces trace-model field nodes with bit spans. ADR-0003: no Qt. The module
-# itself is zlib-free; Adler/deflate verification is cross-checked by callers
+# WP-500/501/502: zlib wrapper and token-level Deflate trace. Consumes a
+# generic byte stream and produces bounded trace events. ADR-0003: no Qt. The
+# module itself is zlib-free; output verification is cross-checked by callers
 # with standard zlib (layout §7 dependency table).
 
 add_library(pnga_deflate_trace

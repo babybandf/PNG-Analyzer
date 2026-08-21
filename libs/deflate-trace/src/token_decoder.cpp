@@ -11,6 +11,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <utility>
 
 namespace pnga::deflate_trace {
@@ -37,7 +38,8 @@ class BitReader {
   // Reads `count` (<= 16) bits as a little-endian integer: the bit at stream
   // position p becomes value bit (p - start).
   bool read_bits(unsigned count, std::uint64_t* out) {
-    if (count > 16 || bit_pos_ + count > bit_size_) {
+    if (count > 16 || bit_pos_ > bit_size_ ||
+        static_cast<std::uint64_t>(count) > bit_size_ - bit_pos_) {
       return false;
     }
     std::uint64_t value = 0;
@@ -53,7 +55,7 @@ class BitReader {
 
   // Stored-block data is byte aligned; reads the next whole byte.
   bool read_byte(std::byte* out) {
-    if (bit_pos_ + 8 > bit_size_) {
+    if (bit_pos_ > bit_size_ || 8 > bit_size_ - bit_pos_) {
       return false;
     }
     *out = data_[bit_pos_ / 8];
@@ -72,50 +74,154 @@ class BitReader {
   std::uint64_t bit_pos_ = 0;
 };
 
-// Fixed-huffman canonical table (RFC 1951 §3.2.6).
-struct FixedTable {
-  std::array<std::uint16_t, 288> symbols{};
-  std::array<std::uint16_t, 16> first_code{};
+struct HuffmanTable {
+  std::vector<std::uint16_t> symbols;
+  std::vector<std::uint16_t> canonical_codes;
+  std::array<std::uint32_t, 16> first_code{};
   std::array<std::uint16_t, 16> first_symbol{};
   std::array<std::uint16_t, 16> bl_count{};
+  std::uint8_t max_bits = 0;
+  bool empty = true;
+  bool complete = false;
 };
 
-const FixedTable& fixed_table() {
-  static const FixedTable t = [] {
-    FixedTable t;
-    std::size_t pos = 0;
-    for (std::uint16_t s = 256; s <= 279; ++s) t.symbols[pos++] = s;  // 7 bits
-    t.first_symbol[7] = 0;
-    t.first_symbol[8] = static_cast<std::uint16_t>(pos);
-    for (std::uint16_t s = 0; s <= 143; ++s) t.symbols[pos++] = s;    // 8 bits
-    for (std::uint16_t s = 280; s <= 287; ++s) t.symbols[pos++] = s;  // 8 bits
-    t.first_symbol[9] = static_cast<std::uint16_t>(pos);
-    for (std::uint16_t s = 144; s <= 255; ++s) t.symbols[pos++] = s;  // 9 bits
-    t.bl_count[7] = 24;
-    t.bl_count[8] = 152;
-    t.bl_count[9] = 112;
-    std::uint16_t next = 0;
-    for (unsigned len = 1; len <= 9; ++len) {
-      t.first_code[len] = next;
-      next = static_cast<std::uint16_t>((next + t.bl_count[len]) << 1);
+struct CodeLengthProvenance {
+  std::uint64_t begin = 0;
+  std::uint64_t end = 0;
+};
+
+// Builds a canonical table from RFC 1951 code lengths. `allow_incomplete`
+// covers the legal one-bit degenerate tree used by Deflate; oversubscribed
+// trees are never accepted.
+bool build_huffman_table(const std::vector<std::uint8_t>& lengths,
+                         unsigned max_bits, bool allow_incomplete,
+                         HuffmanTable* table, std::string* error) {
+  if (max_bits == 0 || max_bits > 15 || lengths.empty()) {
+    *error = "invalid huffman table dimensions";
+    return false;
+  }
+
+  table->symbols.clear();
+  table->canonical_codes.assign(lengths.size(), 0);
+  table->first_code.fill(0);
+  table->first_symbol.fill(0);
+  table->bl_count.fill(0);
+  table->max_bits = static_cast<std::uint8_t>(max_bits);
+  table->empty = true;
+  table->complete = false;
+
+  unsigned actual_max_bits = 0;
+  for (const std::uint8_t length : lengths) {
+    if (length > max_bits) {
+      *error = "huffman code length exceeds the table limit";
+      return false;
     }
-    return t;
+    if (length != 0) {
+      table->empty = false;
+      actual_max_bits = std::max(actual_max_bits, static_cast<unsigned>(length));
+      ++table->bl_count[length];
+    }
+  }
+  if (table->empty) {
+    return true;
+  }
+
+  std::int32_t left = 1;
+  for (unsigned bits = 1; bits <= max_bits; ++bits) {
+    left = (left << 1) - table->bl_count[bits];
+    if (left < 0) {
+      *error = "oversubscribed huffman tree";
+      return false;
+    }
+  }
+  table->complete = left == 0;
+  if (!table->complete &&
+      (!allow_incomplete || actual_max_bits != 1)) {
+    *error = "incomplete huffman tree";
+    return false;
+  }
+
+  std::uint32_t code = 0;
+  for (unsigned bits = 1; bits <= max_bits; ++bits) {
+    code = (code + table->bl_count[bits - 1]) << 1;
+    table->first_code[bits] = code;
+  }
+
+  std::uint16_t symbol_cursor = 0;
+  for (unsigned bits = 1; bits <= max_bits; ++bits) {
+    table->first_symbol[bits] = symbol_cursor;
+    symbol_cursor = static_cast<std::uint16_t>(
+        symbol_cursor + table->bl_count[bits]);
+  }
+  table->symbols.resize(symbol_cursor);
+  std::array<std::uint16_t, 16> next_symbol = table->first_symbol;
+  std::array<std::uint32_t, 16> next_code = table->first_code;
+  for (std::size_t symbol = 0; symbol < lengths.size(); ++symbol) {
+    const unsigned bits = lengths[symbol];
+    if (bits == 0) {
+      continue;
+    }
+    table->canonical_codes[symbol] = static_cast<std::uint16_t>(next_code[bits]);
+    table->symbols[next_symbol[bits]++] = static_cast<std::uint16_t>(symbol);
+    ++next_code[bits];
+  }
+  return true;
+}
+
+const HuffmanTable& fixed_literal_table() {
+  static const HuffmanTable table = [] {
+    HuffmanTable result;
+    std::vector<std::uint8_t> lengths(288, 0);
+    for (std::size_t symbol = 256; symbol <= 279; ++symbol) {
+      lengths[symbol] = 7;
+    }
+    for (std::size_t symbol = 0; symbol <= 143; ++symbol) {
+      lengths[symbol] = 8;
+    }
+    for (std::size_t symbol = 280; symbol <= 287; ++symbol) {
+      lengths[symbol] = 8;
+    }
+    for (std::size_t symbol = 144; symbol <= 255; ++symbol) {
+      lengths[symbol] = 9;
+    }
+    std::string error;
+    if (!build_huffman_table(lengths, 15, false, &result, &error)) {
+      std::terminate();
+    }
+    return result;
   }();
-  return t;
+  return table;
+}
+
+const HuffmanTable& fixed_distance_table() {
+  static const HuffmanTable table = [] {
+    HuffmanTable result;
+    std::vector<std::uint8_t> lengths(32, 5);
+    std::string error;
+    if (!build_huffman_table(lengths, 15, false, &result, &error)) {
+      std::terminate();
+    }
+    return result;
+  }();
+  return table;
 }
 
 // Canonical huffman decode: the wire sequence is consumed one bit at a time
 // in the canonical comparison order. Returns false on truncated or invalid
 // input.
-bool decode_symbol(BitReader& reader, const FixedTable& t, std::uint16_t* symbol) {
+bool decode_symbol(BitReader& reader, const HuffmanTable& t,
+                   std::uint16_t* symbol) {
+  if (t.empty) {
+    return false;
+  }
   std::uint64_t code = 0;
-  for (unsigned len = 1; len <= 15; ++len) {
+  for (unsigned len = 1; len <= t.max_bits; ++len) {
     std::uint64_t bit = 0;
     if (!reader.read_bit(&bit)) {
       return false;
     }
     code = (code << 1) | bit;
-    if (t.bl_count[len] == 0) {
+    if (t.bl_count[len] == 0 || code < t.first_code[len]) {
       continue;
     }
     const std::uint64_t index = code - t.first_code[len];
@@ -148,6 +254,162 @@ constexpr std::array<BaseExtra, 30> kDistances = {{
     {513, 8},  {769, 8},  {1025, 9}, {1537, 9}, {2049, 10}, {3073, 10},
     {4097, 11}, {6145, 11}, {8193, 12}, {12289, 12}, {16385, 13}, {24577, 13},
 }};
+
+void append_table_trace(
+    pnga::deflate_trace::HuffmanTableKind kind,
+    const std::vector<std::uint8_t>& lengths,
+    const std::vector<CodeLengthProvenance>& provenance,
+    const HuffmanTable& table,
+    std::vector<pnga::deflate_trace::HuffmanTableTrace>* traces) {
+  pnga::deflate_trace::HuffmanTableTrace trace;
+  trace.kind = kind;
+  trace.entries.reserve(lengths.size());
+  for (std::size_t symbol = 0; symbol < lengths.size(); ++symbol) {
+    pnga::deflate_trace::HuffmanTableEntry entry;
+    entry.symbol = static_cast<std::uint16_t>(symbol);
+    entry.bit_length = lengths[symbol];
+    entry.canonical_code = table.canonical_codes[symbol];
+    if (symbol < provenance.size()) {
+      entry.provenance_bit_begin = provenance[symbol].begin;
+      entry.provenance_bit_end = provenance[symbol].end;
+    }
+    trace.entries.push_back(entry);
+  }
+  traces->push_back(std::move(trace));
+}
+
+bool read_dynamic_tables(
+    BitReader& reader, TokenDecodeResult* result, HuffmanTable* literal_table,
+    HuffmanTable* distance_table, std::string* error) {
+  constexpr std::array<unsigned, 19> kCodeLengthOrder = {
+      16, 17, 18, 0, 8, 7, 9, 6, 10, 5,
+      11, 4, 12, 3, 13, 2, 14, 1, 15};
+
+  std::uint64_t hlit_bits = 0;
+  std::uint64_t hdist_bits = 0;
+  std::uint64_t hclen_bits = 0;
+  if (!reader.read_bits(5, &hlit_bits) || !reader.read_bits(5, &hdist_bits) ||
+      !reader.read_bits(4, &hclen_bits)) {
+    *error = "truncated dynamic header";
+    return false;
+  }
+  const std::size_t literal_count = static_cast<std::size_t>(hlit_bits + 257);
+  const std::size_t distance_count = static_cast<std::size_t>(hdist_bits + 1);
+  const std::size_t code_length_count = static_cast<std::size_t>(hclen_bits + 4);
+
+  std::vector<std::uint8_t> code_length_lengths(19, 0);
+  std::vector<CodeLengthProvenance> code_length_provenance(19);
+  for (std::size_t i = 0; i < code_length_count; ++i) {
+    const std::uint64_t begin = reader.pos();
+    std::uint64_t length = 0;
+    if (!reader.read_bits(3, &length)) {
+      *error = "truncated code-length alphabet";
+      return false;
+    }
+    const std::size_t symbol = kCodeLengthOrder[i];
+    code_length_lengths[symbol] = static_cast<std::uint8_t>(length);
+    code_length_provenance[symbol] = {begin, reader.pos()};
+  }
+
+  HuffmanTable code_length_table;
+  if (!build_huffman_table(code_length_lengths, 7, false,
+                           &code_length_table, error)) {
+    return false;
+  }
+  append_table_trace(pnga::deflate_trace::HuffmanTableKind::kCodeLength,
+                     code_length_lengths, code_length_provenance,
+                     code_length_table, &result->huffman_tables);
+
+  const std::size_t total_lengths = literal_count + distance_count;
+  std::vector<std::uint8_t> all_lengths;
+  std::vector<CodeLengthProvenance> all_provenance;
+  all_lengths.reserve(total_lengths);
+  all_provenance.reserve(total_lengths);
+  while (all_lengths.size() < total_lengths) {
+    const std::uint64_t begin = reader.pos();
+    std::uint16_t symbol = 0;
+    if (!decode_symbol(reader, code_length_table, &symbol)) {
+      *error = reader.exhausted() ? "truncated code-length code"
+                                  : "invalid code-length code";
+      return false;
+    }
+    if (symbol <= 15) {
+      all_lengths.push_back(static_cast<std::uint8_t>(symbol));
+      all_provenance.push_back({begin, reader.pos()});
+      continue;
+    }
+
+    unsigned extra_bits = 0;
+    std::size_t repeat_min = 0;
+    std::size_t repeat_max = 0;
+    std::uint8_t repeated_length = 0;
+    if (symbol == 16) {
+      if (all_lengths.empty()) {
+        *error = "repeat code 16 has no previous length";
+        return false;
+      }
+      extra_bits = 2;
+      repeat_min = 3;
+      repeat_max = 6;
+      repeated_length = all_lengths.back();
+    } else if (symbol == 17) {
+      extra_bits = 3;
+      repeat_min = 3;
+      repeat_max = 10;
+    } else if (symbol == 18) {
+      extra_bits = 7;
+      repeat_min = 11;
+      repeat_max = 138;
+    } else {
+      *error = "invalid code-length repeat symbol";
+      return false;
+    }
+
+    std::uint64_t extra = 0;
+    if (!reader.read_bits(extra_bits, &extra)) {
+      *error = "truncated code-length repeat";
+      return false;
+    }
+    const std::size_t repeat = repeat_min + static_cast<std::size_t>(extra);
+    if (repeat > repeat_max || repeat > total_lengths - all_lengths.size()) {
+      *error = "code-length repeat exceeds the dynamic table";
+      return false;
+    }
+    const CodeLengthProvenance provenance{begin, reader.pos()};
+    for (std::size_t i = 0; i < repeat; ++i) {
+      all_lengths.push_back(repeated_length);
+      all_provenance.push_back(provenance);
+    }
+  }
+
+  std::vector<std::uint8_t> literal_lengths(
+      all_lengths.begin(), all_lengths.begin() + literal_count);
+  std::vector<std::uint8_t> distance_lengths(
+      all_lengths.begin() + literal_count, all_lengths.end());
+  std::vector<CodeLengthProvenance> literal_provenance(
+      all_provenance.begin(), all_provenance.begin() + literal_count);
+  std::vector<CodeLengthProvenance> distance_provenance(
+      all_provenance.begin() + literal_count, all_provenance.end());
+
+  if (literal_lengths[256] == 0) {
+    *error = "dynamic literal/length table has no end-of-block code";
+    return false;
+  }
+  if (!build_huffman_table(literal_lengths, 15, true, literal_table, error)) {
+    return false;
+  }
+  if (!build_huffman_table(distance_lengths, 15, true, distance_table,
+                           error)) {
+    return false;
+  }
+  append_table_trace(pnga::deflate_trace::HuffmanTableKind::kLiteralLength,
+                     literal_lengths, literal_provenance, *literal_table,
+                     &result->huffman_tables);
+  append_table_trace(pnga::deflate_trace::HuffmanTableKind::kDistance,
+                     distance_lengths, distance_provenance, *distance_table,
+                     &result->huffman_tables);
+  return true;
+}
 
 }  // namespace
 
@@ -182,13 +444,11 @@ TokenDecodeResult decode_stored_and_fixed(const pnga::io::IByteSource& source,
   out.deflate_data_begin = start_byte;
   BitReader reader(data.data() + start_byte,
                    (*wrapper.adler_offset - start_byte) * 8);
-  const FixedTable& table = fixed_table();
 
   bool done = false;
   while (!done) {
     std::uint64_t bfinal = 0;
     std::uint64_t btype = 0;
-    const std::uint64_t block_begin = reader.pos();
     if (!reader.read_bits(1, &bfinal) || !reader.read_bits(2, &btype)) {
       out.error = "truncated block header";
       return out;
@@ -236,13 +496,27 @@ TokenDecodeResult decode_stored_and_fixed(const pnga::io::IByteSource& source,
       end.output_begin = out.output_bytes;
       end.output_end = out.output_bytes;
       out.tokens.push_back(std::move(end));
-    } else if (btype == 1) {  // fixed huffman
+    } else if (btype == 1 || btype == 2) {  // fixed or dynamic huffman
+      HuffmanTable dynamic_literal_table;
+      HuffmanTable dynamic_distance_table;
+      const HuffmanTable* literal_table = &fixed_literal_table();
+      const HuffmanTable* distance_table = &fixed_distance_table();
+      if (btype == 2) {
+        std::string error;
+        if (!read_dynamic_tables(reader, &out, &dynamic_literal_table,
+                                 &dynamic_distance_table, &error)) {
+          out.error = error;
+          return out;
+        }
+        literal_table = &dynamic_literal_table;
+        distance_table = &dynamic_distance_table;
+      }
       while (true) {
         const std::uint64_t begin = reader.pos();
         std::uint16_t symbol = 0;
-        if (!decode_symbol(reader, table, &symbol)) {
-          out.error = reader.exhausted() ? "truncated fixed code"
-                                         : "invalid fixed code";
+        if (!decode_symbol(reader, *literal_table, &symbol)) {
+          out.error = reader.exhausted() ? "truncated huffman code"
+                                         : "invalid huffman code";
           return out;
         }
         if (symbol < 256) {
@@ -280,17 +554,15 @@ TokenDecodeResult decode_stored_and_fixed(const pnga::io::IByteSource& source,
             }
             length += extra;
           }
-          std::uint64_t wire_dist_code = 0;
-          if (!reader.read_bits(5, &wire_dist_code)) {
-            out.error = "truncated distance code";
+          std::uint16_t dist_code = 0;
+          if (distance_table->empty) {
+            out.error = "distance table is empty";
             return out;
           }
-          // Distance codes use a fixed five-bit Huffman alphabet. The generic
-          // bit reader returns the wire sequence as an LSB-first integer,
-          // while the Huffman table is indexed by the canonical code.
-          std::uint64_t dist_code = 0;
-          for (unsigned i = 0; i < 5; ++i) {
-            dist_code |= ((wire_dist_code >> i) & 1u) << (4u - i);
+          if (!decode_symbol(reader, *distance_table, &dist_code)) {
+            out.error = reader.exhausted() ? "truncated distance code"
+                                           : "invalid distance code";
+            return out;
           }
           if (dist_code > 29) {
             out.error = "invalid distance code";
@@ -338,14 +610,13 @@ TokenDecodeResult decode_stored_and_fixed(const pnga::io::IByteSource& source,
         }
       }
     } else {
-      out.error = "dynamic huffman blocks are not supported yet (WP-502)";
+      out.error = "reserved deflate block type";
       return out;
     }
 
     if (bfinal != 0) {
       done = true;
     }
-    (void)block_begin;
   }
 
   out.stream_ended = true;

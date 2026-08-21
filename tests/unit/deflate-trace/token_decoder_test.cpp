@@ -1,7 +1,7 @@
 // WP-501 token decoder tests: stored and fixed-huffman blocks decode into
 // literal/length-distance/EOB tokens whose reconstructed output matches the
-// source byte-for-byte and is cross-checked with zlib. Dynamic blocks and
-// truncated input are rejected.
+// source byte-for-byte and is cross-checked with zlib. Dynamic table failures
+// and truncated input are rejected.
 
 #include <pnga/deflate-trace/token_decoder.h>
 #include <pnga/deflate-runtime/inflate.h>
@@ -12,6 +12,8 @@
 #include <zlib.h>
 
 #include <algorithm>
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -52,6 +54,91 @@ std::vector<std::byte> zlib_compress(const std::vector<std::byte>& raw,
   }
   out.resize(strm.total_out);
   return out;
+}
+
+class BitWriter {
+ public:
+  BitWriter() : bytes_{B(0x78), B(0x01)} {}
+
+  void write(std::uint64_t value, unsigned count) {
+    for (unsigned i = 0; i < count; ++i) {
+      if (bit_pos_ % 8 == 0) {
+        bytes_.push_back(B(0));
+      }
+      if (((value >> i) & 1u) != 0) {
+        const unsigned current = static_cast<unsigned>(bytes_.back());
+        bytes_.back() = B(static_cast<unsigned char>(
+            current | (1u << (bit_pos_ % 8))));
+      }
+      ++bit_pos_;
+    }
+  }
+
+  void write_huffman(std::uint64_t canonical_code, unsigned count) {
+    std::uint64_t reversed = 0;
+    for (unsigned i = 0; i < count; ++i) {
+      reversed |= ((canonical_code >> i) & 1u) << (count - 1 - i);
+    }
+    write(reversed, count);
+  }
+
+  std::vector<std::byte> finish() {
+    if (bit_pos_ % 8 != 0) {
+      write(0, 8 - static_cast<unsigned>(bit_pos_ % 8));
+    }
+    bytes_.insert(bytes_.end(), 4, B(0));  // Adler-32 is irrelevant here.
+    return bytes_;
+  }
+
+ private:
+  std::vector<std::byte> bytes_;
+  std::size_t bit_pos_ = 0;
+};
+
+BitWriter dynamic_header(const std::array<unsigned, 4>& code_lengths) {
+  BitWriter writer;
+  writer.write(1, 1);  // BFINAL
+  writer.write(2, 2);  // BTYPE=dynamic
+  writer.write(0, 5);  // HLIT=257
+  writer.write(0, 5);  // HDIST=1
+  writer.write(0, 4);  // HCLEN=4 code-length entries
+  for (const unsigned length : code_lengths) {
+    writer.write(length, 3);  // symbols 16, 17, 18, 0
+  }
+  return writer;
+}
+
+std::vector<std::byte> literal_only_dynamic_stream() {
+  BitWriter writer;
+  writer.write(1, 1);   // BFINAL
+  writer.write(2, 2);   // BTYPE=dynamic
+  writer.write(0, 5);   // HLIT=257
+  writer.write(0, 5);   // HDIST=1
+  writer.write(15, 4);  // HCLEN=19 code-length entries
+
+  // Code-length symbols 0,1,2,3,4,16,17,18 each have a 3-bit code.
+  const std::array<unsigned, 19> lengths = {
+      3, 3, 3, 3, 0, 0, 0, 0, 0, 0,
+      0, 3, 0, 3, 0, 3, 0, 3, 0};
+  for (const unsigned length : lengths) {
+    writer.write(length, 3);
+  }
+
+  // Literal/length code lengths: 65 zeros, literal 65, 190 zeros, EOB,
+  // followed by one zero distance code. Code 18 is canonical 111 (3 bits).
+  writer.write_huffman(7, 3);
+  writer.write(54, 7);   // repeat 65 zeros
+  writer.write_huffman(1, 3);  // code-length value 1
+  writer.write_huffman(7, 3);
+  writer.write(127, 7);  // repeat 138 zeros
+  writer.write_huffman(7, 3);
+  writer.write(41, 7);   // repeat 52 zeros
+  writer.write_huffman(1, 3);  // code-length value 1 (EOB)
+  writer.write_huffman(0, 3);  // one zero distance code length
+
+  writer.write_huffman(0, 1);  // literal 'A' (symbol 65)
+  writer.write_huffman(1, 1);  // EOB (symbol 256)
+  return writer.finish();
 }
 
 void require_output_matches(const TokenDecodeResult& result,
@@ -157,14 +244,86 @@ TEST_CASE("Repeated data yields maximum-length distance matches",
   REQUIRE(saw_overlap);
 }
 
-TEST_CASE("Dynamic huffman blocks are rejected for now",
-          "[deflate-trace][wp501]") {
+TEST_CASE("Dynamic huffman blocks decode with table provenance",
+          "[deflate-trace][wp502]") {
   const auto raw = make_raw(64 * 1024, 0x60);
   const auto stream = zlib_compress(raw, 6, Z_DEFAULT_STRATEGY);  // dynamic
   MemoryByteSource source(stream);
   const TokenDecodeResult result = decode_stored_and_fixed(source, 1u << 20);
-  REQUIRE_FALSE(result.success);
-  REQUIRE(result.error.find("dynamic") != std::string::npos);
+  require_output_matches(result, raw);
+  REQUIRE(result.huffman_tables.size() == 3);
+  REQUIRE(result.huffman_tables[0].kind ==
+          pnga::deflate_trace::HuffmanTableKind::kCodeLength);
+  REQUIRE(result.huffman_tables[1].kind ==
+          pnga::deflate_trace::HuffmanTableKind::kLiteralLength);
+  REQUIRE(result.huffman_tables[2].kind ==
+          pnga::deflate_trace::HuffmanTableKind::kDistance);
+  for (const auto& table : result.huffman_tables) {
+    REQUIRE_FALSE(table.entries.empty());
+    for (const auto& entry : table.entries) {
+      if (entry.bit_length != 0) {
+        REQUIRE(entry.provenance_bit_begin < entry.provenance_bit_end);
+        REQUIRE(entry.canonical_code < (1u << entry.bit_length));
+      }
+    }
+  }
+}
+
+TEST_CASE("Dynamic table rejects oversubscribed and incomplete code trees",
+          "[deflate-trace][wp502]") {
+  {
+    auto writer = dynamic_header({1, 1, 1, 1});
+    MemoryByteSource source(writer.finish());
+    const auto result = decode_stored_and_fixed(source, 1u << 20);
+    REQUIRE_FALSE(result.success);
+    REQUIRE(result.error.find("oversubscribed") != std::string::npos);
+  }
+  {
+    auto writer = dynamic_header({1, 0, 0, 0});
+    MemoryByteSource source(writer.finish());
+    const auto result = decode_stored_and_fixed(source, 1u << 20);
+    REQUIRE_FALSE(result.success);
+    REQUIRE(result.error.find("incomplete") != std::string::npos);
+  }
+}
+
+TEST_CASE("Dynamic repeat codes require valid history and bounds",
+          "[deflate-trace][wp502]") {
+  {
+    auto writer = dynamic_header({1, 1, 0, 0});
+    writer.write(0, 1);  // code 16, before any previous length
+    writer.write(0, 2);
+    MemoryByteSource source(writer.finish());
+    const auto result = decode_stored_and_fixed(source, 1u << 20);
+    REQUIRE_FALSE(result.success);
+    REQUIRE(result.error.find("repeat code 16") != std::string::npos);
+  }
+  {
+    auto writer = dynamic_header({0, 0, 1, 1});
+    writer.write(1, 1);  // code 18
+    writer.write(127, 7);  // repeat 138 zeros
+    writer.write(1, 1);  // another code 18, which exceeds 258 entries
+    writer.write(127, 7);
+    MemoryByteSource source(writer.finish());
+    const auto result = decode_stored_and_fixed(source, 1u << 20);
+    REQUIRE_FALSE(result.success);
+    REQUIRE(result.error.find("repeat exceeds") != std::string::npos);
+  }
+}
+
+TEST_CASE("Dynamic literal-only stream may have an empty distance table",
+          "[deflate-trace][wp502]") {
+  const std::vector<std::byte> raw = {B(0x41)};
+  const auto stream = literal_only_dynamic_stream();
+  MemoryByteSource source(stream);
+  const auto result = decode_stored_and_fixed(source, 1u << 20);
+  require_output_matches(result, raw);
+  REQUIRE(result.huffman_tables.size() == 3);
+  const auto& distance = result.huffman_tables[2];
+  REQUIRE(std::all_of(distance.entries.begin(), distance.entries.end(),
+                      [](const auto& entry) {
+                        return entry.bit_length == 0;
+                      }));
 }
 
 TEST_CASE("Truncated input is rejected with a stable error",

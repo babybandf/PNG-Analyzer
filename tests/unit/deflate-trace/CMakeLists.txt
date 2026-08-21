@@ -1,5 +1,5 @@
 # Unit tests for libs/deflate-trace. ZLIB/deflate-runtime are linked here for
-# the WP-500 cross-validation of the zlib wrapper against standard zlib.
+# WP-500/501/502 cross-validation against standard zlib.
 
 add_executable(pnga_deflate_trace_tests
   token_decoder_test.cpp
