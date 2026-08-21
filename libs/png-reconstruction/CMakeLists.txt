@@ -1,9 +1,10 @@
 # libs/png-reconstruction — deterministic PNG reconstruction after Inflate
-# (REPOSITORY_LAYOUT.md §5.8). WP-300: safe scanline layout geometry and
-# WP-302: reverse filters.
+# (REPOSITORY_LAYOUT.md §5.8). WP-300: safe scanline layout geometry,
+# WP-302: reverse filters and WP-303: Adam7 pass reconstruction.
 # Testable without Qt and without libpng. ADR-0003: never link Qt.
 
 add_library(pnga_png_reconstruction
+  src/pass_reconstruction.cpp
   src/reverse_filter.cpp
   src/scanline_layout.cpp
 )
