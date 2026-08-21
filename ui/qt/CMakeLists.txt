@@ -8,9 +8,13 @@
 
 add_library(pnga_ui_qt
   include/pnga/ui/qt/chunk_model.h
+  include/pnga/ui/qt/delivered_image_view.h
   include/pnga/ui/qt/hex_view.h
+  include/pnga/ui/qt/image_transform.h
   src/chunk_model.cpp
+  src/delivered_image_view.cpp
   src/hex_view.cpp
+  src/image_transform.cpp
 )
 add_library(pnga::ui_qt ALIAS pnga_ui_qt)
 

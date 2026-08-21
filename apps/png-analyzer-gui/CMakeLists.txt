@@ -11,6 +11,7 @@ add_executable(pnga_analyzer_gui
 set_target_properties(pnga_analyzer_gui PROPERTIES AUTOMOC ON)
 target_link_libraries(pnga_analyzer_gui PRIVATE
   pnga::ui_qt
+  pnga::analysis_engine
   pnga::png_format
   pnga::io
   pnga::core
