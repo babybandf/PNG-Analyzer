@@ -1,6 +1,7 @@
 # Unit tests for libs/png-reconstruction. Catch2 is test-only (layout §8.4).
 
 add_executable(pnga_png_reconstruction_tests
+  reverse_filter_test.cpp
   scanline_layout_test.cpp
 )
 target_link_libraries(pnga_png_reconstruction_tests PRIVATE
