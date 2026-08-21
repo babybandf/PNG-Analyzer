@@ -5,6 +5,12 @@
 // so no intermediate addition can overflow, even for 64-bit offsets near the
 // top of the address space.
 
+// windows.h defines min/max as function-like macros; NOMINMAX keeps
+// std::numeric_limits<T>::max() and std::min/std::max usable on Windows.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
 #include "pnga/io/byte_source.h"
 
 #include <cstring>
