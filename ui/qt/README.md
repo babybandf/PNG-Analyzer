@@ -38,6 +38,10 @@ everything under `libs/` stays Qt-free (ADR-0003).
   capacities and Dynamic canonical entries in decoder build order, including
   selected literal and input-bit context. The main workspace exposes it as
   `DEFLATE / Huffman Tables`.
+- WP-505C: `DecodeTraceInspector` renders bounded literal/match/EOB steps,
+  RFC length/distance base-plus-extra arithmetic, overlap-safe match sources,
+  selected output bytes and Hex/DEFLATE range signals. The main workspace
+  exposes it as `DEFLATE / Decode Trace`.
 
 ## Non-goals
 

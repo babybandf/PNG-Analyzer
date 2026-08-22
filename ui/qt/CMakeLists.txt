@@ -11,6 +11,7 @@ add_library(pnga_ui_qt
   include/pnga/ui/qt/block_inspector.h
   include/pnga/ui/qt/chunk_model.h
   include/pnga/ui/qt/delivered_image_view.h
+  include/pnga/ui/qt/decode_trace_inspector.h
   include/pnga/ui/qt/hex_view.h
   include/pnga/ui/qt/huffman_inspector.h
   include/pnga/ui/qt/hex_data_source.h
@@ -25,6 +26,7 @@ add_library(pnga_ui_qt
   src/block_inspector.cpp
   src/chunk_model.cpp
   src/delivered_image_view.cpp
+  src/decode_trace_inspector.cpp
   src/hex_view.cpp
   src/huffman_inspector.cpp
   src/hex_data_source.cpp

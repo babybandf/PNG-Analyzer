@@ -7,6 +7,7 @@
 #include <pnga/ui/qt/block_inspector.h>
 #include <pnga/ui/qt/chunk_model.h>
 #include <pnga/ui/qt/delivered_image_view.h>
+#include <pnga/ui/qt/decode_trace_inspector.h>
 #include <pnga/ui/qt/hex_view.h>
 #include <pnga/ui/qt/hex_data_source.h>
 #include <pnga/ui/qt/huffman_inspector.h>
@@ -208,6 +209,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   huffman_inspector_ = new pnga::ui::qt::HuffmanInspector(inspector_tabs_);
   inspector_tabs_->addTab(huffman_inspector_,
                           QStringLiteral("DEFLATE / Huffman Tables"));
+  decode_trace_inspector_ =
+      new pnga::ui::qt::DecodeTraceInspector(inspector_tabs_);
+  inspector_tabs_->addTab(decode_trace_inspector_,
+                          QStringLiteral("DEFLATE / Decode Trace"));
   inspector_layout->addWidget(inspector_tabs_, 1);
   inspector_dock_->setWidget(inspector_container);
   addDockWidget(Qt::RightDockWidgetArea, inspector_dock_);
