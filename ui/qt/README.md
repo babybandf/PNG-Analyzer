@@ -45,6 +45,9 @@ everything under `libs/` stays Qt-free (ADR-0003).
 - M5 Trace Gate: `TraceInspectorBinding` publishes one generation-consistent
   `TraceQueryResult` projection to all three Deflate pages; bounded
   Trace-to-Original-Literal and navigation semantics remain Qt-free.
+- WP-5U6A: `TraceInspectorStateMachine` and `publishState` make loading,
+  replaying, partial, error, cancelled and stale-generation states visible
+  without allowing an older result to overwrite a newer document.
 
 ## Non-goals
 

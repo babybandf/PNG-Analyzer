@@ -6,6 +6,7 @@
 #include <pnga/analysis-engine/decode_trace_inspector.h>
 
 #include <QWidget>
+#include <QString>
 
 class QLabel;
 class QPushButton;
@@ -19,6 +20,7 @@ class DecodeTraceInspector final : public QWidget {
   explicit DecodeTraceInspector(QWidget* parent = nullptr);
 
   void setView(const pnga::analysis_engine::DecodeTraceInspectorView& view);
+  void setExternalStatus(const QString& text);
   void clear();
   const pnga::analysis_engine::DecodeTraceInspectorView& view() const noexcept {
     return view_;

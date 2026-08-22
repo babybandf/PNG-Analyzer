@@ -6,6 +6,8 @@
 #include "pnga/ui/qt/decode_trace_inspector.h"
 #include "pnga/ui/qt/huffman_inspector.h"
 
+#include <QString>
+
 namespace pnga::ui::qt {
 
 TraceInspectorBinding::TraceInspectorBinding(BlockInspector* block,
@@ -30,6 +32,43 @@ void TraceInspectorBinding::publish(
   }
   if (decode_ != nullptr) {
     decode_->setView(bundle.decode);
+  }
+  emit generationPublished(static_cast<quint64>(generation_));
+}
+
+void TraceInspectorBinding::publishState(
+    const pnga::analysis_engine::TraceInspectorState& state) {
+  generation_ = state.generation;
+  if (state.bundle.has_value()) {
+    if (block_ != nullptr) {
+      block_->setView(state.bundle->block);
+    }
+    if (huffman_ != nullptr) {
+      huffman_->setView(state.bundle->huffman);
+    }
+    if (decode_ != nullptr) {
+      decode_->setView(state.bundle->decode);
+    }
+  }
+  const QString status = QStringLiteral("Trace: %1 (generation %2)%3")
+                             .arg(QLatin1String(
+                                 pnga::analysis_engine::
+                                     trace_inspector_lifecycle_text(
+                                         state.status)))
+                             .arg(static_cast<qulonglong>(state.generation))
+                             .arg(state.error.empty()
+                                      ? QString{}
+                                      : QStringLiteral(" — %1")
+                                            .arg(QString::fromStdString(
+                                                state.error)));
+  if (block_ != nullptr) {
+    block_->setExternalStatus(status);
+  }
+  if (huffman_ != nullptr) {
+    huffman_->setExternalStatus(status);
+  }
+  if (decode_ != nullptr) {
+    decode_->setExternalStatus(status);
   }
   emit generationPublished(static_cast<quint64>(generation_));
 }

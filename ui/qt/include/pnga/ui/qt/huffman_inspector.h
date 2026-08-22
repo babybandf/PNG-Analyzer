@@ -6,6 +6,7 @@
 #include <pnga/analysis-engine/huffman_inspector.h>
 
 #include <QWidget>
+#include <QString>
 
 class QLabel;
 class QTableWidget;
@@ -18,6 +19,7 @@ class HuffmanInspector final : public QWidget {
   explicit HuffmanInspector(QWidget* parent = nullptr);
 
   void setView(const pnga::analysis_engine::HuffmanInspectorView& view);
+  void setExternalStatus(const QString& text);
   void clear();
   const pnga::analysis_engine::HuffmanInspectorView& view() const noexcept {
     return view_;

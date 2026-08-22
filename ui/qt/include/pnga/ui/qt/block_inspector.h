@@ -7,6 +7,7 @@
 #include <pnga/analysis-engine/block_inspector.h>
 
 #include <QWidget>
+#include <QString>
 
 class QLabel;
 class QPushButton;
@@ -20,6 +21,7 @@ class BlockInspector final : public QWidget {
   explicit BlockInspector(QWidget* parent = nullptr);
 
   void setView(const pnga::analysis_engine::BlockInspectorView& view);
+  void setExternalStatus(const QString& text);
   void clear();
   const pnga::analysis_engine::BlockInspectorView& view() const noexcept {
     return view_;

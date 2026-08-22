@@ -6,6 +6,7 @@
 // callback can publish one generation atomically at the Qt boundary.
 
 #include <pnga/analysis-engine/trace_inspector_bundle.h>
+#include <pnga/analysis-engine/trace_inspector_state.h>
 
 #include <QObject>
 
@@ -31,6 +32,7 @@ class TraceInspectorBinding final : public QObject {
                std::optional<std::uint64_t> selected_output_offset =
                    std::nullopt,
                std::optional<std::uint64_t> scanline = std::nullopt);
+  void publishState(const pnga::analysis_engine::TraceInspectorState& state);
   void clear();
   std::uint64_t generation() const noexcept { return generation_; }
 

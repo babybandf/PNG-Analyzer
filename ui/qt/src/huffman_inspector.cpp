@@ -135,6 +135,10 @@ void HuffmanInspector::setView(
   }
 }
 
+void HuffmanInspector::setExternalStatus(const QString& text) {
+  status_->setText(text);
+}
+
 void HuffmanInspector::clear() {
   setView(pnga::analysis_engine::HuffmanInspectorView{});
 }

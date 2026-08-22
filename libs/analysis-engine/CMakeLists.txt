@@ -19,6 +19,7 @@ add_library(pnga_analysis_engine
   src/trace_query.cpp
   src/trace_orchestrator.cpp
   src/trace_inspector_bundle.cpp
+  src/trace_inspector_state.cpp
 )
 add_library(pnga::analysis_engine ALIAS pnga_analysis_engine)
 

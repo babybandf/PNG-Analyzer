@@ -154,6 +154,10 @@ void DecodeTraceInspector::setView(
   updateButtons();
 }
 
+void DecodeTraceInspector::setExternalStatus(const QString& text) {
+  status_->setText(text);
+}
+
 void DecodeTraceInspector::clear() {
   setView(pnga::analysis_engine::DecodeTraceInspectorView{});
 }

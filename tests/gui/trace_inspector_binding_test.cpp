@@ -1,4 +1,5 @@
 #include <pnga/analysis-engine/trace_query.h>
+#include <pnga/analysis-engine/trace_inspector_state.h>
 #include <pnga/ui/qt/block_inspector.h>
 #include <pnga/ui/qt/decode_trace_inspector.h>
 #include <pnga/ui/qt/huffman_inspector.h>
@@ -6,10 +7,13 @@
 
 #include <QtTest/QtTest>
 
+#include <QLabel>
+
 class TraceInspectorBindingTest : public QObject {
   Q_OBJECT
  private slots:
   void publishesOneGenerationToAllPages();
+  void publishesLifecycleStatus();
 };
 
 void TraceInspectorBindingTest::publishesOneGenerationToAllPages() {
@@ -37,6 +41,20 @@ void TraceInspectorBindingTest::publishesOneGenerationToAllPages() {
   QCOMPARE(block_widget.view().generation, std::uint64_t{91});
   QCOMPARE(huffman_widget.view().generation, std::uint64_t{91});
   QCOMPARE(decode_widget.view().generation, std::uint64_t{91});
+}
+
+void TraceInspectorBindingTest::publishesLifecycleStatus() {
+  pnga::ui::qt::BlockInspector block;
+  pnga::ui::qt::HuffmanInspector huffman;
+  pnga::ui::qt::DecodeTraceInspector decode;
+  pnga::ui::qt::TraceInspectorBinding binding(&block, &huffman, &decode);
+  pnga::analysis_engine::TraceInspectorState state;
+  state.generation = 12;
+  state.status = pnga::analysis_engine::TraceInspectorLifecycle::kReplaying;
+  binding.publishState(state);
+  QVERIFY(block.findChild<QLabel*>(QStringLiteral("blockInspectorStatus"))
+              ->text()
+              .contains(QStringLiteral("replaying")));
 }
 
 QTEST_MAIN(TraceInspectorBindingTest)

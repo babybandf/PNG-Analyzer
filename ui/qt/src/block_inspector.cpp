@@ -160,6 +160,10 @@ void BlockInspector::setView(
   updateButtons();
 }
 
+void BlockInspector::setExternalStatus(const QString& text) {
+  status_->setText(text);
+}
+
 void BlockInspector::clear() {
   setView(pnga::analysis_engine::BlockInspectorView{});
 }
