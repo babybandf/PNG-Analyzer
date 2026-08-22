@@ -57,12 +57,13 @@ void MainWindowLayoutTest::defaultLayoutHasRequiredRegions() {
   auto* inspector =
       window.findChild<QTabWidget*>(QStringLiteral("inspectorTabs"));
   QVERIFY(inspector != nullptr);
-  QCOMPARE(inspector->count(), 5);
+  QCOMPARE(inspector->count(), 6);
   QCOMPARE(inspector->tabText(0), QStringLiteral("Reconstruct"));
   QCOMPARE(inspector->tabText(1), QStringLiteral("Pixel"));
   QCOMPARE(inspector->tabText(2), QStringLiteral("Scanline"));
   QCOMPARE(inspector->tabText(3), QStringLiteral("Source"));
   QCOMPARE(inspector->tabText(4), QStringLiteral("Format Context"));
+  QCOMPARE(inspector->tabText(5), QStringLiteral("DEFLATE / Block"));
 
   QVERIFY(window.findChild<QDockWidget*>(QStringLiteral("chunksDock")) != nullptr);
   QVERIFY(window.findChild<QDockWidget*>(QStringLiteral("inspectorDock")) != nullptr);

@@ -30,6 +30,10 @@ everything under `libs/` stays Qt-free (ADR-0003).
 - WP-5U5B: `StageInspector` shows a coordinate-driven Reconstruct summary
   backed by the Qt-free view model, including pass/row/sample and filter-step
   values.
+- WP-505A: `BlockInspector` renders the Qt-free Deflate block projection with
+  BFINAL/BTYPE, input-bit and output-byte ranges, optional scanline/current
+  output context, physical IDAT spans and bounded Hex/DEFLATE navigation
+  signals. The main workspace exposes it as `DEFLATE / Block`.
 
 ## Non-goals
 

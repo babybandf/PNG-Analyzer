@@ -4,6 +4,7 @@
 #include "main_window.h"
 
 #include <pnga/ui/qt/about_dialog.h>
+#include <pnga/ui/qt/block_inspector.h>
 #include <pnga/ui/qt/chunk_model.h>
 #include <pnga/ui/qt/delivered_image_view.h>
 #include <pnga/ui/qt/hex_view.h>
@@ -201,6 +202,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   addInspectorPlaceholder(QStringLiteral("Scanline"));
   addInspectorPlaceholder(QStringLiteral("Source"));
   addInspectorPlaceholder(QStringLiteral("Format Context"));
+  block_inspector_ = new pnga::ui::qt::BlockInspector(inspector_tabs_);
+  inspector_tabs_->addTab(block_inspector_, QStringLiteral("DEFLATE / Block"));
   inspector_layout->addWidget(inspector_tabs_, 1);
   inspector_dock_->setWidget(inspector_container);
   addDockWidget(Qt::RightDockWidgetArea, inspector_dock_);

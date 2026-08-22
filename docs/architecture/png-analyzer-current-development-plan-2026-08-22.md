@@ -1,7 +1,7 @@
 # PNG Analyzer 当前开发进度与后续执行计划（2026-08-22）
 
 > Status: Active execution supplement
-> Baseline commit: `8ead465` (`main`，与 `origin/main` 一致)
+> Baseline commit: `78338aa` (`main`，WP-5T0B 完成后的基线)
 > Parent plan: [PNG Analyzer Agent 可执行开发计划 v0.1](png-analyzer-agent-development-plan-v0.1.md)
 
 ## 1. 文档作用与范围
@@ -32,7 +32,7 @@
 | M2 统一模型与参考解码 | 实现完成 | WP-200～206 | 快速连续切换文件的完整 GUI 压测仍需 Gate 化 |
 | M3 可观测重建流水线 | 实现完成 | WP-300～306 | conformance corpus 与 sanitizer Gate 尚未形成完整证据包 |
 | M4 大文件索引与随机访问 | 实现完成 | WP-400～406 | 固定性能 corpus、机器基线与阈值尚未冻结 |
-| M5 Deep Deflate Trace | UI 主线与 Trace 编排已实现 | WP-500～504、WP-5U0～WP-5U5B、WP-5T0A～WP-5T0B | WP-505 GUI、端到端 Trace Gate、fuzz/sanitizer 仍未完成 |
+| M5 Deep Deflate Trace | Block Inspector 已实现，Trace 编排与 UI 主线已实现 | WP-500～504、WP-5U0～WP-5U5B、WP-5T0A～WP-5T0B、WP-505A | WP-505B/C、端到端 Trace Gate、fuzz/sanitizer 仍未完成 |
 | M6 Validation、Statistics、发布 | 未开始 | 仅有早期 structural validation | 范围按第 6 节重排 |
 | M7 APNG | 未开始 | 模型预留 frame 维度 | 维持 post-v1 |
 
@@ -53,7 +53,7 @@ git status --short --branch
 结果：
 
 - 当前提交完整 dev 构建通过，Qt 6.11.1 GUI target 已启用。
-- 24/24 个 CTest 测试入口通过，包含 core、parser、reconstruction、Deflate、differential、CLI 与 GUI 测试。
+- 25/25 个 CTest 测试入口通过，包含 core、parser、reconstruction、Deflate、differential、CLI 与 GUI 测试；新增 Block Inspector 的 Qt-free 与 Qt 测试。
 - 仓库布局检查：0 failure、0 warning。
 - 依赖静态检查：0 failure、0 warning。
 - 本次核验覆盖当前 `main`；WP-5T0B 的编排、测试和计划文档变更在验证后统一提交。
@@ -65,7 +65,7 @@ git status --short --branch
 当前界面已经能显示 Chunk、文件 Hex、Delivered Image 和基础 Stage Inspector；WP-5U0～WP-5U5B 已按冻结契约落地，主要剩余差距是：
 
 - Hex 多数据源、坐标交互、阶段 viewport、自适应标签、Reconstruct view model 和 Inspector 首版已实现；跨平台与性能 Gate 仍未关闭。
-- WP-500～504 已提供 wrapper、block、Huffman、token、LZ source 和 pixel provenance 基础；WP-5T0A～WP-5T0B 已形成受预算、可取消、generation 安全的聚合查询链路。
+- WP-500～504 已提供 wrapper、block、Huffman、token、LZ source 和 pixel provenance 基础；WP-5T0A～WP-5T0B 已形成受预算、可取消、generation 安全的聚合查询链路；WP-505A 已将 block 关联范围和导航信号投影到 Qt-free/UI。
 - 当前 `StageSet` 会物化完整阶段数据；后续 UI Gate 不能据此扩展为“每个阶段都长期持有一张全尺寸 QImage”。
 - 测试 corpus 目前以生成式单元 fixture 为主，尚未形成 UI 验收矩阵与 Trace Gate 所需的受控样本集合。
 
@@ -299,7 +299,7 @@ UI 重构必须继续遵守 ADR-0003、0004、0005、0006：Qt 不进入 `libs/`
 
 执行工作包：
 
-- `WP-505A Block Inspector`（M）：Associated Block(s)、范围、scanline、IDAT spans 和当前输出位置。
+- `WP-505A Block Inspector`（M）：已实现 Associated Block(s)、范围、scanline、IDAT spans、当前输出位置，以及 Hex/DEFLATE 导航信号；实现记录见 [wp-505a-block-inspector.md](../development/wp-505a-block-inspector.md)。
 - `WP-505B Huffman Tables`（M）：Stored/Fixed/Dynamic 自适应码表、构建顺序、当前 token 表项和 bitstream 高亮。
 - `WP-505C Decode Trace`（M）：literal/match 分步计算、overlap source、与 Hex/Reconstruct 双向跳转及受限的 Trace to Original Literal。
 
@@ -412,9 +412,9 @@ WP-700～703 不变。静态 PNG 模型继续保留 frame 维度，但任何 Fra
 ## 7. 下一项可直接启动的任务
 
 `WP-5U0` 已由 `docs/development/wp-5u0-ui-spec.md` 冻结，且其依赖的
-WP-5U1～WP-5U5B、WP-5T0A～WP-5T0B 已落地。当前下一项是 `WP-505A Block Inspector`：
-把 TraceQueryResult 的关联 block、BFINAL/BTYPE、输入 bit、输出 byte、scanline 和
-IDAT spans 接入 Qt-free/UI 查询模型；不得在 GUI 重写 Deflate 解析。
+WP-5U1～WP-5U5B、WP-5T0A～WP-5T0B、WP-505A 已落地。当前下一项是
+`WP-505B Huffman Tables`：把 Stored/Fixed/Dynamic 的码表构建顺序、当前 token
+表项和 bitstream 高亮接入同一 Qt-free/UI 查询边界；不得在 GUI 重写 Deflate 解析。
 
 WP-5U0 已冻结的产品决策继续作为后续实现约束：
 

@@ -2,6 +2,7 @@
 
 add_executable(pnga_analysis_engine_tests
   artifact_store_test.cpp
+  block_inspector_test.cpp
   coordinate_query_test.cpp
   filtered_scanlines_test.cpp
   job_scheduler_test.cpp

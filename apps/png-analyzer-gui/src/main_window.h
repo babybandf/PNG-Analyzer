@@ -36,6 +36,7 @@ class QTreeView;
 
 namespace pnga::ui::qt {
 class ChunkModel;
+class BlockInspector;
 class DeliveredImageView;
 class HexView;
 class PixelViewport;
@@ -159,6 +160,7 @@ class MainWindow final : public QMainWindow {
   pnga::ui::qt::StagePreviewView* defiltered_view_ = nullptr;
   pnga::ui::qt::SelectionBus* bus_ = nullptr;
   pnga::ui::qt::StageInspector* inspector_ = nullptr;
+  pnga::ui::qt::BlockInspector* block_inspector_ = nullptr;
   pnga::ui::qt::SelectionViewState view_state_;
   QDockWidget* chunks_dock_ = nullptr;
   QDockWidget* inspector_dock_ = nullptr;

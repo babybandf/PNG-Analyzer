@@ -8,6 +8,7 @@
 
 add_library(pnga_ui_qt
   include/pnga/ui/qt/about_dialog.h
+  include/pnga/ui/qt/block_inspector.h
   include/pnga/ui/qt/chunk_model.h
   include/pnga/ui/qt/delivered_image_view.h
   include/pnga/ui/qt/hex_view.h
@@ -20,6 +21,7 @@ add_library(pnga_ui_qt
   include/pnga/ui/qt/stage_inspector_model.h
   include/pnga/ui/qt/stage_preview_view.h
   src/about_dialog.cpp
+  src/block_inspector.cpp
   src/chunk_model.cpp
   src/delivered_image_view.cpp
   src/hex_view.cpp
