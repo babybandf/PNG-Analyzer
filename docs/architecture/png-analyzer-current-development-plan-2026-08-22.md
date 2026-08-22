@@ -1,7 +1,7 @@
 # PNG Analyzer 当前开发进度与后续执行计划（2026-08-22）
 
 > Status: Active execution supplement
-> Baseline commit: `51573ae` (`main`，WP-605C release candidate audit 完成后的代码基线)
+> Baseline commit: `d123aed` (`main`，WP-5U6C GUI Gate 强化与证据脚本完成)
 > Parent plan: [PNG Analyzer Agent 可执行开发计划 v0.1](png-analyzer-agent-development-plan-v0.1.md)
 
 ## 1. 文档作用与范围
@@ -47,16 +47,17 @@ cmake --build --preset dev -j
 ctest --test-dir build/dev --output-on-failure
 python3 scripts/verify_repository_layout.py
 python3 scripts/verify_dependencies.py
+python3 scripts/run_gui_gate.py
 git status --short --branch
 ```
 
 结果：
 
 - 当前提交完整 dev 构建通过，Qt 6.11.1 GUI target 已启用。
-- 32/32 个 CTest 测试入口通过（GUI 运行使用 `QT_QPA_PLATFORM=offscreen`），包含 core、parser、reconstruction、Deflate、differential、CLI、fuzz smoke、性能 corpus runner 与 GUI 测试；新增 Block/Huffman/Decode Trace Inspector、统一 binding、WP-5U6A 状态机、WP-5U6B 性能回归、WP-5U6C 跨平台 GUI Gate、WP-600A/600B 规则边界测试、WP-600C CLI/GUI 报告整合、WP-603A/603B fuzz smoke、WP-603C sanitizer replay gate、WP-604A performance record 与 WP-604B threshold gate。
+- dev 与 ASan/UBSan 各有 34/34 个 CTest 测试入口通过（GUI 运行使用 `QT_QPA_PLATFORM=offscreen`）；新增的 150%/200% DPI GUI 注册均通过，专门 `scripts/run_gui_gate.py` 生成当前主机和三档 Qt scale evidence。测试覆盖 core、parser、reconstruction、Deflate、differential、CLI、fuzz smoke、性能 corpus runner 与 GUI 测试；并包含 Block/Huffman/Decode Trace Inspector、统一 binding、WP-5U6A 状态机、WP-5U6B 性能回归、WP-5U6C 跨平台 GUI Gate、WP-600A/600B 规则边界测试、WP-600C CLI/GUI 报告整合、WP-603A/603B fuzz smoke、WP-603C sanitizer replay gate、WP-604A performance record 与 WP-604B threshold gate。
 - 仓库布局检查：0 failure、0 warning。
 - 依赖静态检查：0 failure、0 warning。
-- 本次核验覆盖当前 `main`；WP-605C 的 RC audit runner、report 与计划文档变更在验证后统一提交。
+- 本次核验覆盖当前 `main` 的 `d123aed`；布局与依赖静态审计均为 0 failure、0 warning。GUI evidence 记录 macOS arm64 / Qt 6.11.1 的默认、150% 和 200% scale 运行；原生 Windows/Linux 窗口系统、屏幕阅读器和原生安装器仍未由本机证据覆盖。
 
 本次未声称已通过：正式 conformance/coverage-guided fuzz、跨平台 performance threshold、原生 DMG/MSIX/AppImage/Flatpak 或 Qt framework deployment。dev 与 ASan/UBSan 全量、WP-603C 定向 replay、WP-604A runner、WP-604B threshold gate、WP-605A portable archive smoke、WP-605B 文档自检、WP-605C RC audit 与 GUI performance scenario 均已通过；原生安装器和发布证据仍属后续 Gate。
 
@@ -326,7 +327,7 @@ UI 重构必须继续遵守 ADR-0003、0004、0005、0006：Qt 不进入 `libs/`
 
 - `WP-5U6A Async & Failure States`（M）：loading/replaying/partial/error/cancelled、快速换文件、stale generation、错误文件部分结果。
 - `WP-5U6B UI Performance Gate`（M）：虚拟化、内存预算、hover/selection 延迟、冷/热缓存、固定 corpus 与基准记录。
-- `WP-5U6C Cross-platform GUI Gate`（M）：已实现本地可重复布局、DPI、主题、快捷键、焦点顺序、基本无障碍和截断状态检查；原生三平台人工 checklist 仍待 CI/发布环境。
+- `WP-5U6C Cross-platform GUI Gate`（M）：已实现本地可重复布局、默认/150%/200% DPI、主题、快捷键、焦点顺序、每个 Inspector 页无障碍命名和截断 sentinel 检查；`scripts/run_gui_gate.py` 记录当前主机证据。原生三平台人工 checklist 仍待 CI/发布环境。
 
 Gate 命令至少包含 dev、ASan/UBSan、differential、GUI、layout/dependency audit；性能结果必须记录机器、corpus、冷/热缓存和峰值内存。
 
