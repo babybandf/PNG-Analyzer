@@ -36,18 +36,78 @@ HexView::HexView(QWidget* parent) : QAbstractScrollArea(parent) {
 void HexView::setSource(std::shared_ptr<const HexDataSource> source) {
   source_ = std::move(source);
   spans_.clear();
+  history_.clear();
+  history_index_ = 0;
   updateScrollbars();
   viewport()->update();
 }
 
 void HexView::setHighlight(std::vector<HexHighlightSpan> spans) {
-  spans_ = std::move(spans);
+  spans_.clear();
+  const std::uint64_t size = source_ == nullptr ? 0 : source_->size();
+  for (auto span : spans) {
+    if (span.start >= size || span.length == 0) {
+      continue;
+    }
+    span.length = std::min(span.length, size - span.start);
+    spans_.push_back(std::move(span));
+  }
   viewport()->update();
 }
 
 void HexView::clearHighlight() {
   spans_.clear();
   viewport()->update();
+}
+
+bool HexView::navigateTo(std::uint64_t offset) {
+  if (source_ == nullptr || source_->status() != HexDataStatus::kReady ||
+      offset >= source_->size()) {
+    return false;
+  }
+  if (!history_.empty() && history_[history_index_] == offset) {
+    verticalScrollBar()->setValue(static_cast<int>(offset / kBytesPerLine));
+    return true;
+  }
+  if (!history_.empty() && history_index_ + 1 < history_.size()) {
+    history_.erase(
+        history_.begin() + static_cast<std::ptrdiff_t>(history_index_ + 1),
+        history_.end());
+  }
+  history_.push_back(offset);
+  history_index_ = history_.size() - 1;
+  verticalScrollBar()->setValue(static_cast<int>(offset / kBytesPerLine));
+  emit locationChanged(offset);
+  return true;
+}
+
+bool HexView::goBack() {
+  if (history_.empty() || history_index_ == 0) {
+    return false;
+  }
+  --history_index_;
+  const auto offset = history_[history_index_];
+  verticalScrollBar()->setValue(static_cast<int>(offset / kBytesPerLine));
+  emit locationChanged(offset);
+  return true;
+}
+
+bool HexView::goForward() {
+  if (history_.empty() || history_index_ + 1 >= history_.size()) {
+    return false;
+  }
+  ++history_index_;
+  const auto offset = history_[history_index_];
+  verticalScrollBar()->setValue(static_cast<int>(offset / kBytesPerLine));
+  emit locationChanged(offset);
+  return true;
+}
+
+std::optional<std::uint64_t> HexView::currentLocation() const noexcept {
+  if (history_.empty()) {
+    return std::nullopt;
+  }
+  return history_[history_index_];
 }
 
 std::int64_t HexView::lineCount() const {
@@ -144,7 +204,7 @@ void HexView::paintEvent(QPaintEvent*) {
       QColor highlight;
       for (const auto& span : spans_) {
         if (inRange && byteOff >= span.start &&
-            byteOff < span.start + span.length) {
+            byteOff - span.start < span.length) {
           highlight = span.color;
           break;
         }

@@ -709,8 +709,7 @@ void MainWindow::onChunkSelectionChanged(const QModelIndex& current,
                    QColor(0x66, 0xBB, 0x6A)});  // CRC: green
   hex_->setHighlight(std::move(spans));
 
-  hex_->verticalScrollBar()->setValue(
-      static_cast<int>(node.header_offset / 16));
+  hex_->navigateTo(node.header_offset);
 
   // Publish the canonical selection through the bus (single controller).
   pnga::trace_model::Selection sel;

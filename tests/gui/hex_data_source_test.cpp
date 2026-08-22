@@ -4,6 +4,7 @@
 #include <pnga/analysis-engine/stage_analysis.h>
 #include <pnga/png-format/virtual_idat_stream.h>
 #include <pnga/ui/qt/hex_data_source.h>
+#include <pnga/ui/qt/hex_view.h>
 
 #include <QtTest/QtTest>
 
@@ -17,6 +18,7 @@ class HexDataSourceTest : public QObject {
   void fileSourceReadsAndKeepsBackingAlive();
   void idatSourceReadsAcrossSegmentsWithoutConcatenation();
   void derivedSourcesExposeStageBytesAndStates();
+  void hexViewKeepsBoundedAddressHistory();
 };
 
 void HexDataSourceTest::fileSourceReadsAndKeepsBackingAlive() {
@@ -79,6 +81,23 @@ void HexDataSourceTest::derivedSourcesExposeStageBytesAndStates() {
   QCOMPARE(static_cast<unsigned>(bytes[0]), 7U);
   QVERIFY(defiltered->read(0, bytes.data(), bytes.size()));
   QCOMPARE(static_cast<unsigned>(bytes[0]), 9U);
+}
+
+void HexDataSourceTest::hexViewKeepsBoundedAddressHistory() {
+  auto backing = std::make_shared<pnga::io::MemoryByteSource>(
+      std::vector<std::byte>(64, std::byte{0}));
+  pnga::ui::qt::HexView view;
+  view.setSource(pnga::ui::qt::make_file_hex_source(backing));
+  QVERIFY(!view.currentLocation().has_value());
+  QVERIFY(view.navigateTo(3));
+  QVERIFY(view.navigateTo(20));
+  QCOMPARE(view.currentLocation(), std::optional<std::uint64_t>(20));
+  QVERIFY(view.goBack());
+  QCOMPARE(view.currentLocation(), std::optional<std::uint64_t>(3));
+  QVERIFY(view.goForward());
+  QCOMPARE(view.currentLocation(), std::optional<std::uint64_t>(20));
+  QVERIFY(!view.navigateTo(64));
+  QVERIFY(!view.goForward());
 }
 
 QTEST_MAIN(HexDataSourceTest)

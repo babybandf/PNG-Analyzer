@@ -11,6 +11,7 @@
 #include <QAbstractScrollArea>
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 class QColor;
@@ -37,10 +38,18 @@ class HexView final : public QAbstractScrollArea {
   void setHighlight(std::vector<HexHighlightSpan> spans);
   void clearHighlight();
 
+  bool navigateTo(std::uint64_t offset);
+  bool goBack();
+  bool goForward();
+  std::optional<std::uint64_t> currentLocation() const noexcept;
+
  protected:
   void paintEvent(QPaintEvent* event) override;
   void scrollContentsBy(int dx, int dy) override;
   void resizeEvent(QResizeEvent* event) override;
+
+ signals:
+  void locationChanged(std::uint64_t offset);
 
  private:
   std::int64_t lineCount() const;
@@ -48,6 +57,8 @@ class HexView final : public QAbstractScrollArea {
 
   std::shared_ptr<const HexDataSource> source_;
   std::vector<HexHighlightSpan> spans_;
+  std::vector<std::uint64_t> history_;
+  std::size_t history_index_ = 0;
 };
 
 }  // namespace pnga::ui::qt

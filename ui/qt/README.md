@@ -25,6 +25,8 @@ everything under `libs/` stays Qt-free (ADR-0003).
   availability with explicit Adam7/palette/alpha/packed/16-bit conditions.
 - WP-5U4A: `HexDataSource` provides lifetime-safe File and virtual IDAT
   windowed reads; `HexView` no longer borrows a raw ByteSource pointer.
+- WP-5U4C: `HexView` keeps bounded address history and supports back/forward
+  navigation while safely clipping multiple highlight spans.
 
 ## Non-goals
 
