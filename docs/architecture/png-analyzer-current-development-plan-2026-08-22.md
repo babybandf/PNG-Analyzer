@@ -1,7 +1,7 @@
 # PNG Analyzer 当前开发进度与后续执行计划（2026-08-22）
 
 > Status: Active execution supplement
-> Baseline commit: `613165e` (`main`, 与 `origin/main` 一致)
+> Baseline commit: `8ead465` (`main`，与 `origin/main` 一致)
 > Parent plan: [PNG Analyzer Agent 可执行开发计划 v0.1](png-analyzer-agent-development-plan-v0.1.md)
 
 ## 1. 文档作用与范围
@@ -32,11 +32,11 @@
 | M2 统一模型与参考解码 | 实现完成 | WP-200～206 | 快速连续切换文件的完整 GUI 压测仍需 Gate 化 |
 | M3 可观测重建流水线 | 实现完成 | WP-300～306 | conformance corpus 与 sanitizer Gate 尚未形成完整证据包 |
 | M4 大文件索引与随机访问 | 实现完成 | WP-400～406 | 固定性能 corpus、机器基线与阈值尚未冻结 |
-| M5 Deep Deflate Trace | 核心能力已实现 | WP-500～504 | WP-505 GUI、端到端 Trace Gate、fuzz/sanitizer 仍未完成 |
+| M5 Deep Deflate Trace | UI 主线与 Trace 查询契约已实现 | WP-500～504、WP-5U0～WP-5U5B、WP-5T0A | WP-5T0B、WP-505 GUI、端到端 Trace Gate、fuzz/sanitizer 仍未完成 |
 | M6 Validation、Statistics、发布 | 未开始 | 仅有早期 structural validation | 范围按第 6 节重排 |
 | M7 APNG | 未开始 | 模型预留 frame 维度 | 维持 post-v1 |
 
-截至基线提交，原计划中有 35 个工作包具备对应实现提交：M0～M4 全部工作包，以及 M5 的 WP-500～504。这里的“实现完成”不等于里程碑 Gate 已关闭；Gate 仍要求相应 corpus、sanitizer、性能和人工交互证据。
+截至当前提交，M0～M4、M5 的 WP-500～504、WP-5U0～WP-5U5B 及 WP-5T0A 已有实现提交。这里的“实现完成”不等于里程碑 Gate 已关闭；Gate 仍要求相应 corpus、sanitizer、性能和人工交互证据。
 
 ### 2.2 2026-08-22 本地核验
 
@@ -53,24 +53,21 @@ git status --short --branch
 结果：
 
 - 当前提交完整 dev 构建通过，Qt 6.11.1 GUI target 已启用。
-- 18/18 个 CTest 测试入口通过，包含 core、parser、reconstruction、Deflate、differential、CLI 与 GUI 测试。
+- 24/24 个 CTest 测试入口通过，包含 core、parser、reconstruction、Deflate、differential、CLI 与 GUI 测试。
 - 仓库布局检查：0 failure、0 warning。
 - 依赖静态检查：0 failure、0 warning。
-- 核验开始时工作树干净，`main` 与 `origin/main` 一致；随后仅加入本计划文档。
+- 本次核验覆盖当前 `main`；WP-5T0A 的契约、测试和计划文档变更在验证后统一提交。
 
-本次未声称已通过：ASan/UBSan 全量、release 构建、三平台 CI、正式 conformance/fuzz/performance corpus。它们保留为后续 Gate 工作。
+本次未声称已通过：release 构建、三平台 CI、正式 conformance/fuzz/performance corpus。ASan/UBSan 全量已通过，仍保留为后续 Gate 的重复验证项。
 
 ### 2.3 当前 UI 与目标之间的主要差距
 
-当前界面已经能显示 Chunk、文件 Hex、Delivered Image 和基础 Stage Inspector，但仍是“面板并列”，还不是“以坐标为中心的解码工作台”。主要差距是：
+当前界面已经能显示 Chunk、文件 Hex、Delivered Image 和基础 Stage Inspector；WP-5U0～WP-5U5B 已按冻结契约落地，主要剩余差距是：
 
-- Hex 只面向一个物理 `ByteSource`，还没有 File / IDAT / Inflated / Defiltered 多数据源导航。
-- 图像视图能点击选点和缩放平移，但没有轻量 hover、锁定标记、键盘坐标导航与跨标签坐标保持。
-- Stage Inspector 仍以表格和单行公式为主，不能清楚表达 `X/a/b/c → predictor → recon → sample → RGBA`。
-- `Selection`、像素选择、Chunk 选择、Hex 驱动方式和显示偏好尚未形成明确的 UI 状态契约。
-- WP-500～504 已提供 wrapper、block、Huffman、token、LZ source 和 pixel provenance 基础，但缺少一个面向 GUI 的、可取消的聚合查询结果。
-- 当前 `StageSet` 会物化完整阶段数据；新 UI 不能据此扩展为“每个阶段都长期持有一张全尺寸 QImage”。
-- 测试 corpus 目前以生成式单元 fixture 为主，尚未形成 UI 验收矩阵所需的受控样本集合。
+- Hex 多数据源、坐标交互、阶段 viewport、自适应标签、Reconstruct view model 和 Inspector 首版已实现；跨平台与性能 Gate 仍未关闭。
+- WP-500～504 已提供 wrapper、block、Huffman、token、LZ source 和 pixel provenance 基础；WP-5T0A 已冻结面向 GUI 的聚合查询结果，WP-5T0B 尚未开始。
+- 当前 `StageSet` 会物化完整阶段数据；后续 UI Gate 不能据此扩展为“每个阶段都长期持有一张全尺寸 QImage”。
+- 测试 corpus 目前以生成式单元 fixture 为主，尚未形成 UI 验收矩阵与 Trace Gate 所需的受控样本集合。
 
 ## 3. UI 状态与架构映射
 
@@ -414,9 +411,12 @@ WP-700～703 不变。静态 PNG 模型继续保留 frame 维度，但任何 Fra
 
 ## 7. 下一项可直接启动的任务
 
-下一项是 `WP-5U0：UI 规格、状态矩阵与验收样本冻结`，不是直接改代码。
+`WP-5U0` 已由 `docs/development/wp-5u0-ui-spec.md` 冻结，且其依赖的
+WP-5U1～WP-5U5B 已落地。当前下一项是 `WP-5T0B On-demand Trace Orchestration`：
+从当前 Selection 执行受预算、可取消的 replay，组合 Virtual IDAT 映射并在发布前检查
+document generation；不得修改 decoder 或默认保存全文件 token trace。
 
-完成 WP-5U0 前需要明确的少数产品决策：
+WP-5U0 已冻结的产品决策继续作为后续实现约束：
 
 - Filtered 默认显示 unsigned、signed residual，还是双模式。
 - 点击像素后默认聚焦整个像素、首个 channel，还是记忆上次 channel。

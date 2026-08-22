@@ -13,6 +13,7 @@ add_library(pnga_analysis_engine
   src/scanline_anchor.cpp
   src/stage_analysis.cpp
   src/stage_viewport.cpp
+  src/trace_query.cpp
 )
 add_library(pnga::analysis_engine ALIAS pnga_analysis_engine)
 

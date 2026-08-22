@@ -9,6 +9,9 @@ Orchestration rather than codec algorithms (REPOSITORY_LAYOUT.md §5.10, ADR-000
   IDAT bit spans (WP-504).
 - Qt-free coordinate summaries that resolve image-global coordinates to
   pass-local rows, stage byte/bit offsets and native sample indices (WP-5U1).
+- A bounded, Qt-free Trace Query Contract that composes associated Deflate
+  blocks, token/table summaries and logical/physical bit provenance without
+  starting a worker or retaining a whole-file token trace (WP-5T0A).
 - Bounded native-sample viewport queries with a one-request cache for the
   Pixels view (WP-5U3B); viewport requests never allocate a full-size QImage.
 - Qt-free reconstruction view models expose pass/row/sample offsets, bounded

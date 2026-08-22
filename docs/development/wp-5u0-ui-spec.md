@@ -2,7 +2,7 @@
 
 > Work Package: `WP-5U0`
 > Milestone: M5 UI
-> Status: Frozen proposal，待项目负责人确认
+> Status: frozen and approved for implementation
 > Scope: docs-only
 > Depends on: WP-306、WP-406、WP-504
 
