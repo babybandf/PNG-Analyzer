@@ -9,6 +9,7 @@
 #include <pnga/ui/qt/delivered_image_view.h>
 #include <pnga/ui/qt/hex_view.h>
 #include <pnga/ui/qt/hex_data_source.h>
+#include <pnga/ui/qt/huffman_inspector.h>
 #include <pnga/ui/qt/pixel_viewport.h>
 #include <pnga/ui/qt/selection_bus.h>
 #include <pnga/ui/qt/stage_inspector.h>
@@ -204,6 +205,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   addInspectorPlaceholder(QStringLiteral("Format Context"));
   block_inspector_ = new pnga::ui::qt::BlockInspector(inspector_tabs_);
   inspector_tabs_->addTab(block_inspector_, QStringLiteral("DEFLATE / Block"));
+  huffman_inspector_ = new pnga::ui::qt::HuffmanInspector(inspector_tabs_);
+  inspector_tabs_->addTab(huffman_inspector_,
+                          QStringLiteral("DEFLATE / Huffman Tables"));
   inspector_layout->addWidget(inspector_tabs_, 1);
   inspector_dock_->setWidget(inspector_container);
   addDockWidget(Qt::RightDockWidgetArea, inspector_dock_);

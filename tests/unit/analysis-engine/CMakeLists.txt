@@ -5,6 +5,7 @@ add_executable(pnga_analysis_engine_tests
   block_inspector_test.cpp
   coordinate_query_test.cpp
   filtered_scanlines_test.cpp
+  huffman_inspector_test.cpp
   job_scheduler_test.cpp
   pixel_provenance_test.cpp
   query_coordinator_test.cpp

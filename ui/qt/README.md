@@ -34,6 +34,10 @@ everything under `libs/` stays Qt-free (ADR-0003).
   BFINAL/BTYPE, input-bit and output-byte ranges, optional scanline/current
   output context, physical IDAT spans and bounded Hex/DEFLATE navigation
   signals. The main workspace exposes it as `DEFLATE / Block`.
+- WP-505B: `HuffmanInspector` renders Stored LEN/NLEN, Fixed predefined table
+  capacities and Dynamic canonical entries in decoder build order, including
+  selected literal and input-bit context. The main workspace exposes it as
+  `DEFLATE / Huffman Tables`.
 
 ## Non-goals
 
