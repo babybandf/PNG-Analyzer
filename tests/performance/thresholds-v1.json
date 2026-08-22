@@ -1,0 +1,23 @@
+{
+  "schema": "pnga-performance-thresholds-v1",
+  "record_schema": "pnga-performance-record-v1",
+  "preset": "dev",
+  "scenarios": [
+    {
+      "id": "large-index",
+      "max_us": {
+        "chunk_index_us": 250000,
+        "fast_index_us": 1500000,
+        "reopen_index_us": 250000,
+        "random_row_p95_us": 150000
+      }
+    },
+    {
+      "id": "pixel-provenance",
+      "max_us": {
+        "preview_us": 250000,
+        "pixel_query_p95_us": 250000
+      }
+    }
+  ]
+}

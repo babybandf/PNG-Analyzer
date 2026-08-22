@@ -12,7 +12,15 @@ scenarios:
 Rows use the fixed sequence `((i * 2654435761) + 17) mod scanline_count`.
 Pixel coordinates and channels are fixed in the runner source. Durations are
 unsigned microseconds; the runner checks successful completion but does not
-enforce thresholds. Thresholds and regression policy are WP-604B.
+enforce thresholds by default. `thresholds-v1.json` freezes the WP-604B
+maximum values; the explicit gate command is:
+
+```text
+python3 scripts/run_performance_corpus.py --enforce-thresholds
+```
+
+The values are deliberately a fixed local gate with headroom for normal
+machine noise, not a claim about every platform's release performance.
 
 The UI scenario is the existing `gui_trace_inspector_performance_tests` CTest
 entry. The wrapper records it as `passed` when Qt is configured, or

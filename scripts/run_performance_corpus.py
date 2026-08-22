@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parent.parent
 TARGET = "pnga_performance_runner"
 GUI_TEST = "gui_trace_inspector_performance_tests"
 GUI_TARGET = "pnga_gui_trace_inspector_performance_tests"
+DEFAULT_THRESHOLDS = Path("tests/performance/thresholds-v1.json")
 
 
 def run(command, environment, capture=False):
@@ -44,11 +45,54 @@ def has_ctest_entry(preset, name, environment):
     return f"{name}" in result.stdout
 
 
+def check_thresholds(measurement, threshold_path):
+    thresholds = json.loads(threshold_path.read_text())
+    if thresholds.get("schema") != "pnga-performance-thresholds-v1":
+        raise SystemExit(f"unsupported threshold schema: {threshold_path}")
+    if thresholds.get("record_schema") != "pnga-performance-record-v1":
+        raise SystemExit(f"threshold record schema mismatch: {threshold_path}")
+    expected = {entry["id"]: entry for entry in thresholds.get("scenarios", [])}
+    failures = []
+    seen = set()
+    for scenario in measurement.get("scenarios", []):
+        scenario_id = scenario.get("id")
+        config = expected.get(scenario_id)
+        if config is None:
+            failures.append(f"{scenario_id}: missing threshold configuration")
+            continue
+        seen.add(scenario_id)
+        for metric, maximum in config.get("max_us", {}).items():
+            if not isinstance(maximum, int) or maximum < 0:
+                failures.append(f"{scenario_id}.{metric}: invalid threshold")
+                continue
+            value = scenario.get(metric)
+            if not isinstance(value, int) or value < 0:
+                failures.append(f"{scenario_id}.{metric}: missing integer measurement")
+            elif value > maximum:
+                failures.append(
+                    f"{scenario_id}.{metric}: {value}us > {maximum}us maximum"
+                )
+    for scenario_id in sorted(set(expected) - seen):
+        failures.append(f"{scenario_id}: threshold has no measured scenario")
+    return failures
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--preset", choices=("dev",), default="dev")
     parser.add_argument("--jobs", type=int, default=4)
     parser.add_argument("--skip-build", action="store_true")
+    parser.add_argument(
+        "--enforce-thresholds",
+        action="store_true",
+        help="fail after recording when a fixed WP-604B maximum is exceeded",
+    )
+    parser.add_argument(
+        "--thresholds",
+        type=Path,
+        default=DEFAULT_THRESHOLDS,
+        help="threshold JSON relative to the repository root",
+    )
     parser.add_argument(
         "--output",
         type=Path,
@@ -118,7 +162,24 @@ def main():
     output = args.output if args.output.is_absolute() else ROOT / args.output
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(record, ensure_ascii=True, separators=(",", ":")) + "\n")
-    print(f"performance corpus: PASS record={output}")
+    if args.enforce_thresholds:
+        threshold_path = (
+            args.thresholds
+            if args.thresholds.is_absolute()
+            else ROOT / args.thresholds
+        )
+        failures = check_thresholds(measurement, threshold_path)
+        if failures:
+            print(f"performance threshold gate: FAIL record={output}")
+            for failure in failures:
+                print(f"  - {failure}")
+            raise SystemExit(1)
+        print(
+            "performance threshold gate: PASS "
+            f"thresholds={threshold_path} record={output}"
+        )
+    else:
+        print(f"performance corpus: PASS record={output}")
 
 
 if __name__ == "__main__":
