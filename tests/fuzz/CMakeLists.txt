@@ -19,3 +19,6 @@ target_include_directories(pnga_fuzz_smoke_tests PRIVATE
 )
 
 add_test(NAME fuzz_parser_stream_smoke_tests COMMAND pnga_fuzz_smoke_tests)
+set_tests_properties(fuzz_parser_stream_smoke_tests PROPERTIES
+  LABELS "fuzz;sanitizer"
+)
