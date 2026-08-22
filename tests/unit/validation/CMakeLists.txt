@@ -2,6 +2,7 @@
 
 add_executable(pnga_validation_tests
   integrity_test.cpp
+  semantic_resource_decode_test.cpp
   structural_test.cpp
 )
 target_link_libraries(pnga_validation_tests PRIVATE

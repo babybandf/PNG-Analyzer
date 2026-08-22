@@ -8,6 +8,8 @@ Structural, integrity, semantic and specification validation
 - Structural, bounded CRC/Adler-32, semantic and specification validation
   rules. WP-600A checks Chunk CRCs without copying payloads and accepts a
   decoder-owned inflated span for Adler verification.
+- WP-600B adds bounded IHDR semantic checks, checked image resource budgets and
+  zlib/IDAT decode preflight without taking ownership of decoder work.
 - Stable rule ids and deterministic reports.
 
 ## Non-goals
