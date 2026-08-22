@@ -7,3 +7,7 @@ replayable from the test binary without writing generated files into the
 corpus. The harness checks bounded logical reads and wrapper size invariants;
 it is a smoke/foundation target, not a claim of coverage-guided fuzzing.
 
+The same executable also runs WP-603B over generated RGB/RGBA, packed indexed,
+16-bit grayscale and Adam7 images. It replays filter formulas and token trace
+output, then applies eight bounded byte mutations per image; mutations may
+yield errors or partial results but must not escape parser budgets.

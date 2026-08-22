@@ -3,6 +3,7 @@
 # a native coverage-guided engine without changing production code.
 
 add_executable(pnga_fuzz_smoke_tests
+  decode_reconstruction_fuzz_test.cpp
   parser_stream_fuzz_test.cpp
 )
 target_link_libraries(pnga_fuzz_smoke_tests PRIVATE
@@ -13,5 +14,8 @@ target_link_libraries(pnga_fuzz_smoke_tests PRIVATE
   Catch2::Catch2WithMain
 )
 target_compile_features(pnga_fuzz_smoke_tests PRIVATE cxx_std_20)
+target_include_directories(pnga_fuzz_smoke_tests PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common
+)
 
 add_test(NAME fuzz_parser_stream_smoke_tests COMMAND pnga_fuzz_smoke_tests)
