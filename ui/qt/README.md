@@ -13,6 +13,9 @@ everything under `libs/` stays Qt-free (ADR-0003).
   from the analysis engine rather than widget-side decoding. `SelectionViewState`
   keeps hover/locked coordinates, HexSource, numeric base and hex-follow mode
   as Qt-side state.
+- WP-5U2: the application composes a left Chunk dock, central Preview/Hex
+  splitter and right coordinate-toolbar/Inspector workspace; layout state is
+  persisted through Qt settings with a deterministic reset fallback.
 
 ## Non-goals
 

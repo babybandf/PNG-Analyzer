@@ -12,6 +12,7 @@
 #include <pnga/io/byte_source.h>
 #include <pnga/png-format/chunk_index.h>
 #include <pnga/trace-model/selection.h>
+#include <pnga/ui/qt/selection_view_state.h>
 
 #include <QMainWindow>
 #include <QObject>
@@ -22,7 +23,14 @@
 #include <memory>
 
 class QLabel;
+class QCheckBox;
+class QCloseEvent;
+class QComboBox;
+class QDockWidget;
 class QModelIndex;
+class QSpinBox;
+class QSplitter;
+class QTabWidget;
 class QTreeView;
 
 namespace pnga::ui::qt {
@@ -116,13 +124,23 @@ class MainWindow final : public QMainWindow {
   void onStageDone(std::uint64_t generation);
   void onPixelSelected(int x, int y);
   void onRowQueryStatus(std::uint64_t row, int status);
+  void resetLayout();
 
  private:
   void resetDocument();
   void startDecode();
   void startStageAnalysis();
   void openQueryCoordinator(const pnga::png_reconstruction::ImageHeader& header);
+  void restoreWorkspace();
+  void saveWorkspace() const;
+  void applyDefaultWorkspace();
+  void publishLockedCoordinate();
+  void clearLockedCoordinate();
 
+ protected:
+  void closeEvent(QCloseEvent* event) override;
+
+ private:
   std::shared_ptr<pnga::io::IByteSource> source_;
   pnga::png_format::ChunkIndex index_;
   pnga::ui::qt::ChunkModel* model_ = nullptr;
@@ -130,6 +148,17 @@ class MainWindow final : public QMainWindow {
   pnga::ui::qt::DeliveredImageView* image_view_ = nullptr;
   pnga::ui::qt::SelectionBus* bus_ = nullptr;
   pnga::ui::qt::StageInspector* inspector_ = nullptr;
+  pnga::ui::qt::SelectionViewState view_state_;
+  QDockWidget* chunks_dock_ = nullptr;
+  QDockWidget* inspector_dock_ = nullptr;
+  QTabWidget* preview_tabs_ = nullptr;
+  QTabWidget* inspector_tabs_ = nullptr;
+  QSplitter* center_splitter_ = nullptr;
+  QSpinBox* x_spin_ = nullptr;
+  QSpinBox* y_spin_ = nullptr;
+  QCheckBox* lock_check_ = nullptr;
+  QCheckBox* hex_follow_check_ = nullptr;
+  QComboBox* base_combo_ = nullptr;
   QTreeView* tree_ = nullptr;
   DecodeWorker* decode_worker_ = nullptr;
   StageWorker* stage_worker_ = nullptr;

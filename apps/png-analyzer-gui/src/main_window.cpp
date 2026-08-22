@@ -13,25 +13,36 @@
 #include <QAbstractItemView>
 #include <QAction>
 #include <QColor>
+#include <QCheckBox>
+#include <QCloseEvent>
+#include <QComboBox>
 #include <QMetaObject>
 #include <QDockWidget>
 #include <QFileDialog>
 #include <QHeaderView>
+#include <QHBoxLayout>
 #include <QImage>
 #include <QItemSelectionModel>
 #include <QKeySequence>
 #include <QLabel>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QSignalBlocker>
+#include <QSpinBox>
+#include <QSplitter>
 #include <QScrollBar>
 #include <QStatusBar>
+#include <QTabWidget>
 #include <QTreeView>
+#include <QVBoxLayout>
 #include <QWidget>
+#include <QSettings>
 
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <limits>
 #include <system_error>
 #include <vector>
 
@@ -80,32 +91,109 @@ void StageWorker::run() {
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   setWindowTitle(QStringLiteral("PNG Analyzer"));
 
-  hex_ = new pnga::ui::qt::HexView(this);
-  setCentralWidget(hex_);
+  center_splitter_ = new QSplitter(Qt::Vertical, this);
+  center_splitter_->setObjectName(QStringLiteral("previewHexSplitter"));
+  center_splitter_->setChildrenCollapsible(false);
 
-  auto* chunks = new QDockWidget(QStringLiteral("Chunks"), this);
-  chunks->setObjectName(QStringLiteral("chunksDock"));
-  tree_ = new QTreeView(chunks);
+  preview_tabs_ = new QTabWidget(center_splitter_);
+  preview_tabs_->setObjectName(QStringLiteral("previewTabs"));
+  preview_tabs_->setUsesScrollButtons(true);
+  image_view_ = new pnga::ui::qt::DeliveredImageView(preview_tabs_);
+  preview_tabs_->addTab(image_view_, QStringLiteral("Image"));
+  const auto addPreviewPlaceholder = [this](const QString& title) {
+    auto* label = new QLabel(QStringLiteral("Not available for current document"),
+                             preview_tabs_);
+    label->setAlignment(Qt::AlignCenter);
+    label->setObjectName(title.toLower().replace(QLatin1Char(' '),
+                                                 QLatin1Char('_')) +
+                         QStringLiteral("PreviewPlaceholder"));
+    preview_tabs_->addTab(label, title);
+  };
+  addPreviewPlaceholder(QStringLiteral("Pixels"));
+  addPreviewPlaceholder(QStringLiteral("Filter Map"));
+  addPreviewPlaceholder(QStringLiteral("Filtered"));
+  addPreviewPlaceholder(QStringLiteral("Defiltered"));
+
+  hex_ = new pnga::ui::qt::HexView(center_splitter_);
+  hex_->setObjectName(QStringLiteral("hexView"));
+  center_splitter_->addWidget(preview_tabs_);
+  center_splitter_->addWidget(hex_);
+  center_splitter_->setStretchFactor(0, 3);
+  center_splitter_->setStretchFactor(1, 2);
+  setCentralWidget(center_splitter_);
+
+  chunks_dock_ = new QDockWidget(QStringLiteral("Chunks"), this);
+  chunks_dock_->setObjectName(QStringLiteral("chunksDock"));
+  chunks_dock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+  chunks_dock_->setFeatures(QDockWidget::DockWidgetMovable |
+                            QDockWidget::DockWidgetFloatable |
+                            QDockWidget::DockWidgetClosable);
+  tree_ = new QTreeView(chunks_dock_);
   tree_->setSelectionBehavior(QAbstractItemView::SelectRows);
   tree_->setSelectionMode(QAbstractItemView::SingleSelection);
   tree_->setUniformRowHeights(true);
   tree_->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
-  chunks->setWidget(tree_);
-  addDockWidget(Qt::LeftDockWidgetArea, chunks);
+  chunks_dock_->setWidget(tree_);
+  addDockWidget(Qt::LeftDockWidgetArea, chunks_dock_);
 
   bus_ = new pnga::ui::qt::SelectionBus(this);
 
-  image_view_ = new pnga::ui::qt::DeliveredImageView(this);
-  auto* imageDock = new QDockWidget(QStringLiteral("Delivered Image"), this);
-  imageDock->setObjectName(QStringLiteral("imageDock"));
-  imageDock->setWidget(image_view_);
-  addDockWidget(Qt::RightDockWidgetArea, imageDock);
+  inspector_dock_ = new QDockWidget(QStringLiteral("Inspector"), this);
+  inspector_dock_->setObjectName(QStringLiteral("inspectorDock"));
+  inspector_dock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+  inspector_dock_->setFeatures(QDockWidget::DockWidgetMovable |
+                               QDockWidget::DockWidgetFloatable |
+                               QDockWidget::DockWidgetClosable);
+  auto* inspector_container = new QWidget(inspector_dock_);
+  auto* inspector_layout = new QVBoxLayout(inspector_container);
+  inspector_layout->setContentsMargins(6, 6, 6, 6);
+  auto* coordinate_bar = new QWidget(inspector_container);
+  coordinate_bar->setObjectName(QStringLiteral("coordinateToolbar"));
+  auto* coordinate_layout = new QHBoxLayout(coordinate_bar);
+  coordinate_layout->setContentsMargins(0, 0, 0, 0);
+  coordinate_layout->addWidget(new QLabel(QStringLiteral("X"), coordinate_bar));
+  x_spin_ = new QSpinBox(coordinate_bar);
+  x_spin_->setObjectName(QStringLiteral("xCoordinate"));
+  x_spin_->setRange(0, std::numeric_limits<int>::max());
+  coordinate_layout->addWidget(x_spin_);
+  coordinate_layout->addWidget(new QLabel(QStringLiteral("Y"), coordinate_bar));
+  y_spin_ = new QSpinBox(coordinate_bar);
+  y_spin_->setObjectName(QStringLiteral("yCoordinate"));
+  y_spin_->setRange(0, std::numeric_limits<int>::max());
+  coordinate_layout->addWidget(y_spin_);
+  lock_check_ = new QCheckBox(QStringLiteral("Lock"), coordinate_bar);
+  lock_check_->setObjectName(QStringLiteral("lockCoordinate"));
+  coordinate_layout->addWidget(lock_check_);
+  base_combo_ = new QComboBox(coordinate_bar);
+  base_combo_->setObjectName(QStringLiteral("numericBase"));
+  base_combo_->addItem(QStringLiteral("DEC"));
+  base_combo_->addItem(QStringLiteral("HEX"));
+  coordinate_layout->addWidget(base_combo_);
+  hex_follow_check_ = new QCheckBox(QStringLiteral("Hex follows pixel"),
+                                    coordinate_bar);
+  hex_follow_check_->setObjectName(QStringLiteral("hexFollowPixel"));
+  coordinate_layout->addWidget(hex_follow_check_);
+  coordinate_layout->addStretch(1);
+  inspector_layout->addWidget(coordinate_bar);
 
-  inspector_ = new pnga::ui::qt::StageInspector(this);
-  auto* stageDock = new QDockWidget(QStringLiteral("Stage Inspector"), this);
-  stageDock->setObjectName(QStringLiteral("stageDock"));
-  stageDock->setWidget(inspector_);
-  addDockWidget(Qt::RightDockWidgetArea, stageDock);
+  inspector_tabs_ = new QTabWidget(inspector_container);
+  inspector_tabs_->setObjectName(QStringLiteral("inspectorTabs"));
+  inspector_tabs_->setUsesScrollButtons(true);
+  inspector_ = new pnga::ui::qt::StageInspector(inspector_tabs_);
+  inspector_tabs_->addTab(inspector_, QStringLiteral("Reconstruct"));
+  const auto addInspectorPlaceholder = [this](const QString& title) {
+    auto* label = new QLabel(QStringLiteral("Not available for current selection"),
+                             inspector_tabs_);
+    label->setAlignment(Qt::AlignCenter);
+    inspector_tabs_->addTab(label, title);
+  };
+  addInspectorPlaceholder(QStringLiteral("Pixel"));
+  addInspectorPlaceholder(QStringLiteral("Scanline"));
+  addInspectorPlaceholder(QStringLiteral("Source"));
+  addInspectorPlaceholder(QStringLiteral("Format Context"));
+  inspector_layout->addWidget(inspector_tabs_, 1);
+  inspector_dock_->setWidget(inspector_container);
+  addDockWidget(Qt::RightDockWidgetArea, inspector_dock_);
 
   pixel_label_ = new QLabel(QStringLiteral("No image"), this);
   statusBar()->addWidget(pixel_label_);
@@ -114,6 +202,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   QAction* openAction = fileMenu->addAction(QStringLiteral("&Open..."));
   openAction->setShortcut(QKeySequence::Open);
   connect(openAction, &QAction::triggered, this, &MainWindow::onOpenTriggered);
+
+  QMenu* viewMenu = menuBar()->addMenu(QStringLiteral("&View"));
+  QAction* resetAction =
+      viewMenu->addAction(QStringLiteral("&Reset Layout"));
+  connect(resetAction, &QAction::triggered, this, &MainWindow::resetLayout);
 
   QMenu* helpMenu = menuBar()->addMenu(QStringLiteral("&Help"));
   helpMenu->addAction(QStringLiteral("About"), this, [this] {
@@ -135,6 +228,178 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   query_bridge_ = new QueryStatusBridge(this);
   connect(query_bridge_, &QueryStatusBridge::rowStatus, this,
           &MainWindow::onRowQueryStatus);
+
+  connect(x_spin_, qOverload<int>(&QSpinBox::valueChanged), this,
+          [this](int) {
+            if (lock_check_->isChecked()) {
+              publishLockedCoordinate();
+            }
+          });
+  connect(y_spin_, qOverload<int>(&QSpinBox::valueChanged), this,
+          [this](int) {
+            if (lock_check_->isChecked()) {
+              publishLockedCoordinate();
+            }
+          });
+  connect(lock_check_, &QCheckBox::toggled, this, [this](bool locked) {
+    if (locked) {
+      publishLockedCoordinate();
+    } else {
+      clearLockedCoordinate();
+    }
+  });
+  connect(base_combo_, qOverload<int>(&QComboBox::currentIndexChanged), this,
+          [this](int index) {
+            view_state_.numeric_base = index == 1
+                                           ? pnga::ui::qt::NumericBase::kHexadecimal
+                                           : pnga::ui::qt::NumericBase::kDecimal;
+          });
+  connect(hex_follow_check_, &QCheckBox::toggled, this,
+          [this](bool checked) { view_state_.hex_follow_pixel = checked; });
+
+  resize(1200, 760);
+  applyDefaultWorkspace();
+  restoreWorkspace();
+}
+
+void MainWindow::applyDefaultWorkspace() {
+  const auto preserved_locked = view_state_.locked;
+  const auto preserved_hover = view_state_.hover;
+  resize(1200, 760);
+  center_splitter_->setSizes({456, 304});
+  preview_tabs_->setCurrentIndex(0);
+  inspector_tabs_->setCurrentIndex(0);
+  chunks_dock_->show();
+  inspector_dock_->show();
+  resizeDocks({chunks_dock_, inspector_dock_}, {260, 360},
+              Qt::Horizontal);
+
+  view_state_.hex_source = pnga::ui::qt::HexSource::kFile;
+  view_state_.numeric_base = pnga::ui::qt::NumericBase::kDecimal;
+  view_state_.hex_follow_pixel = true;
+  view_state_.locked = preserved_locked;
+  view_state_.hover = preserved_hover;
+  {
+    const QSignalBlocker base_blocker(base_combo_);
+    const QSignalBlocker follow_blocker(hex_follow_check_);
+    const QSignalBlocker lock_blocker(lock_check_);
+    base_combo_->setCurrentIndex(0);
+    hex_follow_check_->setChecked(true);
+    lock_check_->setChecked(preserved_locked.has_value());
+    if (preserved_locked.has_value()) {
+      x_spin_->setValue(static_cast<int>(preserved_locked->x));
+      y_spin_->setValue(static_cast<int>(preserved_locked->y));
+    }
+  }
+}
+
+void MainWindow::restoreWorkspace() {
+  QSettings settings;
+  const bool has_saved =
+      settings.value(QStringLiteral("workspace/version")).toInt() == 1 &&
+      settings.contains(QStringLiteral("workspace/geometry")) &&
+      settings.contains(QStringLiteral("workspace/mainState")) &&
+      settings.contains(QStringLiteral("workspace/splitterState"));
+  if (!has_saved ||
+      !restoreGeometry(settings.value(QStringLiteral("workspace/geometry"))
+                           .toByteArray()) ||
+      !restoreState(settings.value(QStringLiteral("workspace/mainState"))
+                        .toByteArray()) ||
+      !center_splitter_->restoreState(
+          settings.value(QStringLiteral("workspace/splitterState"))
+              .toByteArray())) {
+    applyDefaultWorkspace();
+    return;
+  }
+
+  const int preview_index =
+      settings.value(QStringLiteral("workspace/previewTab"), 0).toInt();
+  const int inspector_index =
+      settings.value(QStringLiteral("workspace/inspectorTab"), 0).toInt();
+  if (preview_index < 0 || preview_index >= preview_tabs_->count() ||
+      inspector_index < 0 || inspector_index >= inspector_tabs_->count()) {
+    applyDefaultWorkspace();
+    return;
+  }
+  preview_tabs_->setCurrentIndex(preview_index);
+  inspector_tabs_->setCurrentIndex(inspector_index);
+
+  const int base = settings.value(QStringLiteral("view/numericBase"), 0).toInt();
+  const int source = settings.value(QStringLiteral("view/hexSource"), 0).toInt();
+  if (base < 0 || base > 1 || source < 0 || source > 3) {
+    applyDefaultWorkspace();
+    return;
+  }
+  view_state_.numeric_base = base == 1
+                                 ? pnga::ui::qt::NumericBase::kHexadecimal
+                                 : pnga::ui::qt::NumericBase::kDecimal;
+  view_state_.hex_source = static_cast<pnga::ui::qt::HexSource>(source);
+  view_state_.hex_follow_pixel =
+      settings.value(QStringLiteral("view/hexFollowPixel"), true).toBool();
+  {
+    const QSignalBlocker base_blocker(base_combo_);
+    const QSignalBlocker follow_blocker(hex_follow_check_);
+    base_combo_->setCurrentIndex(base);
+    hex_follow_check_->setChecked(view_state_.hex_follow_pixel);
+  }
+}
+
+void MainWindow::saveWorkspace() const {
+  QSettings settings;
+  settings.setValue(QStringLiteral("workspace/version"), 1);
+  settings.setValue(QStringLiteral("workspace/geometry"), saveGeometry());
+  settings.setValue(QStringLiteral("workspace/mainState"), saveState());
+  settings.setValue(QStringLiteral("workspace/splitterState"),
+                    center_splitter_->saveState());
+  settings.setValue(QStringLiteral("workspace/previewTab"),
+                    preview_tabs_->currentIndex());
+  settings.setValue(QStringLiteral("workspace/inspectorTab"),
+                    inspector_tabs_->currentIndex());
+  settings.setValue(QStringLiteral("view/numericBase"),
+                    static_cast<int>(view_state_.numeric_base));
+  settings.setValue(QStringLiteral("view/hexSource"),
+                    static_cast<int>(view_state_.hex_source));
+  settings.setValue(QStringLiteral("view/hexFollowPixel"),
+                    view_state_.hex_follow_pixel);
+}
+
+void MainWindow::resetLayout() {
+  QSettings settings;
+  settings.beginGroup(QStringLiteral("workspace"));
+  settings.clear();
+  settings.endGroup();
+  settings.beginGroup(QStringLiteral("view"));
+  settings.clear();
+  settings.endGroup();
+  applyDefaultWorkspace();
+}
+
+void MainWindow::publishLockedCoordinate() {
+  const pnga::trace_model::ImageCoordinate coordinate{
+      0, 0, 0, static_cast<std::uint64_t>(x_spin_->value()),
+      static_cast<std::uint64_t>(y_spin_->value())};
+  if (!view_state_.set_locked(coordinate)) {
+    return;
+  }
+  pnga::trace_model::Selection update;
+  update.image = coordinate;
+  update.stage = pnga::trace_model::Stage::kDelivered;
+  bus_->publishMerged(kImagePanelOrigin, generation_, update);
+}
+
+void MainWindow::clearLockedCoordinate() {
+  view_state_.clear_locked();
+  pnga::trace_model::Selection current = bus_->current();
+  current.image.reset();
+  if (current.stage == pnga::trace_model::Stage::kDelivered) {
+    current.stage = pnga::trace_model::Stage::kUnknown;
+  }
+  bus_->publish(kImagePanelOrigin, generation_, current);
+}
+
+void MainWindow::closeEvent(QCloseEvent* event) {
+  saveWorkspace();
+  QMainWindow::closeEvent(event);
 }
 
 void MainWindow::openQueryCoordinator(
@@ -204,6 +469,11 @@ bool MainWindow::openFile(const QString& path) {
   index_ = pnga::png_format::index_chunks(*source_);
   ++generation_;
   bus_->setDocumentGeneration(generation_);
+  view_state_.set_document_generation(generation_);
+  {
+    const QSignalBlocker lock_blocker(lock_check_);
+    lock_check_->setChecked(false);
+  }
   resetDocument();
   startDecode();
   startStageAnalysis();
@@ -309,10 +579,18 @@ void MainWindow::onChunkSelectionChanged(const QModelIndex& current,
       pnga::trace_model::BitSpan{node.data_offset, node.data_length},
       pnga::trace_model::BitSpan{node.crc_offset, kCrcSpanLength}};
   sel.stage = pnga::trace_model::Stage::kChunk;
-  bus_->publish(kChunkPanelOrigin, generation_, sel);
+  bus_->publishMerged(kChunkPanelOrigin, generation_, sel);
 }
 
 void MainWindow::onPixelSelected(int x, int y) {
+  {
+    const QSignalBlocker x_blocker(x_spin_);
+    const QSignalBlocker y_blocker(y_spin_);
+    const QSignalBlocker lock_blocker(lock_check_);
+    x_spin_->setValue(x);
+    y_spin_->setValue(y);
+    lock_check_->setChecked(true);
+  }
   inspector_->onPixelSelected(static_cast<std::uint64_t>(x),
                               static_cast<std::uint64_t>(y));
   if (query_ != nullptr && query_->has_index() &&
@@ -330,12 +608,11 @@ void MainWindow::onPixelSelected(int x, int y) {
     }
   }
   pnga::trace_model::Selection sel;
-  sel.image = pnga::trace_model::ImageCoordinate{0, 0, 0,
-                                                 static_cast<std::uint64_t>(x),
-                                                 static_cast<std::uint64_t>(y),
-                                                 0};
+  sel.image = pnga::trace_model::ImageCoordinate{
+      0, 0, 0, static_cast<std::uint64_t>(x), static_cast<std::uint64_t>(y)};
   sel.stage = pnga::trace_model::Stage::kDelivered;
-  bus_->publish(kImagePanelOrigin, generation_, sel);
+  view_state_.set_locked(*sel.image);
+  bus_->publishMerged(kImagePanelOrigin, generation_, sel);
   const auto rgba = image_view_->rgbaAt(x, y);
   if (rgba.has_value()) {
     pixel_label_->setText(

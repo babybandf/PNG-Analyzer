@@ -21,7 +21,6 @@ int main(int argc, char** argv) {
   window.setWindowTitle(
       QStringLiteral("PNG Analyzer %1")
           .arg(QString::fromLatin1(pnga::version_string())));
-  window.resize(1080, 720);
   window.show();
 
   if (argc > 1) {
