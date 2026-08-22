@@ -29,6 +29,21 @@ target_compile_features(pnga_gui_image_transform_tests PRIVATE cxx_std_20)
 
 add_test(NAME gui_image_transform_tests COMMAND pnga_gui_image_transform_tests)
 
+add_executable(pnga_gui_delivered_image_view_interaction_tests
+  delivered_image_view_interaction_test.cpp
+)
+set_target_properties(pnga_gui_delivered_image_view_interaction_tests PROPERTIES
+  AUTOMOC ON
+)
+target_link_libraries(pnga_gui_delivered_image_view_interaction_tests PRIVATE
+  pnga::ui_qt
+  Qt6::Test
+)
+target_compile_features(pnga_gui_delivered_image_view_interaction_tests PRIVATE cxx_std_20)
+
+add_test(NAME gui_delivered_image_view_interaction_tests
+  COMMAND pnga_gui_delivered_image_view_interaction_tests)
+
 add_executable(pnga_gui_selection_bus_tests
   selection_bus_test.cpp
 )

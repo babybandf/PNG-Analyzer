@@ -27,6 +27,7 @@ class QCheckBox;
 class QCloseEvent;
 class QComboBox;
 class QDockWidget;
+class QEvent;
 class QModelIndex;
 class QSpinBox;
 class QSplitter;
@@ -136,9 +137,11 @@ class MainWindow final : public QMainWindow {
   void applyDefaultWorkspace();
   void publishLockedCoordinate();
   void clearLockedCoordinate();
+  void nudgeLockedCoordinate(int dx, int dy);
 
  protected:
   void closeEvent(QCloseEvent* event) override;
+  bool eventFilter(QObject* watched, QEvent* event) override;
 
  private:
   std::shared_ptr<pnga::io::IByteSource> source_;

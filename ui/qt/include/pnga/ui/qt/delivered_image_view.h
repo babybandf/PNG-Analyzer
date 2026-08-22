@@ -11,6 +11,11 @@
 #include <QPoint>
 #include <QWidget>
 
+#include <optional>
+
+class QEvent;
+class QKeyEvent;
+
 namespace pnga::ui::qt {
 
 class DeliveredImageView final : public QWidget {
@@ -29,6 +34,15 @@ class DeliveredImageView final : public QWidget {
   // For tests: maps a widget point back to image pixels at current zoom.
   QPoint imagePointAt(const QPoint& widgetPoint) const;
 
+  // Returns the image pixel under a widget point, or null outside the drawn
+  // image. Unlike imagePointAt(), this does not clamp points in the margin.
+  std::optional<QPoint> imagePixelAt(const QPoint& widgetPoint) const;
+
+  void setHoverPixel(const QPoint& pixel);
+  void clearHoverPixel();
+  void setLockedPixel(const QPoint& pixel);
+  void clearLockedPixel();
+
  protected:
   void paintEvent(QPaintEvent* event) override;
   void resizeEvent(QResizeEvent* event) override;
@@ -36,10 +50,18 @@ class DeliveredImageView final : public QWidget {
   void mousePressEvent(QMouseEvent* event) override;
   void mouseMoveEvent(QMouseEvent* event) override;
   void mouseReleaseEvent(QMouseEvent* event) override;
+  void leaveEvent(QEvent* event) override;
+  void keyPressEvent(QKeyEvent* event) override;
 
  signals:
   // Published when the user clicks a pixel (image coordinates).
   void pixelSelected(int x, int y);
+  // Hover is presentation-only and must not publish a Selection or trigger
+  // expensive analysis.
+  void pixelHovered(int x, int y);
+  void pixelHoverLeft();
+  void pixelNudgeRequested(int dx, int dy);
+  void selectionCancelled();
 
  private:
   void refit();
@@ -47,7 +69,11 @@ class DeliveredImageView final : public QWidget {
   QImage image_;
   ImageTransform transform_;
   QPoint lastMouse_;
+  QPoint pressPosition_;
+  std::optional<QPoint> hover_pixel_;
+  std::optional<QPoint> locked_pixel_;
   bool panning_ = false;
+  bool dragged_ = false;
 };
 
 }  // namespace pnga::ui::qt

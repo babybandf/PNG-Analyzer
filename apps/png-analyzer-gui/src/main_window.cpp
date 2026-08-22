@@ -18,11 +18,13 @@
 #include <QComboBox>
 #include <QMetaObject>
 #include <QDockWidget>
+#include <QEvent>
 #include <QFileDialog>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QImage>
 #include <QItemSelectionModel>
+#include <QKeyEvent>
 #include <QKeySequence>
 #include <QLabel>
 #include <QMenuBar>
@@ -224,6 +226,28 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
   connect(image_view_, &pnga::ui::qt::DeliveredImageView::pixelSelected,
           this, &MainWindow::onPixelSelected);
+  connect(image_view_, &pnga::ui::qt::DeliveredImageView::pixelHovered,
+          this, [this](int x, int y) {
+            const pnga::trace_model::ImageCoordinate coordinate{
+                0, 0, 0, static_cast<std::uint64_t>(x),
+                static_cast<std::uint64_t>(y)};
+            view_state_.set_hover(coordinate);
+          });
+  connect(image_view_, &pnga::ui::qt::DeliveredImageView::pixelHoverLeft,
+          this, [this] { view_state_.clear_hover(); });
+  connect(image_view_,
+          &pnga::ui::qt::DeliveredImageView::pixelNudgeRequested, this,
+          &MainWindow::nudgeLockedCoordinate);
+  connect(image_view_,
+          &pnga::ui::qt::DeliveredImageView::selectionCancelled, this,
+          &MainWindow::clearLockedCoordinate);
+  x_spin_->installEventFilter(this);
+  y_spin_->installEventFilter(this);
+  lock_check_->installEventFilter(this);
+  base_combo_->installEventFilter(this);
+  hex_follow_check_->installEventFilter(this);
+  preview_tabs_->installEventFilter(this);
+  inspector_tabs_->installEventFilter(this);
 
   query_bridge_ = new QueryStatusBridge(this);
   connect(query_bridge_, &QueryStatusBridge::rowStatus, this,
@@ -381,6 +405,8 @@ void MainWindow::publishLockedCoordinate() {
   if (!view_state_.set_locked(coordinate)) {
     return;
   }
+  image_view_->setLockedPixel(
+      QPoint(static_cast<int>(coordinate.x), static_cast<int>(coordinate.y)));
   pnga::trace_model::Selection update;
   update.image = coordinate;
   update.stage = pnga::trace_model::Stage::kDelivered;
@@ -389,12 +415,64 @@ void MainWindow::publishLockedCoordinate() {
 
 void MainWindow::clearLockedCoordinate() {
   view_state_.clear_locked();
+  image_view_->clearLockedPixel();
+  {
+    const QSignalBlocker lock_blocker(lock_check_);
+    lock_check_->setChecked(false);
+  }
   pnga::trace_model::Selection current = bus_->current();
   current.image.reset();
   if (current.stage == pnga::trace_model::Stage::kDelivered) {
     current.stage = pnga::trace_model::Stage::kUnknown;
   }
   bus_->publish(kImagePanelOrigin, generation_, current);
+}
+
+void MainWindow::nudgeLockedCoordinate(int dx, int dy) {
+  if (!view_state_.locked.has_value() || image_view_->image().isNull()) {
+    return;
+  }
+  const QImage image = image_view_->image();
+  std::uint64_t x = view_state_.locked->x;
+  std::uint64_t y = view_state_.locked->y;
+  if (dx < 0) {
+    if (x == 0) {
+      return;
+    }
+    --x;
+  } else if (dx > 0) {
+    if (x >= static_cast<std::uint64_t>(image.width() - 1)) {
+      return;
+    }
+    ++x;
+  }
+  if (dy < 0) {
+    if (y == 0) {
+      return;
+    }
+    --y;
+  } else if (dy > 0) {
+    if (y >= static_cast<std::uint64_t>(image.height() - 1)) {
+      return;
+    }
+    ++y;
+  }
+  onPixelSelected(static_cast<int>(x), static_cast<int>(y));
+}
+
+bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
+  if ((watched == x_spin_ || watched == y_spin_ || watched == lock_check_ ||
+       watched == base_combo_ || watched == hex_follow_check_ ||
+       watched == preview_tabs_ || watched == inspector_tabs_) &&
+      event->type() == QEvent::KeyPress) {
+    auto* key_event = static_cast<QKeyEvent*>(event);
+    if (key_event->key() == Qt::Key_Escape) {
+      clearLockedCoordinate();
+      key_event->accept();
+      return true;
+    }
+  }
+  return QMainWindow::eventFilter(watched, event);
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
@@ -470,6 +548,8 @@ bool MainWindow::openFile(const QString& path) {
   ++generation_;
   bus_->setDocumentGeneration(generation_);
   view_state_.set_document_generation(generation_);
+  image_view_->clearHoverPixel();
+  image_view_->clearLockedPixel();
   {
     const QSignalBlocker lock_blocker(lock_check_);
     lock_check_->setChecked(false);
@@ -612,6 +692,7 @@ void MainWindow::onPixelSelected(int x, int y) {
       0, 0, 0, static_cast<std::uint64_t>(x), static_cast<std::uint64_t>(y)};
   sel.stage = pnga::trace_model::Stage::kDelivered;
   view_state_.set_locked(*sel.image);
+  image_view_->setLockedPixel(QPoint(x, y));
   bus_->publishMerged(kImagePanelOrigin, generation_, sel);
   const auto rgba = image_view_->rgbaAt(x, y);
   if (rgba.has_value()) {

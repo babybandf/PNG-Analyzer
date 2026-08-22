@@ -3,6 +3,9 @@
 
 #include "main_window.h"
 
+#include <pnga/ui/qt/delivered_image_view.h>
+#include <pnga/ui/qt/selection_bus.h>
+
 #include <QtTest/QtTest>
 
 #include <QAction>
@@ -25,6 +28,7 @@ class MainWindowLayoutTest : public QObject {
   void workspaceSettingsRoundTrip();
   void corruptSettingsFallBackToDefaults();
   void resetLayoutRestoresDefaultsWithoutFileState();
+  void coordinateInteractionUsesToolbarAndKeyboard();
 };
 
 void MainWindowLayoutTest::init() {
@@ -163,6 +167,44 @@ void MainWindowLayoutTest::resetLayoutRestoresDefaultsWithoutFileState() {
   reset->trigger();
   QCOMPARE(preview->currentIndex(), 0);
   QCOMPARE(inspector->currentIndex(), 0);
+}
+
+void MainWindowLayoutTest::coordinateInteractionUsesToolbarAndKeyboard() {
+  MainWindow window;
+  window.show();
+  QCoreApplication::processEvents();
+  auto* image = window.findChild<pnga::ui::qt::DeliveredImageView*>();
+  auto* bus = window.findChild<pnga::ui::qt::SelectionBus*>();
+  auto* x = window.findChild<QSpinBox*>(QStringLiteral("xCoordinate"));
+  auto* y = window.findChild<QSpinBox*>(QStringLiteral("yCoordinate"));
+  auto* lock = window.findChild<QCheckBox*>(QStringLiteral("lockCoordinate"));
+  QVERIFY(image != nullptr);
+  QVERIFY(bus != nullptr);
+  QVERIFY(x != nullptr);
+  QVERIFY(y != nullptr);
+  QVERIFY(lock != nullptr);
+
+  QImage delivered(2, 2, QImage::Format_RGBA8888);
+  delivered.fill(qRgba(1, 2, 3, 255));
+  image->setImage(delivered);
+  QCoreApplication::processEvents();
+  QTest::mouseClick(image, Qt::LeftButton, Qt::NoModifier,
+                    image->rect().center());
+  QVERIFY(lock->isChecked());
+  QVERIFY(x->value() >= 0 && x->value() < 2);
+  QVERIFY(y->value() >= 0 && y->value() < 2);
+  QVERIFY(bus->current().image.has_value());
+  QCOMPARE(bus->current().image->x, static_cast<std::uint64_t>(x->value()));
+  QCOMPARE(bus->current().image->y, static_cast<std::uint64_t>(y->value()));
+
+  const int old_x = x->value();
+  const int old_y = y->value();
+  QTest::keyClick(image, old_x == 0 ? Qt::Key_Right : Qt::Key_Left);
+  QCOMPARE(x->value(), old_x == 0 ? 1 : 0);
+  QCOMPARE(y->value(), old_y);
+  QTest::keyClick(image, Qt::Key_Escape);
+  QVERIFY(!lock->isChecked());
+  QVERIFY(!bus->current().image.has_value());
 }
 
 QTEST_MAIN(MainWindowLayoutTest)

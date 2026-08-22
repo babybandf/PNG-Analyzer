@@ -16,6 +16,9 @@ everything under `libs/` stays Qt-free (ADR-0003).
 - WP-5U2: the application composes a left Chunk dock, central Preview/Hex
   splitter and right coordinate-toolbar/Inspector workspace; layout state is
   persisted through Qt settings with a deterministic reset fallback.
+- WP-5U3A: `DeliveredImageView` keeps hover presentation transient and emits
+  explicit click, keyboard-nudge and cancel events; locked/hover pixel markers
+  are rendered without publishing hover as a domain Selection.
 
 ## Non-goals
 
