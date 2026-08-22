@@ -44,6 +44,19 @@ target_compile_features(pnga_gui_delivered_image_view_interaction_tests PRIVATE 
 add_test(NAME gui_delivered_image_view_interaction_tests
   COMMAND pnga_gui_delivered_image_view_interaction_tests)
 
+add_executable(pnga_gui_pixel_viewport_tests
+  pixel_viewport_test.cpp
+)
+set_target_properties(pnga_gui_pixel_viewport_tests PROPERTIES AUTOMOC ON)
+target_link_libraries(pnga_gui_pixel_viewport_tests PRIVATE
+  pnga::ui_qt
+  pnga::analysis_engine
+  Qt6::Test
+)
+target_compile_features(pnga_gui_pixel_viewport_tests PRIVATE cxx_std_20)
+
+add_test(NAME gui_pixel_viewport_tests COMMAND pnga_gui_pixel_viewport_tests)
+
 add_executable(pnga_gui_selection_bus_tests
   selection_bus_test.cpp
 )

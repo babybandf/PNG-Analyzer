@@ -9,6 +9,8 @@ Orchestration rather than codec algorithms (REPOSITORY_LAYOUT.md §5.10, ADR-000
   IDAT bit spans (WP-504).
 - Qt-free coordinate summaries that resolve image-global coordinates to
   pass-local rows, stage byte/bit offsets and native sample indices (WP-5U1).
+- Bounded native-sample viewport queries with a one-request cache for the
+  Pixels view (WP-5U3B); viewport requests never allocate a full-size QImage.
 - Worker scheduling, cancellation and generation IDs (later WP).
 - Artifact cache, memory budgets and stale-result suppression.
 - Backend selection and publication of immutable results.

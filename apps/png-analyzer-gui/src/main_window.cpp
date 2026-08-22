@@ -7,6 +7,7 @@
 #include <pnga/ui/qt/chunk_model.h>
 #include <pnga/ui/qt/delivered_image_view.h>
 #include <pnga/ui/qt/hex_view.h>
+#include <pnga/ui/qt/pixel_viewport.h>
 #include <pnga/ui/qt/selection_bus.h>
 #include <pnga/ui/qt/stage_inspector.h>
 
@@ -102,6 +103,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   preview_tabs_->setUsesScrollButtons(true);
   image_view_ = new pnga::ui::qt::DeliveredImageView(preview_tabs_);
   preview_tabs_->addTab(image_view_, QStringLiteral("Image"));
+  pixel_view_ = new pnga::ui::qt::PixelViewport(preview_tabs_);
+  preview_tabs_->addTab(pixel_view_, QStringLiteral("Pixels"));
   const auto addPreviewPlaceholder = [this](const QString& title) {
     auto* label = new QLabel(QStringLiteral("Not available for current document"),
                              preview_tabs_);
@@ -111,7 +114,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                          QStringLiteral("PreviewPlaceholder"));
     preview_tabs_->addTab(label, title);
   };
-  addPreviewPlaceholder(QStringLiteral("Pixels"));
   addPreviewPlaceholder(QStringLiteral("Filter Map"));
   addPreviewPlaceholder(QStringLiteral("Filtered"));
   addPreviewPlaceholder(QStringLiteral("Defiltered"));
@@ -407,6 +409,7 @@ void MainWindow::publishLockedCoordinate() {
   }
   image_view_->setLockedPixel(
       QPoint(static_cast<int>(coordinate.x), static_cast<int>(coordinate.y)));
+  pixel_view_->setCenter(coordinate.x, coordinate.y);
   pnga::trace_model::Selection update;
   update.image = coordinate;
   update.stage = pnga::trace_model::Stage::kDelivered;
@@ -520,6 +523,7 @@ void MainWindow::onStageDone(std::uint64_t generation) {
   const auto stage = stage_worker_->result();
   const auto header = stage->header;
   inspector_->setStageSet(stage);
+  pixel_view_->setStageSet(stage);
   stage_worker_ = nullptr;
   openQueryCoordinator(header);
 }
@@ -548,6 +552,7 @@ bool MainWindow::openFile(const QString& path) {
   ++generation_;
   bus_->setDocumentGeneration(generation_);
   view_state_.set_document_generation(generation_);
+  pixel_view_->clear();
   image_view_->clearHoverPixel();
   image_view_->clearLockedPixel();
   {
@@ -693,6 +698,8 @@ void MainWindow::onPixelSelected(int x, int y) {
   sel.stage = pnga::trace_model::Stage::kDelivered;
   view_state_.set_locked(*sel.image);
   image_view_->setLockedPixel(QPoint(x, y));
+  pixel_view_->setCenter(static_cast<std::uint64_t>(x),
+                         static_cast<std::uint64_t>(y));
   bus_->publishMerged(kImagePanelOrigin, generation_, sel);
   const auto rgba = image_view_->rgbaAt(x, y);
   if (rgba.has_value()) {

@@ -9,6 +9,7 @@ add_executable(pnga_analysis_engine_tests
   query_coordinator_test.cpp
   scanline_anchor_test.cpp
   stage_analysis_test.cpp
+  stage_viewport_test.cpp
 )
 target_link_libraries(pnga_analysis_engine_tests PRIVATE
   pnga::analysis_engine

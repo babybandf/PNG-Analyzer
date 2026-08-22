@@ -12,6 +12,7 @@ add_library(pnga_ui_qt
   include/pnga/ui/qt/delivered_image_view.h
   include/pnga/ui/qt/hex_view.h
   include/pnga/ui/qt/image_transform.h
+  include/pnga/ui/qt/pixel_viewport.h
   include/pnga/ui/qt/selection_bus.h
   include/pnga/ui/qt/selection_view_state.h
   include/pnga/ui/qt/stage_inspector.h
@@ -21,6 +22,7 @@ add_library(pnga_ui_qt
   src/delivered_image_view.cpp
   src/hex_view.cpp
   src/image_transform.cpp
+  src/pixel_viewport.cpp
   src/selection_bus.cpp
   src/stage_inspector.cpp
   src/stage_inspector_model.cpp
