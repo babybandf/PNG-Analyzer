@@ -32,7 +32,7 @@
 | M2 统一模型与参考解码 | 实现完成 | WP-200～206 | 快速连续切换文件的完整 GUI 压测仍需 Gate 化 |
 | M3 可观测重建流水线 | 实现完成 | WP-300～306 | conformance corpus 与 sanitizer Gate 尚未形成完整证据包 |
 | M4 大文件索引与随机访问 | 实现完成 | WP-400～406 | 固定性能 corpus、机器基线与阈值尚未冻结 |
-| M5 Deep Deflate Trace | Block/Huffman/Decode Trace Inspector 已实现，Trace 编排与 UI 主线已实现 | WP-500～504、WP-5U0～WP-5U5B、WP-5T0A～WP-5T0B、WP-505A～WP-505C | 端到端 Trace Gate、fuzz/sanitizer 仍未完成 |
+| M5 Deep Deflate Trace | Block/Huffman/Decode Trace Inspector 与 bounded Trace Gate 已实现 | WP-500～504、WP-5U0～WP-5U5B、WP-5T0A～WP-5T0B、WP-505A～WP-505C、bounded Trace Gate | WP-5U6A/B/C failure/performance/cross-platform Gate、fuzz/sanitizer 与发布证据仍未完成 |
 | M6 Validation、Statistics、发布 | 未开始 | 仅有早期 structural validation | 范围按第 6 节重排 |
 | M7 APNG | 未开始 | 模型预留 frame 维度 | 维持 post-v1 |
 
@@ -53,7 +53,7 @@ git status --short --branch
 结果：
 
 - 当前提交完整 dev 构建通过，Qt 6.11.1 GUI target 已启用。
-- 27/27 个 CTest 测试入口通过，包含 core、parser、reconstruction、Deflate、differential、CLI 与 GUI 测试；新增 Block/Huffman/Decode Trace Inspector 的 Qt-free 与 Qt 测试。
+- 28/28 个 CTest 测试入口通过，包含 core、parser、reconstruction、Deflate、differential、CLI 与 GUI 测试；新增 Block/Huffman/Decode Trace Inspector、统一 binding 的 Qt-free 与 Qt 测试。
 - 仓库布局检查：0 failure、0 warning。
 - 依赖静态检查：0 failure、0 warning。
 - 本次核验覆盖当前 `main`；WP-5T0B 的编排、测试和计划文档变更在验证后统一提交。
@@ -65,7 +65,7 @@ git status --short --branch
 当前界面已经能显示 Chunk、文件 Hex、Delivered Image 和基础 Stage Inspector；WP-5U0～WP-5U5B 已按冻结契约落地，主要剩余差距是：
 
 - Hex 多数据源、坐标交互、阶段 viewport、自适应标签、Reconstruct view model 和 Inspector 首版已实现；跨平台与性能 Gate 仍未关闭。
-- WP-500～504 已提供 wrapper、block、Huffman、token、LZ source 和 pixel provenance 基础；WP-5T0A～WP-5T0B 已形成受预算、可取消、generation 安全的聚合查询链路；WP-505A～WP-505C 已将 block 关联范围、码表构建顺序、token 算术和导航上下文投影到 Qt-free/UI。
+- WP-500～504 已提供 wrapper、block、Huffman、token、LZ source 和 pixel provenance 基础；WP-5T0A～WP-5T0B 已形成受预算、可取消、generation 安全的聚合查询链路；WP-505A～WP-505C 与 bounded Trace Gate 已将 block 关联范围、码表构建顺序、token 算术、受限原始 literal 路径和导航上下文投影到 Qt-free/UI。
 - 当前 `StageSet` 会物化完整阶段数据；后续 UI Gate 不能据此扩展为“每个阶段都长期持有一张全尺寸 QImage”。
 - 测试 corpus 目前以生成式单元 fixture 为主，尚未形成 UI 验收矩阵与 Trace Gate 所需的受控样本集合。
 
@@ -412,9 +412,10 @@ WP-700～703 不变。静态 PNG 模型继续保留 frame 维度，但任何 Fra
 ## 7. 下一项可直接启动的任务
 
 `WP-5U0` 已由 `docs/development/wp-5u0-ui-spec.md` 冻结，且其依赖的
-WP-5U1～WP-5U5B、WP-5T0A～WP-5T0B、WP-505A～WP-505C 已落地。当前下一项是
-M5 Trace Gate 收口：覆盖端到端 trace 连接、Hex/Reconstruct 双向导航、受限
-Trace to Original Literal、fuzz/sanitizer 和性能证据；不得在 GUI 重写 Deflate 解析。
+WP-5U1～WP-5U5B、WP-5T0A～WP-5T0B、WP-505A～WP-505C 与 bounded Trace Gate
+已落地。当前下一项是 `WP-5U6A Async & Failure States`：把 loading/replaying/
+partial/error/cancelled、快速换文件和 stale generation 的 UI 状态矩阵接入
+统一 binding；不得在 GUI 重写 Deflate 解析。
 
 WP-5U0 已冻结的产品决策继续作为后续实现约束：
 

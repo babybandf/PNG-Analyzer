@@ -42,6 +42,9 @@ everything under `libs/` stays Qt-free (ADR-0003).
   RFC length/distance base-plus-extra arithmetic, overlap-safe match sources,
   selected output bytes and Hex/DEFLATE range signals. The main workspace
   exposes it as `DEFLATE / Decode Trace`.
+- M5 Trace Gate: `TraceInspectorBinding` publishes one generation-consistent
+  `TraceQueryResult` projection to all three Deflate pages; bounded
+  Trace-to-Original-Literal and navigation semantics remain Qt-free.
 
 ## Non-goals
 

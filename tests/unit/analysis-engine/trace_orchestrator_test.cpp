@@ -2,6 +2,7 @@
 // stale-generation suppression, source lifetime and ready result delivery.
 
 #include <pnga/analysis-engine/trace_orchestrator.h>
+#include <pnga/analysis-engine/trace_inspector_bundle.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -49,9 +50,12 @@ TEST_CASE("Trace orchestrator delivers a bounded ready result",
   std::mutex mutex;
   std::condition_variable cv;
   std::shared_ptr<pnga::analysis_engine::TraceQueryResult> delivered;
+  std::shared_ptr<pnga::analysis_engine::TraceInspectorBundle> bundle;
   orchestrator.setResultCallback([&](const auto& result) {
     std::lock_guard<std::mutex> lock(mutex);
     delivered = std::make_shared<pnga::analysis_engine::TraceQueryResult>(result);
+    bundle = std::make_shared<pnga::analysis_engine::TraceInspectorBundle>(
+        pnga::analysis_engine::build_trace_inspector_bundle(result));
     cv.notify_all();
   });
   REQUIRE(orchestrator.open(shared_source(encoded.png_bytes), 1u << 20));
@@ -75,6 +79,13 @@ TEST_CASE("Trace orchestrator delivers a bounded ready result",
   REQUIRE(delivered->status == TraceQueryStatus::kReady);
   REQUIRE(delivered->generation == 1);
   REQUIRE_FALSE(delivered->tokens.empty());
+  REQUIRE(bundle->generation == delivered->generation);
+  REQUIRE(bundle->block.status ==
+          pnga::analysis_engine::BlockInspectorStatus::kReady);
+  REQUIRE(bundle->huffman.status ==
+          pnga::analysis_engine::HuffmanInspectorStatus::kReady);
+  REQUIRE(bundle->decode.status ==
+          pnga::analysis_engine::DecodeTraceInspectorStatus::kReady);
 }
 
 TEST_CASE("Trace orchestrator rejects stale and over-budget submissions",

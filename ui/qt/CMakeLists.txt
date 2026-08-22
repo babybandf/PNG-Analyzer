@@ -20,6 +20,7 @@ add_library(pnga_ui_qt
   include/pnga/ui/qt/selection_bus.h
   include/pnga/ui/qt/selection_view_state.h
   include/pnga/ui/qt/stage_inspector.h
+  include/pnga/ui/qt/trace_inspector_binding.h
   include/pnga/ui/qt/stage_inspector_model.h
   include/pnga/ui/qt/stage_preview_view.h
   src/about_dialog.cpp
@@ -34,6 +35,7 @@ add_library(pnga_ui_qt
   src/pixel_viewport.cpp
   src/selection_bus.cpp
   src/stage_inspector.cpp
+  src/trace_inspector_binding.cpp
   src/stage_inspector_model.cpp
   src/stage_preview_view.cpp
 )
