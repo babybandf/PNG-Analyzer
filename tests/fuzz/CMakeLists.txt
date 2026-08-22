@@ -22,3 +22,16 @@ add_test(NAME fuzz_parser_stream_smoke_tests COMMAND pnga_fuzz_smoke_tests)
 set_tests_properties(fuzz_parser_stream_smoke_tests PROPERTIES
   LABELS "fuzz;sanitizer"
 )
+
+if(PNGA_BUILD_COVERAGE_FUZZ)
+  add_executable(pnga_coverage_fuzz
+    coverage/coverage_fuzz_driver.cpp
+  )
+  target_link_libraries(pnga_coverage_fuzz PRIVATE
+    pnga::analysis_engine
+    pnga::deflate_trace
+    pnga::png_format
+    pnga::io
+  )
+  target_compile_features(pnga_coverage_fuzz PRIVATE cxx_std_20)
+endif()

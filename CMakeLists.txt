@@ -25,6 +25,9 @@ else()
 endif()
 
 option(PNGA_BUILD_TESTS "Build PNG Analyzer tests" ON)
+option(PNGA_BUILD_COVERAGE_FUZZ
+       "Build the optional LLVM libFuzzer harness (requires a fuzzer runtime)"
+       OFF)
 
 add_subdirectory(libs/core)
 add_subdirectory(libs/io)

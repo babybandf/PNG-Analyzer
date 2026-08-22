@@ -44,12 +44,28 @@
         "CMAKE_BUILD_TYPE": "Release",
         "PNGA_BUILD_TESTS": "ON"
       }
+    },
+    {
+      "name": "coverage-fuzz",
+      "inherits": "base",
+      "displayName": "Optional LLVM libFuzzer harness",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_DISABLE_FIND_PACKAGE_Qt6": "TRUE",
+        "PNGA_BUILD_TESTS": "ON",
+        "PNGA_BUILD_COVERAGE_FUZZ": "ON",
+        "CMAKE_CXX_FLAGS": "-fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer",
+        "CMAKE_C_FLAGS": "-fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=fuzzer,address,undefined",
+        "CMAKE_SHARED_LINKER_FLAGS": "-fsanitize=fuzzer,address,undefined"
+      }
     }
   ],
   "buildPresets": [
     { "name": "dev", "configurePreset": "dev" },
     { "name": "asan", "configurePreset": "asan" },
-    { "name": "release", "configurePreset": "release" }
+    { "name": "release", "configurePreset": "release" },
+    { "name": "coverage-fuzz", "configurePreset": "coverage-fuzz" }
   ],
   "testPresets": [
     { "name": "dev", "configurePreset": "dev", "output": { "outputOnFailure": true } },
