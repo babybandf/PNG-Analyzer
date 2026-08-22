@@ -1,7 +1,7 @@
 # PNG Analyzer 当前开发进度与后续执行计划（2026-08-22）
 
 > Status: Active execution supplement
-> Baseline commit: `1d6cea3` (`main`，WP-5U6C 本地 Gate 实现后的代码基线)
+> Baseline commit: `763de65` (`main`，WP-600A 完成后的代码基线)
 > Parent plan: [PNG Analyzer Agent 可执行开发计划 v0.1](png-analyzer-agent-development-plan-v0.1.md)
 
 ## 1. 文档作用与范围
@@ -33,10 +33,10 @@
 | M3 可观测重建流水线 | 实现完成 | WP-300～306 | conformance corpus 与 sanitizer Gate 尚未形成完整证据包 |
 | M4 大文件索引与随机访问 | 实现完成 | WP-400～406 | 固定性能 corpus、机器基线与阈值尚未冻结 |
 | M5 Deep Deflate Trace | Block/Huffman/Decode Trace Inspector、bounded Trace Gate、WP-5U6A 状态契约、WP-5U6B 性能 Gate 与 WP-5U6C GUI Gate 已实现 | WP-500～504、WP-5U0～WP-5U5B、WP-5T0A～WP-5T0B、WP-505A～WP-505C、bounded Trace Gate、WP-5U6A～WP-5U6C | 三平台原生 CI、正式 fuzz corpus、发布证据仍未完成 |
-| M6 Validation、Statistics、发布 | 未开始 | 仅有早期 structural validation | 范围按第 6 节重排 |
+| M6 Validation、Statistics、发布 | WP-600A 已实现 | Structural + bounded CRC/Adler integrity rules、稳定 issue id 与边界测试 | WP-600B/600C、Statistics、fuzz、发布证据 |
 | M7 APNG | 未开始 | 模型预留 frame 维度 | 维持 post-v1 |
 
-截至当前提交，M0～M4、M5 的 WP-500～504、WP-5U0～WP-5U6C 及 WP-5T0A～WP-5T0B 已有实现提交。这里的“实现完成”不等于里程碑 Gate 已关闭；Gate 仍要求相应 corpus、sanitizer、性能和人工交互证据。
+截至当前提交，M0～M4、M5 的 WP-500～504、WP-5U0～WP-5U6C、WP-5T0A～WP-5T0B 及 M6 的 WP-600A 已有实现提交。这里的“实现完成”不等于里程碑 Gate 已关闭；Gate 仍要求相应 corpus、sanitizer、性能和人工交互证据。
 
 ### 2.2 2026-08-22 本地核验
 
@@ -53,7 +53,7 @@ git status --short --branch
 结果：
 
 - 当前提交完整 dev 构建通过，Qt 6.11.1 GUI target 已启用。
-- 30/30 个 CTest 测试入口通过（GUI 运行使用 `QT_QPA_PLATFORM=offscreen`），包含 core、parser、reconstruction、Deflate、differential、CLI 与 GUI 测试；新增 Block/Huffman/Decode Trace Inspector、统一 binding、WP-5U6A 状态机、WP-5U6B 性能回归与 WP-5U6C 跨平台 GUI Gate。
+- 30/30 个 CTest 测试入口通过（GUI 运行使用 `QT_QPA_PLATFORM=offscreen`），包含 core、parser、reconstruction、Deflate、differential、CLI 与 GUI 测试；新增 Block/Huffman/Decode Trace Inspector、统一 binding、WP-5U6A 状态机、WP-5U6B 性能回归、WP-5U6C 跨平台 GUI Gate 与 WP-600A integrity 边界测试。
 - 仓库布局检查：0 failure、0 warning。
 - 依赖静态检查：0 failure、0 warning。
 - 本次核验覆盖当前 `main`；WP-5T0B 的编排、测试和计划文档变更在验证后统一提交。
@@ -62,9 +62,9 @@ git status --short --branch
 
 ### 2.3 当前 UI 与目标之间的主要差距
 
-当前界面已经能显示 Chunk、文件 Hex、Delivered Image 和基础 Stage Inspector；WP-5U0～WP-5U5B 已按冻结契约落地，主要剩余差距是：
+当前界面已经能显示 Chunk、文件 Hex、Delivered Image 和基础 Stage Inspector；WP-5U0～WP-5U6C 已按冻结契约落地，主要剩余差距是：
 
-- Hex 多数据源、坐标交互、阶段 viewport、自适应标签、Reconstruct view model 和 Inspector 首版已实现；跨平台与性能 Gate 仍未关闭。
+- Hex 多数据源、坐标交互、阶段 viewport、自适应标签、Reconstruct view model、Inspector 首版与本地跨平台/性能 Gate 已实现；原生三平台窗口系统证据仍待 CI/发布环境。
 - WP-500～504 已提供 wrapper、block、Huffman、token、LZ source 和 pixel provenance 基础；WP-5T0A～WP-5T0B 已形成受预算、可取消、generation 安全的聚合查询链路；WP-505A～WP-505C 与 bounded Trace Gate 已将 block 关联范围、码表构建顺序、token 算术、受限原始 literal 路径和导航上下文投影到 Qt-free/UI。
 - 当前 `StageSet` 会物化完整阶段数据；后续 UI Gate 不能据此扩展为“每个阶段都长期持有一张全尺寸 QImage”。
 - 测试 corpus 目前以生成式单元 fixture 为主，尚未形成 UI 验收矩阵与 Trace Gate 所需的受控样本集合。
@@ -380,7 +380,7 @@ WP-5U0
 
 M5 UI Gate 通过后，按以下顺序推进：
 
-1. `WP-600A Integrity Rules`：CRC、Adler、数据截断与稳定 issue id。
+1. `WP-600A Integrity Rules`：已实现 Chunk CRC、IDAT Adler/截断规则、稳定 issue id 与 bounded checksum 测试。
 2. `WP-600B Semantic/Decode/Resource Rules`：按规则类别补正反测试与 SpecRef。
 3. `WP-600C Validation Integration`：统一 CLI/GUI issue、导航和确定性输出。
 4. `WP-603A Parser/Stream Fuzz`：Chunk、Virtual IDAT 与 wrapper/index harness。
@@ -413,9 +413,9 @@ WP-700～703 不变。静态 PNG 模型继续保留 frame 维度，但任何 Fra
 
 `WP-5U0` 已由 `docs/development/wp-5u0-ui-spec.md` 冻结，且其依赖的
 WP-5U1～WP-5U5B、WP-5T0A～WP-5T0B、WP-505A～WP-505C、bounded Trace Gate 与
-WP-5U6A～WP-5U6C 已落地。当前下一项是 `WP-600A Integrity Rules`：冻结
-CRC、Adler、数据截断与稳定 issue id 的 Qt-free 规则，并以边界/错误测试启动
-M6；不得在 GUI 重写 Deflate 解析。
+WP-5U6A～WP-5U6C、WP-600A 已落地。当前下一项是 `WP-600B
+Semantic/Decode/Resource Rules`：在既有稳定 issue id/SpecRef 契约上补齐语义、
+解码和资源边界的正反测试；不得在 GUI 重写 Deflate 解析。
 
 WP-5U0 已冻结的产品决策继续作为后续实现约束：
 
