@@ -61,6 +61,7 @@ run with:
 ```text
 python3 scripts/run_performance_corpus.py --enforce-thresholds
 python3 scripts/run_package_smoke.py
+python3 scripts/run_release_candidate_audit.py
 ```
 
 The package smoke creates a ZIP (Windows) or TGZ (macOS/Linux), extracts it in
