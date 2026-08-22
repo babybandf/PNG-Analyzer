@@ -130,6 +130,29 @@ target_compile_features(pnga_gui_main_window_layout_tests PRIVATE cxx_std_20)
 
 add_test(NAME gui_main_window_layout_tests COMMAND pnga_gui_main_window_layout_tests)
 
+add_executable(pnga_gui_cross_platform_gate_tests
+  cross_platform_gui_gate_test.cpp
+  ../../apps/png-analyzer-gui/src/main_window.cpp
+)
+set_target_properties(pnga_gui_cross_platform_gate_tests PROPERTIES AUTOMOC ON)
+target_include_directories(pnga_gui_cross_platform_gate_tests PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../apps/png-analyzer-gui/src
+)
+target_link_libraries(pnga_gui_cross_platform_gate_tests PRIVATE
+  pnga::ui_qt
+  pnga::analysis_engine
+  pnga::png_format
+  pnga::io
+  pnga::core
+  Qt6::Test
+)
+target_compile_features(pnga_gui_cross_platform_gate_tests PRIVATE cxx_std_20)
+
+add_test(NAME gui_cross_platform_gate_tests
+  COMMAND pnga_gui_cross_platform_gate_tests)
+set_tests_properties(gui_cross_platform_gate_tests PROPERTIES
+  ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 add_executable(pnga_gui_stage_inspector_tests
   stage_inspector_test.cpp
 )

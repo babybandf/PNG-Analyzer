@@ -160,23 +160,28 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   coordinate_layout->addWidget(new QLabel(QStringLiteral("X"), coordinate_bar));
   x_spin_ = new QSpinBox(coordinate_bar);
   x_spin_->setObjectName(QStringLiteral("xCoordinate"));
+  x_spin_->setAccessibleName(QStringLiteral("X coordinate"));
   x_spin_->setRange(0, std::numeric_limits<int>::max());
   coordinate_layout->addWidget(x_spin_);
   coordinate_layout->addWidget(new QLabel(QStringLiteral("Y"), coordinate_bar));
   y_spin_ = new QSpinBox(coordinate_bar);
   y_spin_->setObjectName(QStringLiteral("yCoordinate"));
+  y_spin_->setAccessibleName(QStringLiteral("Y coordinate"));
   y_spin_->setRange(0, std::numeric_limits<int>::max());
   coordinate_layout->addWidget(y_spin_);
   lock_check_ = new QCheckBox(QStringLiteral("Lock"), coordinate_bar);
   lock_check_->setObjectName(QStringLiteral("lockCoordinate"));
+  lock_check_->setAccessibleName(QStringLiteral("Lock coordinate"));
   coordinate_layout->addWidget(lock_check_);
   base_combo_ = new QComboBox(coordinate_bar);
   base_combo_->setObjectName(QStringLiteral("numericBase"));
+  base_combo_->setAccessibleName(QStringLiteral("Numeric base"));
   base_combo_->addItem(QStringLiteral("DEC"));
   base_combo_->addItem(QStringLiteral("HEX"));
   coordinate_layout->addWidget(base_combo_);
   hex_source_combo_ = new QComboBox(coordinate_bar);
   hex_source_combo_->setObjectName(QStringLiteral("hexSource"));
+  hex_source_combo_->setAccessibleName(QStringLiteral("Hex source"));
   hex_source_combo_->addItem(QStringLiteral("File"));
   hex_source_combo_->addItem(QStringLiteral("IDAT Stream"));
   hex_source_combo_->addItem(QStringLiteral("Inflated"));
@@ -185,14 +190,18 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   hex_follow_check_ = new QCheckBox(QStringLiteral("Hex follows pixel"),
                                     coordinate_bar);
   hex_follow_check_->setObjectName(QStringLiteral("hexFollowPixel"));
+  hex_follow_check_->setAccessibleName(QStringLiteral("Hex follows pixel"));
   coordinate_layout->addWidget(hex_follow_check_);
   coordinate_layout->addStretch(1);
   inspector_layout->addWidget(coordinate_bar);
 
   inspector_tabs_ = new QTabWidget(inspector_container);
   inspector_tabs_->setObjectName(QStringLiteral("inspectorTabs"));
+  inspector_tabs_->setAccessibleName(QStringLiteral("Inspector tabs"));
   inspector_tabs_->setUsesScrollButtons(true);
   inspector_ = new pnga::ui::qt::StageInspector(inspector_tabs_);
+  inspector_->setObjectName(QStringLiteral("reconstructInspector"));
+  inspector_->setAccessibleName(QStringLiteral("Reconstruct inspector"));
   inspector_tabs_->addTab(inspector_, QStringLiteral("Reconstruct"));
   const auto addInspectorPlaceholder = [this](const QString& title) {
     auto* label = new QLabel(QStringLiteral("Not available for current selection"),
@@ -205,15 +214,29 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   addInspectorPlaceholder(QStringLiteral("Source"));
   addInspectorPlaceholder(QStringLiteral("Format Context"));
   block_inspector_ = new pnga::ui::qt::BlockInspector(inspector_tabs_);
+  block_inspector_->setObjectName(QStringLiteral("blockInspector"));
+  block_inspector_->setAccessibleName(QStringLiteral("DEFLATE block inspector"));
   inspector_tabs_->addTab(block_inspector_, QStringLiteral("DEFLATE / Block"));
   huffman_inspector_ = new pnga::ui::qt::HuffmanInspector(inspector_tabs_);
+  huffman_inspector_->setObjectName(QStringLiteral("huffmanInspector"));
+  huffman_inspector_->setAccessibleName(
+      QStringLiteral("DEFLATE Huffman table inspector"));
   inspector_tabs_->addTab(huffman_inspector_,
                           QStringLiteral("DEFLATE / Huffman Tables"));
   decode_trace_inspector_ =
       new pnga::ui::qt::DecodeTraceInspector(inspector_tabs_);
+  decode_trace_inspector_->setObjectName(QStringLiteral("decodeTraceInspector"));
+  decode_trace_inspector_->setAccessibleName(
+      QStringLiteral("DEFLATE decode trace inspector"));
   inspector_tabs_->addTab(decode_trace_inspector_,
                           QStringLiteral("DEFLATE / Decode Trace"));
   inspector_layout->addWidget(inspector_tabs_, 1);
+  QWidget::setTabOrder(x_spin_, y_spin_);
+  QWidget::setTabOrder(y_spin_, lock_check_);
+  QWidget::setTabOrder(lock_check_, base_combo_);
+  QWidget::setTabOrder(base_combo_, hex_source_combo_);
+  QWidget::setTabOrder(hex_source_combo_, hex_follow_check_);
+  QWidget::setTabOrder(hex_follow_check_, inspector_tabs_);
   inspector_dock_->setWidget(inspector_container);
   addDockWidget(Qt::RightDockWidgetArea, inspector_dock_);
 
