@@ -226,10 +226,18 @@ CoordinateSummary query_coordinate(
       return out;
     }
   }
-  if (coordinate.sample_byte.has_value() && stages.header.bit_depth < 8) {
-    out.status = CoordinateQueryStatus::kOutOfRange;
-    out.error = "sample byte is not applicable to packed samples";
-    return out;
+  if (coordinate.sample_byte.has_value()) {
+    const std::uint8_t sample_byte_count =
+        stages.header.bit_depth >= 8
+            ? static_cast<std::uint8_t>(stages.header.bit_depth / 8)
+            : 0;
+    if (coordinate.sample_byte.value() >= sample_byte_count) {
+      out.status = CoordinateQueryStatus::kOutOfRange;
+      out.error = stages.header.bit_depth < 8
+                      ? "sample byte is not applicable to packed samples"
+                      : "sample byte is outside the sample";
+      return out;
+    }
   }
 
   std::uint64_t filtered_byte = 0;

@@ -17,7 +17,11 @@ Stable IDs identify objects within a document generation. GUI panels publish and
 
 - Chunk, Hex, stage and image panels can synchronize without decoder-specific objects.
 - Decoder operations publish trace events and artifacts; the GUI does not recompute formulas.
-- Image coordinates use an optional channel/sample address: an absent channel means the
-  whole pixel, while channel, sample-byte and packed-bit selections are explicit.
+- Image coordinates use global `x/y`, a pass-local `row`, and `pass=0` for
+  non-interlaced images or `1..7` for Adam7. An absent channel means the whole
+  pixel; channel, sample-byte and packed-bit selections are explicit. A
+  `sample-byte` is an index within an 8/16-bit sample (the query enforces the
+  format's byte count). A `packed-bit` uses a most-significant-bit offset and
+  has PNG-legal length 1, 2 or 4; it is mutually exclusive with `sample-byte`.
 - Equality, merge, serialization and stale-generation behavior require focused tests.
 - The model is more explicit than view-specific structures, but it is the foundation for compare and first-difference workflows.

@@ -91,6 +91,9 @@ TEST_CASE("Image coordinate validation rejects ambiguous sample addresses",
   bad_packed.packed_sample = PackedSampleCoordinate{7, 2};
   REQUIRE_FALSE(bad_packed.valid());
 
+  bad_packed.packed_sample = PackedSampleCoordinate{0, 3};
+  REQUIRE_FALSE(bad_packed.valid());
+
   ImageCoordinate conflicting{0, 0, 0, 0, 0, 0};
   conflicting.sample_byte = 0;
   conflicting.packed_sample = PackedSampleCoordinate{0, 1};
@@ -225,6 +228,8 @@ TEST_CASE("Malformed serialized input returns nullopt", "[trace-model][wp200]") 
   REQUIRE_FALSE(deserialize("physical:1").has_value());        // wrong arity
   REQUIRE_FALSE(deserialize("image:0,0,0,0,0;packed_sample:7,2")
                     .has_value());                              // crosses byte
+  REQUIRE_FALSE(deserialize("image:0,0,0,0,0;channel:0;packed_sample:0,3")
+                    .has_value());                              // illegal packed width
   REQUIRE_FALSE(deserialize("stage:").has_value());            // empty stage
   REQUIRE_FALSE(deserialize("nocolon").has_value());           // no key/value
 }

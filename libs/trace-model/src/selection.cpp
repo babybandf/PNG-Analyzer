@@ -68,7 +68,12 @@ bool ImageCoordinate::valid() const noexcept {
   }
   if (packed_sample.has_value()) {
     const auto packed = *packed_sample;
-    if (packed.bit_length == 0 || packed.bit_length > 8 ||
+    // PNG packed samples are only 1, 2 or 4 bits.  The image format is
+    // checked by the coordinate query; this structural check keeps a packed
+    // address from representing an impossible sample even before a document
+    // is available.
+    if ((packed.bit_length != 1 && packed.bit_length != 2 &&
+         packed.bit_length != 4) ||
         packed.bit_offset >= 8 ||
         static_cast<unsigned>(packed.bit_offset) + packed.bit_length > 8 ||
         !channel.has_value()) {
@@ -313,7 +318,7 @@ std::optional<Selection> deserialize(std::string_view text) {
       auto bit_offset = parse_u64(nums[0]);
       auto bit_length = parse_u64(nums[1]);
       if (!bit_offset || !bit_length || *bit_offset >= 8 ||
-          *bit_length == 0 || *bit_length > 8 ||
+          (*bit_length != 1 && *bit_length != 2 && *bit_length != 4) ||
           *bit_offset + *bit_length > 8) {
         return std::nullopt;
       }
@@ -340,6 +345,20 @@ std::optional<Selection> deserialize(std::string_view text) {
   if ((channel_seen || sample_byte_seen || packed_sample_seen) &&
       !image_seen) {
     return std::nullopt;
+  }
+  // Keep parsing independent of document dimensions (so legacy large pass
+  // values remain round-trippable), while still rejecting contradictory
+  // sample-address fields that cannot describe one coordinate.
+  if (out.image.has_value()) {
+    const auto& coordinate = *out.image;
+    if ((coordinate.sample_byte.has_value() &&
+         !coordinate.channel.has_value()) ||
+        (coordinate.packed_sample.has_value() &&
+         !coordinate.channel.has_value()) ||
+        (coordinate.sample_byte.has_value() &&
+         coordinate.packed_sample.has_value())) {
+      return std::nullopt;
+    }
   }
   return out;
 }

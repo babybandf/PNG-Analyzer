@@ -131,3 +131,42 @@ TEST_CASE("Coordinate query rejects inconsistent pass-local coordinates",
   REQUIRE(summary.status == CoordinateQueryStatus::kOutOfRange);
   REQUIRE(summary.error == "pass-local row does not match coordinate");
 }
+
+TEST_CASE("Coordinate query rejects a second byte on an 8-bit sample",
+          "[analysis-engine][wp5u1]") {
+  const EncodedPng encoded =
+      encode_png(4, 4, 8, 0, /*interlace=*/false, /*all_none=*/true);
+  const StageSet stages = stages_of(encoded);
+  REQUIRE(stages.success);
+
+  Selection selection;
+  selection.image = ImageCoordinate{0, 0, 0, 1, 1, 0};
+  selection.image->sample_byte = 1;
+  const auto summary = query_coordinate(stages, selection);
+  REQUIRE(summary.status == CoordinateQueryStatus::kOutOfRange);
+  REQUIRE(summary.error == "sample byte is outside the sample");
+}
+
+TEST_CASE("Coordinate query resolves the selected byte of a 16-bit channel",
+          "[analysis-engine][wp5u1]") {
+  const EncodedPng encoded =
+      encode_png(3, 2, 16, 6, /*interlace=*/false, /*all_none=*/true);
+  const StageSet stages = stages_of(encoded);
+  REQUIRE(stages.success);
+
+  Selection selection;
+  selection.image = ImageCoordinate{0, 0, 1, 1, 1, 2};
+  selection.image->sample_byte = 1;
+  selection.stage = Stage::kNative;
+  const auto summary = query_coordinate(stages, selection);
+  REQUIRE(summary.status == CoordinateQueryStatus::kReady);
+  REQUIRE(summary.channel_count == 4);
+  REQUIRE(summary.sample_byte_count == 1);
+  REQUIRE(summary.sample_bit_length == 8);
+  // RGBA16: pixel (1,1), channel 2, low byte is byte 13 of the row.
+  REQUIRE(summary.filtered_data_offset == stages.scanlines[1].offset + 1 + 13);
+  REQUIRE(summary.unfiltered_data_offset == 1 * 24 + 13);
+  REQUIRE(summary.sample_bit_offset == 0);
+  REQUIRE(summary.unfiltered_sample_bit_offset == 0);
+  REQUIRE(summary.native_sample_index == std::optional<std::uint64_t>{18});
+}
