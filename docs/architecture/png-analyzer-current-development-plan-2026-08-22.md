@@ -1,7 +1,7 @@
 # PNG Analyzer 当前开发进度与后续执行计划（2026-08-22）
 
 > Status: Active execution supplement
-> Baseline commit: `50db8ab` (`main`，WP-5U6B 完成后的基线)
+> Baseline commit: `1d6cea3` (`main`，WP-5U6C 本地 Gate 实现后的代码基线)
 > Parent plan: [PNG Analyzer Agent 可执行开发计划 v0.1](png-analyzer-agent-development-plan-v0.1.md)
 
 ## 1. 文档作用与范围
@@ -32,11 +32,11 @@
 | M2 统一模型与参考解码 | 实现完成 | WP-200～206 | 快速连续切换文件的完整 GUI 压测仍需 Gate 化 |
 | M3 可观测重建流水线 | 实现完成 | WP-300～306 | conformance corpus 与 sanitizer Gate 尚未形成完整证据包 |
 | M4 大文件索引与随机访问 | 实现完成 | WP-400～406 | 固定性能 corpus、机器基线与阈值尚未冻结 |
-| M5 Deep Deflate Trace | Block/Huffman/Decode Trace Inspector、bounded Trace Gate、WP-5U6A 状态契约与 WP-5U6B 性能 Gate 已实现 | WP-500～504、WP-5U0～WP-5U5B、WP-5T0A～WP-5T0B、WP-505A～WP-505C、bounded Trace Gate、WP-5U6A～WP-5U6B | WP-5U6C cross-platform Gate、fuzz/sanitizer 与发布证据仍未完成 |
+| M5 Deep Deflate Trace | Block/Huffman/Decode Trace Inspector、bounded Trace Gate、WP-5U6A 状态契约、WP-5U6B 性能 Gate 与 WP-5U6C GUI Gate 已实现 | WP-500～504、WP-5U0～WP-5U5B、WP-5T0A～WP-5T0B、WP-505A～WP-505C、bounded Trace Gate、WP-5U6A～WP-5U6C | 三平台原生 CI、正式 fuzz corpus、发布证据仍未完成 |
 | M6 Validation、Statistics、发布 | 未开始 | 仅有早期 structural validation | 范围按第 6 节重排 |
 | M7 APNG | 未开始 | 模型预留 frame 维度 | 维持 post-v1 |
 
-截至当前提交，M0～M4、M5 的 WP-500～504、WP-5U0～WP-5U5B 及 WP-5T0A～WP-5T0B 已有实现提交。这里的“实现完成”不等于里程碑 Gate 已关闭；Gate 仍要求相应 corpus、sanitizer、性能和人工交互证据。
+截至当前提交，M0～M4、M5 的 WP-500～504、WP-5U0～WP-5U6C 及 WP-5T0A～WP-5T0B 已有实现提交。这里的“实现完成”不等于里程碑 Gate 已关闭；Gate 仍要求相应 corpus、sanitizer、性能和人工交互证据。
 
 ### 2.2 2026-08-22 本地核验
 
@@ -53,12 +53,12 @@ git status --short --branch
 结果：
 
 - 当前提交完整 dev 构建通过，Qt 6.11.1 GUI target 已启用。
-- 29/29 个 CTest 测试入口通过，包含 core、parser、reconstruction、Deflate、differential、CLI 与 GUI 测试；新增 Block/Huffman/Decode Trace Inspector、统一 binding、WP-5U6A 状态机与 WP-5U6B 性能回归测试。
+- 30/30 个 CTest 测试入口通过（GUI 运行使用 `QT_QPA_PLATFORM=offscreen`），包含 core、parser、reconstruction、Deflate、differential、CLI 与 GUI 测试；新增 Block/Huffman/Decode Trace Inspector、统一 binding、WP-5U6A 状态机、WP-5U6B 性能回归与 WP-5U6C 跨平台 GUI Gate。
 - 仓库布局检查：0 failure、0 warning。
 - 依赖静态检查：0 failure、0 warning。
 - 本次核验覆盖当前 `main`；WP-5T0B 的编排、测试和计划文档变更在验证后统一提交。
 
-本次未声称已通过：release 构建、三平台 CI、正式 conformance/fuzz/performance corpus。ASan/UBSan 全量已通过，仍保留为后续 Gate 的重复验证项。
+本次未声称已通过：release 构建、三平台原生 CI、正式 conformance/fuzz/performance corpus。dev 与 ASan/UBSan 全量均已通过；Windows/Linux 原生窗口系统和发布证据仍属后续 Gate。
 
 ### 2.3 当前 UI 与目标之间的主要差距
 
@@ -326,7 +326,7 @@ UI 重构必须继续遵守 ADR-0003、0004、0005、0006：Qt 不进入 `libs/`
 
 - `WP-5U6A Async & Failure States`（M）：loading/replaying/partial/error/cancelled、快速换文件、stale generation、错误文件部分结果。
 - `WP-5U6B UI Performance Gate`（M）：虚拟化、内存预算、hover/selection 延迟、冷/热缓存、固定 corpus 与基准记录。
-- `WP-5U6C Cross-platform GUI Gate`（M）：三平台布局、DPI、主题、快捷键、焦点顺序、基本无障碍和最终人工 checklist。
+- `WP-5U6C Cross-platform GUI Gate`（M）：已实现本地可重复布局、DPI、主题、快捷键、焦点顺序、基本无障碍和截断状态检查；原生三平台人工 checklist 仍待 CI/发布环境。
 
 Gate 命令至少包含 dev、ASan/UBSan、differential、GUI、layout/dependency audit；性能结果必须记录机器、corpus、冷/热缓存和峰值内存。
 
@@ -369,7 +369,7 @@ WP-5U0
 → WP-5U5A → WP-5U5B
 → WP-5T0A → WP-5T0B（可与 UI-3/4/5 独立推进，但必须晚于 WP-5U1）
 → WP-505A → WP-505B → WP-505C
-→ WP-5U6A → WP-5U6B → WP-5U6C / M5 Gate
+→ WP-5U6A → WP-5U6B → WP-5U6C / M5 Gate（本地 Gate 已通过）
 ```
 
 每个工作包只允许提交自己的范围。尤其禁止在布局 WP 中顺手修改 decoder，或在 DEFLATE GUI 中补写核心解析逻辑。
@@ -413,9 +413,9 @@ WP-700～703 不变。静态 PNG 模型继续保留 frame 维度，但任何 Fra
 
 `WP-5U0` 已由 `docs/development/wp-5u0-ui-spec.md` 冻结，且其依赖的
 WP-5U1～WP-5U5B、WP-5T0A～WP-5T0B、WP-505A～WP-505C、bounded Trace Gate 与
-WP-5U6A～WP-5U6B 已落地。当前下一项是 `WP-5U6C Cross-platform GUI Gate`：
-验证三平台布局、DPI、主题、快捷键、焦点顺序和基本无障碍清单；不得在 GUI
-重写 Deflate 解析。
+WP-5U6A～WP-5U6C 已落地。当前下一项是 `WP-600A Integrity Rules`：冻结
+CRC、Adler、数据截断与稳定 issue id 的 Qt-free 规则，并以边界/错误测试启动
+M6；不得在 GUI 重写 Deflate 解析。
 
 WP-5U0 已冻结的产品决策继续作为后续实现约束：
 
