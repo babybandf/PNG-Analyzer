@@ -33,8 +33,8 @@ HexView::HexView(QWidget* parent) : QAbstractScrollArea(parent) {
   setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 }
 
-void HexView::setSource(const pnga::io::IByteSource* source) {
-  source_ = source;
+void HexView::setSource(std::shared_ptr<const HexDataSource> source) {
+  source_ = std::move(source);
   spans_.clear();
   updateScrollbars();
   viewport()->update();

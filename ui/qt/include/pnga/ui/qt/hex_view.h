@@ -6,7 +6,7 @@
 // string, so large files keep the UI responsive. Supports highlighting of
 // multiple physical spans (header / data / CRC) with distinct colors.
 
-#include <pnga/io/byte_source.h>
+#include <pnga/ui/qt/hex_data_source.h>
 
 #include <QAbstractScrollArea>
 
@@ -29,8 +29,8 @@ class HexView final : public QAbstractScrollArea {
  public:
   explicit HexView(QWidget* parent = nullptr);
 
-  // `source` is borrowed and must outlive the view; pass nullptr to clear.
-  void setSource(const pnga::io::IByteSource* source);
+  // The source owns or otherwise keeps its backing bytes alive.
+  void setSource(std::shared_ptr<const HexDataSource> source);
 
   // Highlights the given byte spans. Spans are clamped to the source size;
   // pass an empty vector to clear.
@@ -46,7 +46,7 @@ class HexView final : public QAbstractScrollArea {
   std::int64_t lineCount() const;
   void updateScrollbars();
 
-  const pnga::io::IByteSource* source_ = nullptr;
+  std::shared_ptr<const HexDataSource> source_;
   std::vector<HexHighlightSpan> spans_;
 };
 

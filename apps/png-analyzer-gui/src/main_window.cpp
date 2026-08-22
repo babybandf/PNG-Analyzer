@@ -7,6 +7,7 @@
 #include <pnga/ui/qt/chunk_model.h>
 #include <pnga/ui/qt/delivered_image_view.h>
 #include <pnga/ui/qt/hex_view.h>
+#include <pnga/ui/qt/hex_data_source.h>
 #include <pnga/ui/qt/pixel_viewport.h>
 #include <pnga/ui/qt/selection_bus.h>
 #include <pnga/ui/qt/stage_inspector.h>
@@ -171,6 +172,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   base_combo_->addItem(QStringLiteral("DEC"));
   base_combo_->addItem(QStringLiteral("HEX"));
   coordinate_layout->addWidget(base_combo_);
+  hex_source_combo_ = new QComboBox(coordinate_bar);
+  hex_source_combo_->setObjectName(QStringLiteral("hexSource"));
+  hex_source_combo_->addItem(QStringLiteral("File"));
+  hex_source_combo_->addItem(QStringLiteral("IDAT Stream"));
+  coordinate_layout->addWidget(hex_source_combo_);
   hex_follow_check_ = new QCheckBox(QStringLiteral("Hex follows pixel"),
                                     coordinate_bar);
   hex_follow_check_->setObjectName(QStringLiteral("hexFollowPixel"));
@@ -280,6 +286,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
           });
   connect(hex_follow_check_, &QCheckBox::toggled, this,
           [this](bool checked) { view_state_.hex_follow_pixel = checked; });
+  connect(hex_source_combo_,
+          qOverload<int>(&QComboBox::currentIndexChanged), this,
+          [this](int index) {
+            view_state_.hex_source = index == 1
+                                         ? pnga::ui::qt::HexSource::kIdatStream
+                                         : pnga::ui::qt::HexSource::kFile;
+            updateHexSource();
+          });
 
   resize(1200, 760);
   applyDefaultWorkspace();
@@ -305,9 +319,11 @@ void MainWindow::applyDefaultWorkspace() {
   view_state_.hover = preserved_hover;
   {
     const QSignalBlocker base_blocker(base_combo_);
+    const QSignalBlocker source_blocker(hex_source_combo_);
     const QSignalBlocker follow_blocker(hex_follow_check_);
     const QSignalBlocker lock_blocker(lock_check_);
     base_combo_->setCurrentIndex(0);
+    hex_source_combo_->setCurrentIndex(0);
     hex_follow_check_->setChecked(true);
     lock_check_->setChecked(preserved_locked.has_value());
     if (preserved_locked.has_value()) {
@@ -315,6 +331,7 @@ void MainWindow::applyDefaultWorkspace() {
       y_spin_->setValue(static_cast<int>(preserved_locked->y));
     }
   }
+  updateHexSource();
 }
 
 void MainWindow::restoreWorkspace() {
@@ -350,7 +367,7 @@ void MainWindow::restoreWorkspace() {
 
   const int base = settings.value(QStringLiteral("view/numericBase"), 0).toInt();
   const int source = settings.value(QStringLiteral("view/hexSource"), 0).toInt();
-  if (base < 0 || base > 1 || source < 0 || source > 3) {
+  if (base < 0 || base > 1 || source < 0 || source > 1) {
     applyDefaultWorkspace();
     return;
   }
@@ -362,10 +379,13 @@ void MainWindow::restoreWorkspace() {
       settings.value(QStringLiteral("view/hexFollowPixel"), true).toBool();
   {
     const QSignalBlocker base_blocker(base_combo_);
+    const QSignalBlocker source_blocker(hex_source_combo_);
     const QSignalBlocker follow_blocker(hex_follow_check_);
     base_combo_->setCurrentIndex(base);
+    hex_source_combo_->setCurrentIndex(source);
     hex_follow_check_->setChecked(view_state_.hex_follow_pixel);
   }
+  updateHexSource();
 }
 
 void MainWindow::saveWorkspace() const {
@@ -385,6 +405,21 @@ void MainWindow::saveWorkspace() const {
                     static_cast<int>(view_state_.hex_source));
   settings.setValue(QStringLiteral("view/hexFollowPixel"),
                     view_state_.hex_follow_pixel);
+}
+
+void MainWindow::updateHexSource() {
+  if (source_ == nullptr) {
+    hex_->setSource(nullptr);
+    return;
+  }
+  const std::shared_ptr<const pnga::io::IByteSource> source = source_;
+  if (view_state_.hex_source == pnga::ui::qt::HexSource::kIdatStream) {
+    const pnga::png_format::VirtualIDATStream stream(index_);
+    hex_->setSource(pnga::ui::qt::make_idat_hex_source(source, stream));
+  } else {
+    hex_->setSource(pnga::ui::qt::make_file_hex_source(source));
+  }
+  hex_->clearHighlight();
 }
 
 void MainWindow::resetLayout() {
@@ -594,7 +629,7 @@ void MainWindow::resetDocument() {
   // setModel() replaces the selection model; reconnect to the new one.
   connect(tree_->selectionModel(), &QItemSelectionModel::currentChanged,
           this, &MainWindow::onChunkSelectionChanged);
-  hex_->setSource(source_.get());
+  updateHexSource();
 
   if (model_->rowCount() > 0) {
     tree_->selectionModel()->setCurrentIndex(

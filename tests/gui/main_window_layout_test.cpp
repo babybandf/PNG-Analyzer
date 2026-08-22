@@ -70,6 +70,12 @@ void MainWindowLayoutTest::defaultLayoutHasRequiredRegions() {
   QVERIFY(window.findChild<QSpinBox*>(QStringLiteral("yCoordinate")) != nullptr);
   QVERIFY(window.findChild<QCheckBox*>(QStringLiteral("lockCoordinate")) != nullptr);
   QVERIFY(window.findChild<QComboBox*>(QStringLiteral("numericBase")) != nullptr);
+  auto* hex_source =
+      window.findChild<QComboBox*>(QStringLiteral("hexSource"));
+  QVERIFY(hex_source != nullptr);
+  QCOMPARE(hex_source->count(), 2);
+  QCOMPARE(hex_source->itemText(0), QStringLiteral("File"));
+  QCOMPARE(hex_source->itemText(1), QStringLiteral("IDAT Stream"));
   QVERIFY(window.findChild<QCheckBox*>(QStringLiteral("hexFollowPixel")) != nullptr);
 }
 
@@ -93,15 +99,18 @@ void MainWindowLayoutTest::workspaceSettingsRoundTrip() {
     auto* inspector =
         window.findChild<QTabWidget*>(QStringLiteral("inspectorTabs"));
     auto* base = window.findChild<QComboBox*>(QStringLiteral("numericBase"));
+    auto* source = window.findChild<QComboBox*>(QStringLiteral("hexSource"));
     auto* follow =
         window.findChild<QCheckBox*>(QStringLiteral("hexFollowPixel"));
     QVERIFY(preview != nullptr);
     QVERIFY(inspector != nullptr);
     QVERIFY(base != nullptr);
+    QVERIFY(source != nullptr);
     QVERIFY(follow != nullptr);
     preview->setCurrentIndex(3);
     inspector->setCurrentIndex(2);
     base->setCurrentIndex(1);
+    source->setCurrentIndex(1);
     follow->setChecked(false);
     QVERIFY(window.close());
   }
@@ -114,6 +123,9 @@ void MainWindowLayoutTest::workspaceSettingsRoundTrip() {
                ->currentIndex(),
            2);
   QCOMPARE(restored.findChild<QComboBox*>(QStringLiteral("numericBase"))
+               ->currentIndex(),
+           1);
+  QCOMPARE(restored.findChild<QComboBox*>(QStringLiteral("hexSource"))
                ->currentIndex(),
            1);
   QVERIFY(!restored.findChild<QCheckBox*>(QStringLiteral("hexFollowPixel"))

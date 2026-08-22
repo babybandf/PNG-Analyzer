@@ -23,6 +23,8 @@ everything under `libs/` stays Qt-free (ADR-0003).
   analysis-engine provider; it does not create a second full-size image.
 - WP-5U3C: `StagePreviewView` exposes Filter Map, Filtered and Defiltered
   availability with explicit Adam7/palette/alpha/packed/16-bit conditions.
+- WP-5U4A: `HexDataSource` provides lifetime-safe File and virtual IDAT
+  windowed reads; `HexView` no longer borrows a raw ByteSource pointer.
 
 ## Non-goals
 

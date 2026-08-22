@@ -140,6 +140,7 @@ class MainWindow final : public QMainWindow {
   void publishLockedCoordinate();
   void clearLockedCoordinate();
   void nudgeLockedCoordinate(int dx, int dy);
+  void updateHexSource();
 
  protected:
   void closeEvent(QCloseEvent* event) override;
@@ -168,6 +169,7 @@ class MainWindow final : public QMainWindow {
   QCheckBox* lock_check_ = nullptr;
   QCheckBox* hex_follow_check_ = nullptr;
   QComboBox* base_combo_ = nullptr;
+  QComboBox* hex_source_combo_ = nullptr;
   QTreeView* tree_ = nullptr;
   DecodeWorker* decode_worker_ = nullptr;
   StageWorker* stage_worker_ = nullptr;

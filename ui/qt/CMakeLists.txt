@@ -11,6 +11,7 @@ add_library(pnga_ui_qt
   include/pnga/ui/qt/chunk_model.h
   include/pnga/ui/qt/delivered_image_view.h
   include/pnga/ui/qt/hex_view.h
+  include/pnga/ui/qt/hex_data_source.h
   include/pnga/ui/qt/image_transform.h
   include/pnga/ui/qt/pixel_viewport.h
   include/pnga/ui/qt/selection_bus.h
@@ -22,6 +23,7 @@ add_library(pnga_ui_qt
   src/chunk_model.cpp
   src/delivered_image_view.cpp
   src/hex_view.cpp
+  src/hex_data_source.cpp
   src/image_transform.cpp
   src/pixel_viewport.cpp
   src/selection_bus.cpp
