@@ -32,11 +32,11 @@
 | M2 统一模型与参考解码 | 实现完成 | WP-200～206 | 快速连续切换文件的完整 GUI 压测仍需 Gate 化 |
 | M3 可观测重建流水线 | 实现完成 | WP-300～306 | conformance corpus 与 sanitizer Gate 尚未形成完整证据包 |
 | M4 大文件索引与随机访问 | 实现完成 | WP-400～406 | 固定性能 corpus、机器基线与阈值尚未冻结 |
-| M5 Deep Deflate Trace | UI 主线与 Trace 查询契约已实现 | WP-500～504、WP-5U0～WP-5U5B、WP-5T0A | WP-5T0B、WP-505 GUI、端到端 Trace Gate、fuzz/sanitizer 仍未完成 |
+| M5 Deep Deflate Trace | UI 主线与 Trace 编排已实现 | WP-500～504、WP-5U0～WP-5U5B、WP-5T0A～WP-5T0B | WP-505 GUI、端到端 Trace Gate、fuzz/sanitizer 仍未完成 |
 | M6 Validation、Statistics、发布 | 未开始 | 仅有早期 structural validation | 范围按第 6 节重排 |
 | M7 APNG | 未开始 | 模型预留 frame 维度 | 维持 post-v1 |
 
-截至当前提交，M0～M4、M5 的 WP-500～504、WP-5U0～WP-5U5B 及 WP-5T0A 已有实现提交。这里的“实现完成”不等于里程碑 Gate 已关闭；Gate 仍要求相应 corpus、sanitizer、性能和人工交互证据。
+截至当前提交，M0～M4、M5 的 WP-500～504、WP-5U0～WP-5U5B 及 WP-5T0A～WP-5T0B 已有实现提交。这里的“实现完成”不等于里程碑 Gate 已关闭；Gate 仍要求相应 corpus、sanitizer、性能和人工交互证据。
 
 ### 2.2 2026-08-22 本地核验
 
@@ -56,7 +56,7 @@ git status --short --branch
 - 24/24 个 CTest 测试入口通过，包含 core、parser、reconstruction、Deflate、differential、CLI 与 GUI 测试。
 - 仓库布局检查：0 failure、0 warning。
 - 依赖静态检查：0 failure、0 warning。
-- 本次核验覆盖当前 `main`；WP-5T0A 的契约、测试和计划文档变更在验证后统一提交。
+- 本次核验覆盖当前 `main`；WP-5T0B 的编排、测试和计划文档变更在验证后统一提交。
 
 本次未声称已通过：release 构建、三平台 CI、正式 conformance/fuzz/performance corpus。ASan/UBSan 全量已通过，仍保留为后续 Gate 的重复验证项。
 
@@ -65,7 +65,7 @@ git status --short --branch
 当前界面已经能显示 Chunk、文件 Hex、Delivered Image 和基础 Stage Inspector；WP-5U0～WP-5U5B 已按冻结契约落地，主要剩余差距是：
 
 - Hex 多数据源、坐标交互、阶段 viewport、自适应标签、Reconstruct view model 和 Inspector 首版已实现；跨平台与性能 Gate 仍未关闭。
-- WP-500～504 已提供 wrapper、block、Huffman、token、LZ source 和 pixel provenance 基础；WP-5T0A 已冻结面向 GUI 的聚合查询结果，WP-5T0B 尚未开始。
+- WP-500～504 已提供 wrapper、block、Huffman、token、LZ source 和 pixel provenance 基础；WP-5T0A～WP-5T0B 已形成受预算、可取消、generation 安全的聚合查询链路。
 - 当前 `StageSet` 会物化完整阶段数据；后续 UI Gate 不能据此扩展为“每个阶段都长期持有一张全尺寸 QImage”。
 - 测试 corpus 目前以生成式单元 fixture 为主，尚未形成 UI 验收矩阵与 Trace Gate 所需的受控样本集合。
 
@@ -412,16 +412,16 @@ WP-700～703 不变。静态 PNG 模型继续保留 frame 维度，但任何 Fra
 ## 7. 下一项可直接启动的任务
 
 `WP-5U0` 已由 `docs/development/wp-5u0-ui-spec.md` 冻结，且其依赖的
-WP-5U1～WP-5U5B 已落地。当前下一项是 `WP-5T0B On-demand Trace Orchestration`：
-从当前 Selection 执行受预算、可取消的 replay，组合 Virtual IDAT 映射并在发布前检查
-document generation；不得修改 decoder 或默认保存全文件 token trace。
+WP-5U1～WP-5U5B、WP-5T0A～WP-5T0B 已落地。当前下一项是 `WP-505A Block Inspector`：
+把 TraceQueryResult 的关联 block、BFINAL/BTYPE、输入 bit、输出 byte、scanline 和
+IDAT spans 接入 Qt-free/UI 查询模型；不得在 GUI 重写 Deflate 解析。
 
 WP-5U0 已冻结的产品决策继续作为后续实现约束：
 
-- Filtered 默认显示 unsigned、signed residual，还是双模式。
-- 点击像素后默认聚焦整个像素、首个 channel，还是记忆上次 channel。
-- 右侧五个 Inspector 标签的最终命名与最小首版内容。
-- 初始布局比例和最小窗口尺寸是否采用建议值。
-- Statistics 是否必须进入第一个单文件 v1。
+- Filtered 采用双模式：unsigned 原始 byte 为主，signed residual 作为辅助解释。
+- 点击像素默认聚焦整个 pixel，channel/sample 由 Inspector 显式细化。
+- Inspector 首版标签固定为 Reconstruct、Pixel、Scanline、Source、Format Context。
+- 默认窗口采用 1200×760、最小 900×600、Preview/Hex 60%/40%。
+- Statistics 不作为首个单文件 v1 的强制验收项。
 
 这些决策一旦冻结，后续每个带后缀的最小工作包都能以自动测试、固定样本和人工 checklist 独立验收，不需要开发者在实现中临时猜测产品语义。

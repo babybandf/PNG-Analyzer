@@ -12,6 +12,7 @@ add_executable(pnga_analysis_engine_tests
   stage_analysis_test.cpp
   stage_viewport_test.cpp
   trace_query_test.cpp
+  trace_orchestrator_test.cpp
 )
 target_link_libraries(pnga_analysis_engine_tests PRIVATE
   pnga::analysis_engine

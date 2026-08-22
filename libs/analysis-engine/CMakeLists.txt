@@ -14,6 +14,7 @@ add_library(pnga_analysis_engine
   src/stage_analysis.cpp
   src/stage_viewport.cpp
   src/trace_query.cpp
+  src/trace_orchestrator.cpp
 )
 add_library(pnga::analysis_engine ALIAS pnga_analysis_engine)
 
