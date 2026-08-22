@@ -8,6 +8,7 @@ add_library(pnga_analysis_engine
   src/job_scheduler.cpp
   src/pixel_provenance.cpp
   src/query_coordinator.cpp
+  src/reconstruct_view_model.cpp
   src/reference_decode.cpp
   src/scanline_anchor.cpp
   src/stage_analysis.cpp

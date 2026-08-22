@@ -7,6 +7,7 @@ add_executable(pnga_analysis_engine_tests
   job_scheduler_test.cpp
   pixel_provenance_test.cpp
   query_coordinator_test.cpp
+  reconstruct_view_model_test.cpp
   scanline_anchor_test.cpp
   stage_analysis_test.cpp
   stage_viewport_test.cpp
