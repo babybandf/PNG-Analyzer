@@ -85,6 +85,17 @@ TEST_CASE("Statistics reject unsafe bucket and arithmetic inputs",
               .status == BuildStatus::kBudgetExceeded);
 }
 
+TEST_CASE("Statistics reject oversized sample spans before allocation",
+          "[statistics][wp602a]") {
+  const std::array samples = {ChunkSample{"IDAT", 1}, ChunkSample{"IEND", 0}};
+  pnga::statistics::StatisticsLimits limits;
+  limits.max_samples = 1;
+  const auto result =
+      pnga::statistics::collect(StatisticsInput{samples, {}, {}, {}}, limits);
+  REQUIRE(result.status == BuildStatus::kBudgetExceeded);
+  REQUIRE(result.chunk_count == 0);
+}
+
 TEST_CASE("Statistics reject addition overflow without wrapping",
           "[statistics][wp602a]") {
   const std::array chunks = {ChunkSample{"IDAT", UINT64_MAX},

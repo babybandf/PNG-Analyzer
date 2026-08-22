@@ -18,6 +18,7 @@ add_executable(pnga_analysis_engine_tests
   trace_orchestrator_test.cpp
   trace_inspector_bundle_test.cpp
   trace_inspector_state_test.cpp
+  statistics_adapter_test.cpp
 )
 target_link_libraries(pnga_analysis_engine_tests PRIVATE
   pnga::analysis_engine

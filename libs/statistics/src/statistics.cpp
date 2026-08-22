@@ -107,10 +107,19 @@ StatisticsSnapshot collect(const StatisticsInput& input, StatisticsLimits limits
   output.blocks.resize(3);
   output.tokens.resize(3);
 
-  if (limits.max_chunk_types == 0 || limits.max_length_values == 0 ||
-      limits.max_distance_values == 0) {
+  if (limits.max_samples == 0 || limits.max_chunk_types == 0 ||
+      limits.max_length_values == 0 || limits.max_distance_values == 0) {
     fail(&output, BuildStatus::kBudgetExceeded,
          "statistics bucket budget must be positive");
+    return output;
+  }
+
+  if (input.chunks.size() > limits.max_samples ||
+      input.filters.size() > limits.max_samples ||
+      input.blocks.size() > limits.max_samples ||
+      input.tokens.size() > limits.max_samples) {
+    fail(&output, BuildStatus::kBudgetExceeded,
+         "statistics sample budget exceeded");
     return output;
   }
 

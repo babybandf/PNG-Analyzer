@@ -16,6 +16,7 @@ add_library(pnga_analysis_engine
   src/scanline_anchor.cpp
   src/stage_analysis.cpp
   src/stage_viewport.cpp
+  src/statistics_adapter.cpp
   src/trace_query.cpp
   src/trace_orchestrator.cpp
   src/trace_inspector_bundle.cpp
@@ -37,6 +38,7 @@ target_link_libraries(pnga_analysis_engine PUBLIC
   pnga::deflate_trace
   pnga::io
   pnga::validation
+  pnga::statistics
 )
 target_compile_features(pnga_analysis_engine PUBLIC cxx_std_20)
 set_target_properties(pnga_analysis_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)

@@ -30,6 +30,7 @@ enum class TokenKind : std::uint8_t {
 };
 
 struct StatisticsLimits {
+  std::uint64_t max_samples = 1ULL << 20;
   std::uint64_t max_chunk_types = 1024;
   std::uint64_t max_length_values = 65536;
   std::uint64_t max_distance_values = 65536;

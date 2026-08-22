@@ -19,6 +19,9 @@ Orchestration rather than codec algorithms (REPOSITORY_LAYOUT.md §5.10, ADR-000
   Pixels view (WP-5U3B); viewport requests never allocate a full-size QImage.
 - Qt-free reconstruction view models expose pass/row/sample offsets, bounded
   `X/a/b/c` neighbor steps and stable boundary errors (WP-5U5A).
+- WP-602A adapts immutable Chunk, Stage, Deflate block and token results into
+  the bounded `pnga_statistics` scalar sample contract without copying payloads
+  or adding decoder logic.
 - Worker scheduling, cancellation and generation IDs (later WP).
 - Artifact cache, memory budgets and stale-result suppression.
 - Backend selection and publication of immutable results.
