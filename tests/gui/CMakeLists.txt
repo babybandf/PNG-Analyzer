@@ -204,6 +204,20 @@ target_compile_features(pnga_gui_trace_inspector_binding_tests PRIVATE cxx_std_2
 add_test(NAME gui_trace_inspector_binding_tests
   COMMAND pnga_gui_trace_inspector_binding_tests)
 
+add_executable(pnga_gui_trace_inspector_performance_tests
+  trace_inspector_performance_test.cpp
+)
+set_target_properties(pnga_gui_trace_inspector_performance_tests PROPERTIES AUTOMOC ON)
+target_link_libraries(pnga_gui_trace_inspector_performance_tests PRIVATE
+  pnga::ui_qt
+  pnga::analysis_engine
+  Qt6::Test
+)
+target_compile_features(pnga_gui_trace_inspector_performance_tests PRIVATE cxx_std_20)
+
+add_test(NAME gui_trace_inspector_performance_tests
+  COMMAND pnga_gui_trace_inspector_performance_tests)
+
 add_executable(pnga_gui_about_tests
   about_dialog_test.cpp
 )

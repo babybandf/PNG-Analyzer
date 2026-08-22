@@ -16,6 +16,7 @@ namespace pnga::ui::qt {
 class HuffmanInspector final : public QWidget {
   Q_OBJECT
  public:
+  static constexpr int kMaxVisibleRows = 4096;
   explicit HuffmanInspector(QWidget* parent = nullptr);
 
   void setView(const pnga::analysis_engine::HuffmanInspectorView& view);

@@ -99,7 +99,11 @@ void DecodeTraceInspector::setView(
                    ? QString::number(static_cast<qulonglong>(
                          *view_.selected_output_offset))
                    : QStringLiteral("—")));
+  std::size_t rendered = 0;
   for (const auto& step : view_.steps) {
+    if (rendered++ >= static_cast<std::size_t>(kMaxVisibleRows)) {
+      break;
+    }
     const int row = table_->rowCount();
     table_->insertRow(row);
     table_->setItem(row, 0, new QTableWidgetItem(QString::number(
@@ -150,6 +154,13 @@ void DecodeTraceInspector::setView(
     if (step.selected) {
       table_->selectRow(row);
     }
+  }
+  if (view_.steps.size() > static_cast<std::size_t>(kMaxVisibleRows)) {
+    const int row = table_->rowCount();
+    table_->insertRow(row);
+    table_->setItem(row, 0, new QTableWidgetItem(QStringLiteral("…")));
+    table_->setItem(row, 1, new QTableWidgetItem(QStringLiteral("truncated")));
+    table_->setItem(row, 8, new QTableWidgetItem(QStringLiteral("more steps")));
   }
   updateButtons();
 }

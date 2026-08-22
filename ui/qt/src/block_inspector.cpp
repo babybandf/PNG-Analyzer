@@ -110,7 +110,11 @@ void BlockInspector::setView(
                    ? QString::number(static_cast<qulonglong>(
                          *view_.selected_output_offset))
                    : QStringLiteral("—")));
+  std::size_t rendered = 0;
   for (const auto& row : view_.rows) {
+    if (rendered++ >= static_cast<std::size_t>(kMaxVisibleRows)) {
+      break;
+    }
     const int table_row = table_->rowCount();
     table_->insertRow(table_row);
     table_->setItem(table_row, 0,
@@ -147,6 +151,16 @@ void BlockInspector::setView(
                                              ? QString::number(static_cast<qulonglong>(
                                                    *view_.scanline))
                                              : QStringLiteral("—")));
+  }
+  if (view_.rows.size() > static_cast<std::size_t>(kMaxVisibleRows)) {
+    const int row = table_->rowCount();
+    table_->insertRow(row);
+    table_->setItem(row, 0, new QTableWidgetItem(QStringLiteral("…")));
+    table_->setItem(row, 1, new QTableWidgetItem(QStringLiteral("truncated")));
+    table_->setItem(row, 4, new QTableWidgetItem(QStringLiteral("%1 more rows")
+                                                     .arg(static_cast<qulonglong>(
+                                                         view_.rows.size() -
+                                                         kMaxVisibleRows))));
   }
   if (view_.selected_block_index.has_value()) {
     for (int row = 0; row < table_->rowCount(); ++row) {

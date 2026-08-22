@@ -45,7 +45,11 @@ void HexView::setSource(std::shared_ptr<const HexDataSource> source) {
 void HexView::setHighlight(std::vector<HexHighlightSpan> spans) {
   spans_.clear();
   const std::uint64_t size = source_ == nullptr ? 0 : source_->size();
+  std::size_t count = 0;
   for (auto span : spans) {
+    if (count++ >= kMaxHighlightSpans) {
+      break;
+    }
     if (span.start >= size || span.length == 0) {
       continue;
     }

@@ -17,6 +17,7 @@ namespace pnga::ui::qt {
 class DecodeTraceInspector final : public QWidget {
   Q_OBJECT
  public:
+  static constexpr int kMaxVisibleRows = 4096;
   explicit DecodeTraceInspector(QWidget* parent = nullptr);
 
   void setView(const pnga::analysis_engine::DecodeTraceInspectorView& view);

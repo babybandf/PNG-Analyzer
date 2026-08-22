@@ -83,8 +83,14 @@ void HuffmanInspector::setView(
                          .arg(static_cast<qulonglong>(
                              *view_.selected_input_bit_end))
                    : QStringLiteral("—")));
+  std::size_t rendered = 0;
+  bool truncated = false;
   for (const auto& table : view_.tables) {
     if (table.entries.empty()) {
+      if (rendered++ >= static_cast<std::size_t>(kMaxVisibleRows)) {
+        truncated = true;
+        break;
+      }
       const int row = table_->rowCount();
       table_->insertRow(row);
       table_->setItem(row, 0, new QTableWidgetItem(QString::number(
@@ -104,6 +110,10 @@ void HuffmanInspector::setView(
       continue;
     }
     for (const auto& entry : table.entries) {
+      if (rendered++ >= static_cast<std::size_t>(kMaxVisibleRows)) {
+        truncated = true;
+        break;
+      }
       const int row = table_->rowCount();
       table_->insertRow(row);
       table_->setItem(row, 0, new QTableWidgetItem(QString::number(
@@ -132,6 +142,16 @@ void HuffmanInspector::setView(
         table_->selectRow(row);
       }
     }
+    if (truncated) {
+      break;
+    }
+  }
+  if (truncated) {
+    const int row = table_->rowCount();
+    table_->insertRow(row);
+    table_->setItem(row, 0, new QTableWidgetItem(QStringLiteral("…")));
+    table_->setItem(row, 1, new QTableWidgetItem(QStringLiteral("truncated")));
+    table_->setItem(row, 4, new QTableWidgetItem(QStringLiteral("more entries")));
   }
 }
 

@@ -48,6 +48,9 @@ everything under `libs/` stays Qt-free (ADR-0003).
 - WP-5U6A: `TraceInspectorStateMachine` and `publishState` make loading,
   replaying, partial, error, cancelled and stale-generation states visible
   without allowing an older result to overwrite a newer document.
+- WP-5U6B: Block/Huffman/Decode tables and Hex highlights enforce bounded
+  rendering caps with deterministic truncation rows; the performance test
+  records cold/hot render timings without copying the source file.
 
 ## Non-goals
 

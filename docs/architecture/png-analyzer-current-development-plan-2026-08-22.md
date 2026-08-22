@@ -32,7 +32,7 @@
 | M2 统一模型与参考解码 | 实现完成 | WP-200～206 | 快速连续切换文件的完整 GUI 压测仍需 Gate 化 |
 | M3 可观测重建流水线 | 实现完成 | WP-300～306 | conformance corpus 与 sanitizer Gate 尚未形成完整证据包 |
 | M4 大文件索引与随机访问 | 实现完成 | WP-400～406 | 固定性能 corpus、机器基线与阈值尚未冻结 |
-| M5 Deep Deflate Trace | Block/Huffman/Decode Trace Inspector、bounded Trace Gate 与 WP-5U6A 状态契约已实现 | WP-500～504、WP-5U0～WP-5U5B、WP-5T0A～WP-5T0B、WP-505A～WP-505C、bounded Trace Gate、WP-5U6A | WP-5U6B/C performance/cross-platform Gate、fuzz/sanitizer 与发布证据仍未完成 |
+| M5 Deep Deflate Trace | Block/Huffman/Decode Trace Inspector、bounded Trace Gate、WP-5U6A 状态契约与 WP-5U6B 性能 Gate 已实现 | WP-500～504、WP-5U0～WP-5U5B、WP-5T0A～WP-5T0B、WP-505A～WP-505C、bounded Trace Gate、WP-5U6A～WP-5U6B | WP-5U6C cross-platform Gate、fuzz/sanitizer 与发布证据仍未完成 |
 | M6 Validation、Statistics、发布 | 未开始 | 仅有早期 structural validation | 范围按第 6 节重排 |
 | M7 APNG | 未开始 | 模型预留 frame 维度 | 维持 post-v1 |
 
@@ -53,7 +53,7 @@ git status --short --branch
 结果：
 
 - 当前提交完整 dev 构建通过，Qt 6.11.1 GUI target 已启用。
-- 28/28 个 CTest 测试入口通过，包含 core、parser、reconstruction、Deflate、differential、CLI 与 GUI 测试；新增 Block/Huffman/Decode Trace Inspector、统一 binding 与 WP-5U6A 状态机的 Qt-free/Qt 测试。
+- 29/29 个 CTest 测试入口通过，包含 core、parser、reconstruction、Deflate、differential、CLI 与 GUI 测试；新增 Block/Huffman/Decode Trace Inspector、统一 binding、WP-5U6A 状态机与 WP-5U6B 性能回归测试。
 - 仓库布局检查：0 failure、0 warning。
 - 依赖静态检查：0 failure、0 warning。
 - 本次核验覆盖当前 `main`；WP-5T0B 的编排、测试和计划文档变更在验证后统一提交。
@@ -413,9 +413,9 @@ WP-700～703 不变。静态 PNG 模型继续保留 frame 维度，但任何 Fra
 
 `WP-5U0` 已由 `docs/development/wp-5u0-ui-spec.md` 冻结，且其依赖的
 WP-5U1～WP-5U5B、WP-5T0A～WP-5T0B、WP-505A～WP-505C、bounded Trace Gate 与
-WP-5U6A 已落地。当前下一项是 `WP-5U6B UI Performance Gate`：验证 Inspector
-表格/Hex 的有界虚拟化、内存预算、hover/selection 延迟与冷/热缓存证据；不得
-在 GUI 重写 Deflate 解析。
+WP-5U6A～WP-5U6B 已落地。当前下一项是 `WP-5U6C Cross-platform GUI Gate`：
+验证三平台布局、DPI、主题、快捷键、焦点顺序和基本无障碍清单；不得在 GUI
+重写 Deflate 解析。
 
 WP-5U0 已冻结的产品决策继续作为后续实现约束：
 

@@ -18,6 +18,7 @@ namespace pnga::ui::qt {
 class BlockInspector final : public QWidget {
   Q_OBJECT
  public:
+  static constexpr int kMaxVisibleRows = 2048;
   explicit BlockInspector(QWidget* parent = nullptr);
 
   void setView(const pnga::analysis_engine::BlockInspectorView& view);

@@ -28,6 +28,7 @@ struct HexHighlightSpan {
 class HexView final : public QAbstractScrollArea {
   Q_OBJECT
  public:
+  static constexpr std::size_t kMaxHighlightSpans = 4096;
   explicit HexView(QWidget* parent = nullptr);
 
   // The source owns or otherwise keeps its backing bytes alive.
@@ -42,6 +43,7 @@ class HexView final : public QAbstractScrollArea {
   bool goBack();
   bool goForward();
   std::optional<std::uint64_t> currentLocation() const noexcept;
+  std::size_t highlightCount() const noexcept { return spans_.size(); }
 
  protected:
   void paintEvent(QPaintEvent* event) override;
