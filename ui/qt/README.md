@@ -27,6 +27,9 @@ everything under `libs/` stays Qt-free (ADR-0003).
   windowed reads; `HexView` no longer borrows a raw ByteSource pointer.
 - WP-5U4C: `HexView` keeps bounded address history and supports back/forward
   navigation while safely clipping multiple highlight spans.
+- WP-5U5B: `StageInspector` shows a coordinate-driven Reconstruct summary
+  backed by the Qt-free view model, including pass/row/sample and filter-step
+  values.
 
 ## Non-goals
 

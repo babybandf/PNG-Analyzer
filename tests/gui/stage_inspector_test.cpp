@@ -7,8 +7,11 @@
 #include <pnga/png-format/chunk_index.h>
 #include <pnga/png-format/virtual_idat_stream.h>
 #include <pnga/ui/qt/stage_inspector_model.h>
+#include <pnga/ui/qt/stage_inspector.h>
 
 #include <QtTest/QtTest>
+
+#include <QLabel>
 
 #include <cstdint>
 #include <memory>
@@ -45,6 +48,7 @@ class StageInspectorModelTest : public QObject {
   void formulaTextCarriesNeighbors();
   void deliveredUsesProvidedPixels();
   void outOfBoundsIsEmpty();
+  void reconstructSummaryUsesViewModel();
 };
 
 void StageInspectorModelTest::stageSwitchKeepsRows() {
@@ -148,6 +152,19 @@ void StageInspectorModelTest::outOfBoundsIsEmpty() {
   const QString text =
       model.data(model.index(0, StageInspectorModel::kValue)).toString();
   QCOMPARE(text, QStringLiteral("—"));
+}
+
+void StageInspectorModelTest::reconstructSummaryUsesViewModel() {
+  const EncodedPng e = encode_png(8, 8, 8, 6, false, false);
+  pnga::ui::qt::StageInspector inspector;
+  inspector.setStageSet(stages_of(e));
+  inspector.onPixelSelected(1, 4);
+  auto* summary =
+      inspector.findChild<QLabel*>(QStringLiteral("reconstructSummary"));
+  QVERIFY(summary != nullptr);
+  QVERIFY(summary->text().contains(QStringLiteral("Reconstruct")));
+  QVERIFY(summary->text().contains(QStringLiteral("pass 0")));
+  QVERIFY(summary->text().contains(QStringLiteral("pred=")));
 }
 
 QTEST_MAIN(StageInspectorModelTest)

@@ -54,6 +54,7 @@ class StageInspector final : public QWidget {
   QComboBox* stage_combo_ = nullptr;
   QTableView* table_ = nullptr;
   QLabel* detail_ = nullptr;
+  QLabel* reconstruct_summary_ = nullptr;
   QLabel* query_status_label_ = nullptr;
   std::uint64_t x_ = 0;
   std::uint64_t y_ = 0;

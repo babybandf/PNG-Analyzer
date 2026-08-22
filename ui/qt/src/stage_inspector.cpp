@@ -3,6 +3,8 @@
 
 #include "pnga/ui/qt/stage_inspector.h"
 
+#include <pnga/analysis-engine/reconstruct_view_model.h>
+
 #include <QAbstractItemView>
 #include <QComboBox>
 #include <QHBoxLayout>
@@ -11,6 +13,8 @@
 #include <QModelIndex>
 #include <QTableView>
 #include <QVBoxLayout>
+
+#include <algorithm>
 
 namespace pnga::ui::qt {
 
@@ -38,6 +42,10 @@ StageInspector::StageInspector(QWidget* parent) : QWidget(parent) {
   detail_ = new QLabel(QStringLiteral("no data"), this);
   detail_->setWordWrap(true);
 
+  reconstruct_summary_ = new QLabel(QStringLiteral("reconstruct: no data"), this);
+  reconstruct_summary_->setObjectName(QStringLiteral("reconstructSummary"));
+  reconstruct_summary_->setWordWrap(true);
+
   query_status_label_ = new QLabel(QStringLiteral("row query: indexed"), this);
 
   auto* top = new QHBoxLayout;
@@ -48,6 +56,7 @@ StageInspector::StageInspector(QWidget* parent) : QWidget(parent) {
   auto* layout = new QVBoxLayout(this);
   layout->addLayout(top);
   layout->addWidget(table_, 1);
+  layout->addWidget(reconstruct_summary_);
   layout->addWidget(detail_);
   layout->addWidget(query_status_label_);
 
@@ -82,6 +91,7 @@ void StageInspector::clear() {
   model_->clear();
   stage_combo_->setEnabled(false);
   detail_->setText(QStringLiteral("no data"));
+  reconstruct_summary_->setText(QStringLiteral("reconstruct: no data"));
   query_status_label_->setText(QStringLiteral("row query: indexed"));
 }
 
@@ -109,8 +119,35 @@ void StageInspector::onCurrentCellChanged(const QModelIndex& current,
 
 void StageInspector::refreshDetail() {
   if (!model_->hasData()) {
+    reconstruct_summary_->setText(QStringLiteral("reconstruct: no data"));
     detail_->setText(QStringLiteral("no data"));
     return;
+  }
+  const auto reconstruction = pnga::analysis_engine::build_reconstruct_view(
+      *model_->stageSet(), x_, y_);
+  if (reconstruction.status ==
+      pnga::analysis_engine::ReconstructStatus::kReady) {
+    const auto& step = reconstruction.steps[
+        std::min<std::size_t>(
+            reconstruction.steps.size() - 1,
+            static_cast<std::size_t>(reconstruction.selected_byte))];
+    reconstruct_summary_->setText(
+        QStringLiteral("Reconstruct: pass %1 row %2 sample %3 | byte %4 | "
+                       "X=%5 a=%6 b=%7 c=%8 pred=%9 recon=%10")
+            .arg(static_cast<qulonglong>(reconstruction.pass))
+            .arg(static_cast<qulonglong>(reconstruction.stream_row))
+            .arg(static_cast<qulonglong>(reconstruction.sample_index))
+            .arg(static_cast<qulonglong>(reconstruction.selected_byte))
+            .arg(step.raw)
+            .arg(step.a)
+            .arg(step.b)
+            .arg(step.c)
+            .arg(step.predictor)
+            .arg(step.recon));
+  } else {
+    reconstruct_summary_->setText(
+        QStringLiteral("reconstruct: %1")
+            .arg(QString::fromStdString(reconstruction.error)));
   }
   // Show the formula for the pixel's first byte at the current stage (byte 0).
   const auto text = model_->formulaText(0);

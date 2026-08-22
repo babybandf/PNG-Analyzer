@@ -42,6 +42,9 @@ class StageInspectorModel final : public QAbstractTableModel {
   bool hasData() const noexcept {
     return set_ != nullptr && set_->success;
   }
+  std::shared_ptr<const pnga::analysis_engine::StageSet> stageSet() const {
+    return set_;
+  }
   pnga::trace_model::Stage stage() const noexcept { return stage_; }
   std::uint64_t pixelX() const noexcept { return x_; }
   std::uint64_t pixelY() const noexcept { return y_; }
