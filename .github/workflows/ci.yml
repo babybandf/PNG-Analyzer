@@ -128,6 +128,10 @@ jobs:
         shell: bash
         run: ctest --preset dev
 
+      - name: Package smoke
+        shell: bash
+        run: python scripts/run_package_smoke.py
+
       - name: Configure asan (Linux)
         if: matrix.sanitize
         shell: bash

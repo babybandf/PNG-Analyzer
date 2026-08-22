@@ -1,6 +1,7 @@
 # Generated / local paths that must never be tracked (REPOSITORY_LAYOUT.md §12)
 .deps/
 build/
+_CPack_Packages/
 out/
 vcpkg_installed/
 CMakeUserPresets.json

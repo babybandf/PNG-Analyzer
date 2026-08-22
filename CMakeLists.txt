@@ -47,3 +47,22 @@ if(PNGA_BUILD_TESTS)
   enable_testing()
   add_subdirectory(tests)
 endif()
+
+# WP-605A: install the relocatable CLI (and optional GUI) targets, then let
+# CPack produce the platform archive used by the package smoke gate.
+include(GNUInstallDirs)
+install(TARGETS pnga_cli
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+  BUNDLE DESTINATION .
+)
+if(PNGA_HAVE_QT)
+  install(TARGETS pnga_analyzer_gui
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    BUNDLE DESTINATION .
+  )
+endif()
+install(FILES README.md LICENSE
+  DESTINATION ${CMAKE_INSTALL_DATADIR}/png-analyzer
+)
+include(${CMAKE_CURRENT_SOURCE_DIR}/packaging/CPackOptions.cmake)
+include(CPack)
