@@ -46,6 +46,7 @@ compression rate, cancellation with partial preservation, invalid inputs,
 bucket budgets and arithmetic overflow. The target links only `pnga_core` and
 `pnga_trace_model`; it contains no Qt, file I/O or decoder dependency.
 
-The next bounded increment is to adapt immutable analysis results into these
-sample spans and decide whether WP-602B should enter the v1 surface. That
-increment must preserve the same limits and cancellation contract.
+The immutable analysis-result adapter is now included in
+`pnga_analysis_engine`; it validates ranges, maps Chunk/Stage/Block/Token
+records and preserves the same sample limit and cancellation contract. The next
+decision is whether WP-602B should enter the v1 surface.

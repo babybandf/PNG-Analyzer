@@ -1,7 +1,7 @@
 # PNG Analyzer 当前开发进度与后续执行计划（2026-08-22）
 
 > Status: Active execution supplement
-> Baseline commit: `1d3be7e` (`main`，WP-602A bounded Statistics Engine 完成)
+> Baseline commit: `debec85` (`main`，WP-602A analysis-result adapter 完成)
 > Parent plan: [PNG Analyzer Agent 可执行开发计划 v0.1](png-analyzer-agent-development-plan-v0.1.md)
 
 ## 1. 文档作用与范围
@@ -57,7 +57,7 @@ git status --short --branch
 - dev 与 ASan/UBSan 各有 35/35 个 CTest 测试入口通过（GUI 运行使用 `QT_QPA_PLATFORM=offscreen`）；新增的 150%/200% DPI GUI 注册均通过，专门 `scripts/run_gui_gate.py` 生成当前主机和三档 Qt scale evidence。测试覆盖 core、parser、reconstruction、Deflate、differential、CLI、fuzz smoke、性能 corpus runner、Qt-free bounded WP-602A Statistics Engine 与 GUI 测试；并包含 Block/Huffman/Decode Trace Inspector、统一 binding、WP-5U6A 状态机、WP-5U6B 性能回归、WP-5U6C 跨平台 GUI Gate、WP-600A/600B 规则边界测试、WP-600C CLI/GUI 报告整合、WP-603A/603B fuzz smoke、WP-603C sanitizer replay gate、WP-604A performance record 与 WP-604B threshold gate。
 - 仓库布局检查：0 failure、0 warning。
 - 依赖静态检查：0 failure、0 warning。
-- 本次核验覆盖当前 `main` 的 `1d3be7e`；布局与依赖静态审计均为 0 failure、0 warning。GUI evidence 记录 macOS arm64 / Qt 6.11.1 的默认、150% 和 200% scale 运行；原生 Windows/Linux 窗口系统、屏幕阅读器和原生安装器仍未由本机证据覆盖。
+- 本次核验覆盖当前 `main` 的 `debec85`；布局与依赖静态审计均为 0 failure、0 warning。GUI evidence 记录 macOS arm64 / Qt 6.11.1 的默认、150% 和 200% scale 运行；原生 Windows/Linux 窗口系统、屏幕阅读器和原生安装器仍未由本机证据覆盖。
 
 本次未声称已通过：正式 conformance/coverage-guided fuzz、跨平台 performance threshold、原生 DMG/MSIX/AppImage/Flatpak 或 Qt framework deployment。dev 与 ASan/UBSan 全量、WP-603C 定向 replay、WP-604A runner、WP-604B threshold gate、WP-605A portable archive smoke、WP-605B 文档自检、WP-605C RC audit 与 GUI performance scenario 均已通过；原生安装器和发布证据仍属后续 Gate。
 
@@ -416,9 +416,9 @@ WP-700～703 不变。静态 PNG 模型继续保留 frame 维度，但任何 Fra
 WP-5U1～WP-5U5B、WP-5T0A～WP-5T0B、WP-505A～WP-505C、bounded Trace Gate 与
 WP-5U6A～WP-5U6C、WP-600A～WP-600C、WP-603A～WP-603C、WP-604A～WP-604B、WP-605A～WP-605C 已落地。
 当前没有可在不新增架构边界的情况下直接实现的发布工作包；推荐下一项为
-`WP-602A Statistics Engine` 的范围、接口与首版 Qt-free 实现已冻结并提交；下一步是
-把现有 immutable analysis 结果适配为样本输入，并在此基础上决定是否启动
-`WP-602B Statistics UI & Export`。不得改变 `pnga_statistics` 的依赖方向，或
+`WP-602A Statistics Engine` 的范围、接口、首版 Qt-free 实现和 immutable analysis
+适配器已冻结并提交；下一步是决定是否启动 `WP-602B Statistics UI & Export`。
+不得改变 `pnga_statistics` 的依赖方向，或
 把解析/解码逻辑放进该模块。
 
 WP-5U0 已冻结的产品决策继续作为后续实现约束：
