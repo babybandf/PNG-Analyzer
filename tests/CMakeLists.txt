@@ -4,6 +4,7 @@
 add_subdirectory(unit/core)
 add_subdirectory(unit/io)
 add_subdirectory(unit/png-format)
+add_subdirectory(unit/statistics)
 add_subdirectory(unit/validation)
 add_subdirectory(unit/trace-model)
 add_subdirectory(unit/backend-libpng)
