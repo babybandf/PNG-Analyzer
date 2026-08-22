@@ -1,7 +1,7 @@
 # PNG Analyzer 当前开发进度与后续执行计划（2026-08-22）
 
 > Status: Active execution supplement
-> Baseline commit: `4ad9875` (`main`，WP-5U6A 完成后的基线)
+> Baseline commit: `50db8ab` (`main`，WP-5U6B 完成后的基线)
 > Parent plan: [PNG Analyzer Agent 可执行开发计划 v0.1](png-analyzer-agent-development-plan-v0.1.md)
 
 ## 1. 文档作用与范围
