@@ -17,6 +17,7 @@ add_library(pnga_ui_qt
   include/pnga/ui/qt/selection_view_state.h
   include/pnga/ui/qt/stage_inspector.h
   include/pnga/ui/qt/stage_inspector_model.h
+  include/pnga/ui/qt/stage_preview_view.h
   src/about_dialog.cpp
   src/chunk_model.cpp
   src/delivered_image_view.cpp
@@ -26,6 +27,7 @@ add_library(pnga_ui_qt
   src/selection_bus.cpp
   src/stage_inspector.cpp
   src/stage_inspector_model.cpp
+  src/stage_preview_view.cpp
 )
 add_library(pnga::ui_qt ALIAS pnga_ui_qt)
 

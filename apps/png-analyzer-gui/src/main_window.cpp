@@ -10,6 +10,7 @@
 #include <pnga/ui/qt/pixel_viewport.h>
 #include <pnga/ui/qt/selection_bus.h>
 #include <pnga/ui/qt/stage_inspector.h>
+#include <pnga/ui/qt/stage_preview_view.h>
 
 #include <QAbstractItemView>
 #include <QAction>
@@ -105,18 +106,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   preview_tabs_->addTab(image_view_, QStringLiteral("Image"));
   pixel_view_ = new pnga::ui::qt::PixelViewport(preview_tabs_);
   preview_tabs_->addTab(pixel_view_, QStringLiteral("Pixels"));
-  const auto addPreviewPlaceholder = [this](const QString& title) {
-    auto* label = new QLabel(QStringLiteral("Not available for current document"),
-                             preview_tabs_);
-    label->setAlignment(Qt::AlignCenter);
-    label->setObjectName(title.toLower().replace(QLatin1Char(' '),
-                                                 QLatin1Char('_')) +
-                         QStringLiteral("PreviewPlaceholder"));
-    preview_tabs_->addTab(label, title);
-  };
-  addPreviewPlaceholder(QStringLiteral("Filter Map"));
-  addPreviewPlaceholder(QStringLiteral("Filtered"));
-  addPreviewPlaceholder(QStringLiteral("Defiltered"));
+  filter_map_view_ = new pnga::ui::qt::StagePreviewView(
+      pnga::ui::qt::PreviewStage::kFilterMap, preview_tabs_);
+  preview_tabs_->addTab(filter_map_view_, QStringLiteral("Filter Map"));
+  filtered_view_ = new pnga::ui::qt::StagePreviewView(
+      pnga::ui::qt::PreviewStage::kFiltered, preview_tabs_);
+  preview_tabs_->addTab(filtered_view_, QStringLiteral("Filtered"));
+  defiltered_view_ = new pnga::ui::qt::StagePreviewView(
+      pnga::ui::qt::PreviewStage::kDefiltered, preview_tabs_);
+  preview_tabs_->addTab(defiltered_view_, QStringLiteral("Defiltered"));
 
   hex_ = new pnga::ui::qt::HexView(center_splitter_);
   hex_->setObjectName(QStringLiteral("hexView"));
@@ -410,6 +408,9 @@ void MainWindow::publishLockedCoordinate() {
   image_view_->setLockedPixel(
       QPoint(static_cast<int>(coordinate.x), static_cast<int>(coordinate.y)));
   pixel_view_->setCenter(coordinate.x, coordinate.y);
+  filter_map_view_->setCoordinate(coordinate.x, coordinate.y);
+  filtered_view_->setCoordinate(coordinate.x, coordinate.y);
+  defiltered_view_->setCoordinate(coordinate.x, coordinate.y);
   pnga::trace_model::Selection update;
   update.image = coordinate;
   update.stage = pnga::trace_model::Stage::kDelivered;
@@ -524,6 +525,9 @@ void MainWindow::onStageDone(std::uint64_t generation) {
   const auto header = stage->header;
   inspector_->setStageSet(stage);
   pixel_view_->setStageSet(stage);
+  filter_map_view_->setStageSet(stage);
+  filtered_view_->setStageSet(stage);
+  defiltered_view_->setStageSet(stage);
   stage_worker_ = nullptr;
   openQueryCoordinator(header);
 }
@@ -553,6 +557,9 @@ bool MainWindow::openFile(const QString& path) {
   bus_->setDocumentGeneration(generation_);
   view_state_.set_document_generation(generation_);
   pixel_view_->clear();
+  filter_map_view_->clear();
+  filtered_view_->clear();
+  defiltered_view_->clear();
   image_view_->clearHoverPixel();
   image_view_->clearLockedPixel();
   {
@@ -700,6 +707,12 @@ void MainWindow::onPixelSelected(int x, int y) {
   image_view_->setLockedPixel(QPoint(x, y));
   pixel_view_->setCenter(static_cast<std::uint64_t>(x),
                          static_cast<std::uint64_t>(y));
+  filter_map_view_->setCoordinate(static_cast<std::uint64_t>(x),
+                                  static_cast<std::uint64_t>(y));
+  filtered_view_->setCoordinate(static_cast<std::uint64_t>(x),
+                                static_cast<std::uint64_t>(y));
+  defiltered_view_->setCoordinate(static_cast<std::uint64_t>(x),
+                                  static_cast<std::uint64_t>(y));
   bus_->publishMerged(kImagePanelOrigin, generation_, sel);
   const auto rgba = image_view_->rgbaAt(x, y);
   if (rgba.has_value()) {

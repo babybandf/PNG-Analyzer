@@ -41,6 +41,7 @@ class HexView;
 class PixelViewport;
 class SelectionBus;
 class StageInspector;
+class StagePreviewView;
 }  // namespace pnga::ui::qt
 
 namespace {
@@ -151,6 +152,9 @@ class MainWindow final : public QMainWindow {
   pnga::ui::qt::HexView* hex_ = nullptr;
   pnga::ui::qt::DeliveredImageView* image_view_ = nullptr;
   pnga::ui::qt::PixelViewport* pixel_view_ = nullptr;
+  pnga::ui::qt::StagePreviewView* filter_map_view_ = nullptr;
+  pnga::ui::qt::StagePreviewView* filtered_view_ = nullptr;
+  pnga::ui::qt::StagePreviewView* defiltered_view_ = nullptr;
   pnga::ui::qt::SelectionBus* bus_ = nullptr;
   pnga::ui::qt::StageInspector* inspector_ = nullptr;
   pnga::ui::qt::SelectionViewState view_state_;
