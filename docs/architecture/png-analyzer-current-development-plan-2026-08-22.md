@@ -1,7 +1,7 @@
 # PNG Analyzer 当前开发进度与后续执行计划（2026-08-22）
 
 > Status: Active execution supplement
-> Baseline commit: `6462a49` (`main`，WP-603C sanitizer fuzz regression gate 完成后的代码基线)
+> Baseline commit: `6e0f261` (`main`，WP-604A performance corpus/runner 完成后的代码基线)
 > Parent plan: [PNG Analyzer Agent 可执行开发计划 v0.1](png-analyzer-agent-development-plan-v0.1.md)
 
 ## 1. 文档作用与范围
@@ -31,12 +31,12 @@
 | M1 文件与 Chunk 垂直切片 | 实现完成 | WP-100～104 | malformed smoke corpus 仍需扩充 |
 | M2 统一模型与参考解码 | 实现完成 | WP-200～206 | 快速连续切换文件的完整 GUI 压测仍需 Gate 化 |
 | M3 可观测重建流水线 | 实现完成 | WP-300～306 | conformance corpus 与 sanitizer Gate 尚未形成完整证据包 |
-| M4 大文件索引与随机访问 | 实现完成 | WP-400～406 | 固定性能 corpus、机器基线与阈值尚未冻结 |
+| M4 大文件索引与随机访问 | 实现完成 | WP-400～406 | 固定性能阈值与跨平台机器基线尚未冻结 |
 | M5 Deep Deflate Trace | Block/Huffman/Decode Trace Inspector、bounded Trace Gate、WP-5U6A 状态契约、WP-5U6B 性能 Gate 与 WP-5U6C GUI Gate 已实现 | WP-500～504、WP-5U0～WP-5U5B、WP-5T0A～WP-5T0B、WP-505A～WP-505C、bounded Trace Gate、WP-5U6A～WP-5U6C | 三平台原生 CI、正式 fuzz corpus、发布证据仍未完成 |
-| M6 Validation、Statistics、发布 | WP-600A～WP-600C、WP-603A～WP-603C 已实现 | Structural/integrity/semantic/decode/resource 规则、单一 analysis-engine 聚合入口、CLI JSON 与 GUI worker 状态整合、固定 fuzz replay 的 ASan/UBSan 门禁 | Statistics、coverage-guided fuzz、发布证据 |
+| M6 Validation、Statistics、发布 | WP-600A～WP-600C、WP-603A～WP-603C、WP-604A 已实现 | Structural/integrity/semantic/decode/resource 规则、单一 analysis-engine 聚合入口、CLI JSON 与 GUI worker 状态整合、固定 fuzz replay 的 ASan/UBSan 门禁、生成式性能 corpus/runner 与机器记录 schema | Statistics、coverage-guided fuzz、WP-604B 阈值、发布证据 |
 | M7 APNG | 未开始 | 模型预留 frame 维度 | 维持 post-v1 |
 
-截至当前提交，M0～M4、M5 的 WP-500～504、WP-5U0～WP-5U6C、WP-5T0A～WP-5T0B 及 M6 的 WP-600A～WP-600C、WP-603A～WP-603C 已有实现提交。这里的“实现完成”不等于里程碑 Gate 已关闭；Gate 仍要求相应 coverage-guided corpus、性能和人工交互证据。
+截至当前提交，M0～M4、M5 的 WP-500～504、WP-5U0～WP-5U6C、WP-5T0A～WP-5T0B 及 M6 的 WP-600A～WP-600C、WP-603A～WP-603C、WP-604A 已有实现提交。这里的“实现完成”不等于里程碑 Gate 已关闭；Gate 仍要求相应 coverage-guided corpus、性能阈值和人工交互证据。
 
 ### 2.2 2026-08-22 本地核验
 
@@ -53,12 +53,12 @@ git status --short --branch
 结果：
 
 - 当前提交完整 dev 构建通过，Qt 6.11.1 GUI target 已启用。
-- 31/31 个 CTest 测试入口通过（GUI 运行使用 `QT_QPA_PLATFORM=offscreen`），包含 core、parser、reconstruction、Deflate、differential、CLI、fuzz smoke 与 GUI 测试；新增 Block/Huffman/Decode Trace Inspector、统一 binding、WP-5U6A 状态机、WP-5U6B 性能回归、WP-5U6C 跨平台 GUI Gate、WP-600A/600B 规则边界测试、WP-600C CLI/GUI 报告整合、WP-603A/603B fuzz smoke 与 WP-603C sanitizer replay gate。
+- 32/32 个 CTest 测试入口通过（GUI 运行使用 `QT_QPA_PLATFORM=offscreen`），包含 core、parser、reconstruction、Deflate、differential、CLI、fuzz smoke、性能 corpus runner 与 GUI 测试；新增 Block/Huffman/Decode Trace Inspector、统一 binding、WP-5U6A 状态机、WP-5U6B 性能回归、WP-5U6C 跨平台 GUI Gate、WP-600A/600B 规则边界测试、WP-600C CLI/GUI 报告整合、WP-603A/603B fuzz smoke、WP-603C sanitizer replay gate 与 WP-604A performance record。
 - 仓库布局检查：0 failure、0 warning。
 - 依赖静态检查：0 failure、0 warning。
-- 本次核验覆盖当前 `main`；WP-5T0B 的编排、测试和计划文档变更在验证后统一提交。
+- 本次核验覆盖当前 `main`；WP-604A 的 runner、测试和计划文档变更在验证后统一提交。
 
-本次未声称已通过：release 构建、三平台原生 CI、正式 conformance/coverage-guided fuzz/performance corpus。dev 与 ASan/UBSan 全量及 WP-603C 定向 replay 均已通过；Windows/Linux 原生窗口系统和发布证据仍属后续 Gate。
+本次未声称已通过：release 构建、三平台原生 CI、正式 conformance/coverage-guided fuzz/performance threshold。dev 与 ASan/UBSan 全量、WP-603C 定向 replay、WP-604A runner 与 GUI performance scenario 均已通过；Windows/Linux 原生窗口系统和发布证据仍属后续 Gate。
 
 ### 2.3 当前 UI 与目标之间的主要差距
 
@@ -386,7 +386,7 @@ M5 UI Gate 通过后，按以下顺序推进：
 4. `WP-603A Parser/Stream Fuzz`：已实现固定 seed、512×4 KiB parser/Virtual IDAT/wrapper smoke；coverage-guided corpus 仍待后续 Gate。
 5. `WP-603B Decode/Reconstruction Fuzz`：已实现 RGBA/RGB/packed/16-bit/Adam7 trace/filter 变异 smoke；coverage-guided corpus 仍待后续 Gate。
 6. `WP-603C Sanitizer Regression Gate`：已实现固定 fuzz regressions 的 ASan/UBSan 定向脚本、CTest 标签和失败重放记录；coverage-guided fuzz 仍待后续 Gate。
-7. `WP-604A Performance Corpus & Runner`：冻结大文件、随机 row、pixel provenance 与 UI 场景及机器记录格式。
+7. `WP-604A Performance Corpus & Runner`：已实现大文件、随机 row、pixel provenance 与 UI 场景的生成式 corpus、runner 和机器记录格式。
 8. `WP-604B Performance Threshold Gate`：确定阈值、检测回退；优化问题必须另开小工作包。
 9. `WP-605A Three-platform Packaging`：macOS、Windows、Linux 安装/启动 smoke。
 10. `WP-605B User & Developer Docs`：README、使用手册、trace 语义、贡献与 bug report 流程。
@@ -413,9 +413,9 @@ WP-700～703 不变。静态 PNG 模型继续保留 frame 维度，但任何 Fra
 
 `WP-5U0` 已由 `docs/development/wp-5u0-ui-spec.md` 冻结，且其依赖的
 WP-5U1～WP-5U5B、WP-5T0A～WP-5T0B、WP-505A～WP-505C、bounded Trace Gate 与
-WP-5U6A～WP-5U6C、WP-600A～WP-600C、WP-603A～WP-603C 已落地。当前下一项是
-`WP-604A Performance Corpus & Runner`：冻结大文件、随机 row、pixel provenance
-与 UI 场景的可重复样本和机器记录格式；不得在 GUI 重写 Deflate 解析。
+WP-5U6A～WP-5U6C、WP-600A～WP-600C、WP-603A～WP-603C、WP-604A 已落地。当前下一项是
+`WP-604B Performance Threshold Gate`：为固定 corpus 冻结阈值、检测回退并保留
+机器记录；优化问题必须另开小工作包，不得在 GUI 重写 Deflate 解析。
 
 WP-5U0 已冻结的产品决策继续作为后续实现约束：
 
