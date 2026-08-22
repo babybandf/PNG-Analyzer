@@ -8,6 +8,11 @@ everything under `libs/` stays Qt-free (ADR-0003).
 - Qt models, widgets, panels, canvas and commands that consume backend-neutral
   analysis models.
 - WP-104: the Chunk tree model and the windowed Hex view.
+- WP-5U1: SelectionBus can publish partial dimension updates while preserving
+  independent pixel and Chunk selection dimensions; coordinate summaries come
+  from the analysis engine rather than widget-side decoding. `SelectionViewState`
+  keeps hover/locked coordinates, HexSource, numeric base and hex-follow mode
+  as Qt-side state.
 
 ## Non-goals
 

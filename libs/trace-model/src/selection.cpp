@@ -1,6 +1,6 @@
 // WP-200 Selection model implementation: equality, merge and deterministic
 // serialization. The serialization format is a compact token stream, e.g.
-//   node:3;physical:8,4;logical:0,100;image:0,1,2,3,4,0;stage:filtered
+//   node:3;physical:8,4;logical:0,100;image:0,1,2,3,4;channel:0;stage:filtered
 // Every value is decimal; parsing is strict (no locale, no order dependence).
 
 #include "pnga/trace-model/selection.h"
@@ -55,6 +55,31 @@ std::vector<std::string_view> split(std::string_view text, char delim) {
 }
 
 }  // namespace
+
+bool ImageCoordinate::valid() const noexcept {
+  if (pass > 7) {
+    return false;
+  }
+  if (sample_byte.has_value() && *sample_byte > 1) {
+    return false;
+  }
+  if (sample_byte.has_value() && packed_sample.has_value()) {
+    return false;
+  }
+  if (packed_sample.has_value()) {
+    const auto packed = *packed_sample;
+    if (packed.bit_length == 0 || packed.bit_length > 8 ||
+        packed.bit_offset >= 8 ||
+        static_cast<unsigned>(packed.bit_offset) + packed.bit_length > 8 ||
+        !channel.has_value()) {
+      return false;
+    }
+  }
+  if (sample_byte.has_value() && !channel.has_value()) {
+    return false;
+  }
+  return true;
+}
 
 const char* stage_text(Stage stage) noexcept {
   const std::size_t i = static_cast<std::size_t>(stage);
@@ -133,7 +158,18 @@ std::string serialize(const Selection& selection) {
     const auto& c = *selection.image;
     emit("image:" + std::to_string(c.frame) + "," + std::to_string(c.pass) +
          "," + std::to_string(c.row) + "," + std::to_string(c.x) + "," +
-         std::to_string(c.y) + "," + std::to_string(c.channel));
+         std::to_string(c.y));
+    if (c.channel.has_value()) {
+      emit("channel:" + std::to_string(*c.channel));
+    }
+    if (c.sample_byte.has_value()) {
+      emit("sample_byte:" + std::to_string(*c.sample_byte));
+    }
+    if (c.packed_sample.has_value()) {
+      emit("packed_sample:" +
+           std::to_string(c.packed_sample->bit_offset) + "," +
+           std::to_string(c.packed_sample->bit_length));
+    }
   }
   if (selection.stage != Stage::kUnknown) {
     emit(std::string("stage:") + stage_text(selection.stage));
@@ -146,6 +182,13 @@ std::optional<Selection> deserialize(std::string_view text) {
   if (text.empty()) {
     return out;
   }
+  bool image_seen = false;
+  bool channel_seen = false;
+  bool sample_byte_seen = false;
+  bool packed_sample_seen = false;
+  std::optional<std::uint64_t> pending_channel;
+  std::optional<std::uint8_t> pending_sample_byte;
+  std::optional<PackedSampleCoordinate> pending_packed_sample;
   for (const auto token : split(text, ';')) {
     const std::size_t colon = token.find(':');
     if (colon == std::string_view::npos || colon == 0) {
@@ -196,7 +239,7 @@ std::optional<Selection> deserialize(std::string_view text) {
       }
       out.logical = StreamSpan{*start, *len};
     } else if (key == "image") {
-      if (nums.size() != 6) {
+      if (image_seen || (nums.size() != 5 && nums.size() != 6)) {
         return std::nullopt;
       }
       ImageCoordinate c;
@@ -205,8 +248,7 @@ std::optional<Selection> deserialize(std::string_view text) {
       auto row = parse_u64(nums[2]);
       auto x = parse_u64(nums[3]);
       auto y = parse_u64(nums[4]);
-      auto channel = parse_u64(nums[5]);
-      if (!frame || !pass || !row || !x || !y || !channel) {
+      if (!frame || !pass || !row || !x || !y) {
         return std::nullopt;
       }
       c.frame = *frame;
@@ -214,8 +256,76 @@ std::optional<Selection> deserialize(std::string_view text) {
       c.row = *row;
       c.x = *x;
       c.y = *y;
-      c.channel = *channel;
+      if (nums.size() == 6) {
+        if (channel_seen) {
+          return std::nullopt;
+        }
+        auto channel = parse_u64(nums[5]);
+        if (!channel) {
+          return std::nullopt;
+        }
+        c.channel = *channel;
+        channel_seen = true;
+      }
+      if (pending_channel.has_value()) {
+        c.channel = pending_channel;
+      }
+      if (pending_sample_byte.has_value()) {
+        c.sample_byte = pending_sample_byte;
+      }
+      if (pending_packed_sample.has_value()) {
+        c.packed_sample = pending_packed_sample;
+      }
       out.image = c;
+      image_seen = true;
+    } else if (key == "channel") {
+      if (channel_seen || nums.size() != 1) {
+        return std::nullopt;
+      }
+      auto channel = parse_u64(nums[0]);
+      if (!channel) {
+        return std::nullopt;
+      }
+      if (out.image.has_value()) {
+        out.image->channel = *channel;
+      } else {
+        pending_channel = *channel;
+      }
+      channel_seen = true;
+    } else if (key == "sample_byte") {
+      if (sample_byte_seen || nums.size() != 1) {
+        return std::nullopt;
+      }
+      auto sample_byte = parse_u64(nums[0]);
+      if (!sample_byte || *sample_byte > 1) {
+        return std::nullopt;
+      }
+      if (out.image.has_value()) {
+        out.image->sample_byte = static_cast<std::uint8_t>(*sample_byte);
+      } else {
+        pending_sample_byte = static_cast<std::uint8_t>(*sample_byte);
+      }
+      sample_byte_seen = true;
+    } else if (key == "packed_sample") {
+      if (packed_sample_seen || nums.size() != 2) {
+        return std::nullopt;
+      }
+      auto bit_offset = parse_u64(nums[0]);
+      auto bit_length = parse_u64(nums[1]);
+      if (!bit_offset || !bit_length || *bit_offset >= 8 ||
+          *bit_length == 0 || *bit_length > 8 ||
+          *bit_offset + *bit_length > 8) {
+        return std::nullopt;
+      }
+      const PackedSampleCoordinate packed{
+          static_cast<std::uint8_t>(*bit_offset),
+          static_cast<std::uint8_t>(*bit_length)};
+      if (out.image.has_value()) {
+        out.image->packed_sample = packed;
+      } else {
+        pending_packed_sample = packed;
+      }
+      packed_sample_seen = true;
     } else if (key == "stage") {
       if (nums.size() != 1) {
         return std::nullopt;
@@ -226,6 +336,10 @@ std::optional<Selection> deserialize(std::string_view text) {
     } else {
       return std::nullopt;  // unknown key
     }
+  }
+  if ((channel_seen || sample_byte_seen || packed_sample_seen) &&
+      !image_seen) {
+    return std::nullopt;
   }
   return out;
 }

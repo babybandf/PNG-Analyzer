@@ -6,7 +6,9 @@ Backend-neutral analysis data model (REPOSITORY_LAYOUT.md §5.4, ADR-0004).
 
 - `SemanticNode` and stable `NodeId`.
 - `StageArtifact` and stage identifiers (later WP).
-- `Selection` with spans and image coordinates.
+- `Selection` with spans and image coordinates. A missing image channel means
+  whole-pixel selection; optional sample-byte and packed-bit fields distinguish
+  channel/sample granularity without a Qt-specific coordinate type.
 - `ProvenanceSpan` spaces for reversible pixel/stage/file-bit mappings (WP-504).
 - Structured diagnostics and analysis events.
 

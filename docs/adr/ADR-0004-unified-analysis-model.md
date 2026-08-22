@@ -17,5 +17,7 @@ Stable IDs identify objects within a document generation. GUI panels publish and
 
 - Chunk, Hex, stage and image panels can synchronize without decoder-specific objects.
 - Decoder operations publish trace events and artifacts; the GUI does not recompute formulas.
+- Image coordinates use an optional channel/sample address: an absent channel means the
+  whole pixel, while channel, sample-byte and packed-bit selections are explicit.
 - Equality, merge, serialization and stale-generation behavior require focused tests.
 - The model is more explicit than view-specific structures, but it is the foundation for compare and first-difference workflows.

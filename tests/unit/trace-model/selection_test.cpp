@@ -11,6 +11,7 @@
 using pnga::trace_model::BitSpan;
 using pnga::trace_model::deserialize;
 using pnga::trace_model::ImageCoordinate;
+using pnga::trace_model::PackedSampleCoordinate;
 using pnga::trace_model::Selection;
 using pnga::trace_model::SemanticNode;
 using pnga::trace_model::serialize;
@@ -44,6 +45,64 @@ TEST_CASE("Selections with every dimension round-trip through serialization",
   auto parsed = deserialize(text);
   REQUIRE(parsed.has_value());
   REQUIRE(*parsed == s);
+}
+
+TEST_CASE("Whole-pixel coordinates remain distinct from channel zero",
+          "[trace-model][wp5u1]") {
+  Selection pixel;
+  pixel.image = ImageCoordinate{0, 0, 4, 3, 2};
+  REQUIRE(pixel.image->channel == std::nullopt);
+
+  Selection channel = pixel;
+  channel.image->channel = 0;
+  REQUIRE(channel.image->channel.has_value());
+  REQUIRE(pixel != channel);
+
+  const auto parsed = deserialize(serialize(pixel));
+  REQUIRE(parsed.has_value());
+  REQUIRE(parsed->image.has_value());
+  REQUIRE(parsed->image->channel == std::nullopt);
+  REQUIRE(*parsed == pixel);
+}
+
+TEST_CASE("Sample byte and packed sample coordinates round-trip",
+          "[trace-model][wp5u1]") {
+  Selection sixteen;
+  sixteen.image = ImageCoordinate{0, 0, 0, 1, 1, 2};
+  sixteen.image->sample_byte = 1;
+  auto parsed = deserialize(serialize(sixteen));
+  REQUIRE(parsed.has_value());
+  REQUIRE(*parsed == sixteen);
+
+  Selection packed;
+  packed.image = ImageCoordinate{0, 1, 2, 8, 8, 0};
+  packed.image->packed_sample = PackedSampleCoordinate{2, 2};
+  parsed = deserialize(serialize(packed));
+  REQUIRE(parsed.has_value());
+  REQUIRE(*parsed == packed);
+}
+
+TEST_CASE("Image coordinate validation rejects ambiguous sample addresses",
+          "[trace-model][wp5u1]") {
+  ImageCoordinate bad_pass{0, 8, 0, 0, 0};
+  REQUIRE_FALSE(bad_pass.valid());
+
+  ImageCoordinate bad_packed{0, 0, 0, 0, 0, 0};
+  bad_packed.packed_sample = PackedSampleCoordinate{7, 2};
+  REQUIRE_FALSE(bad_packed.valid());
+
+  ImageCoordinate conflicting{0, 0, 0, 0, 0, 0};
+  conflicting.sample_byte = 0;
+  conflicting.packed_sample = PackedSampleCoordinate{0, 1};
+  REQUIRE_FALSE(conflicting.valid());
+}
+
+TEST_CASE("Legacy six-field image serialization remains readable",
+          "[trace-model][wp5u1]") {
+  const auto parsed = deserialize("image:0,0,2,3,4,0");
+  REQUIRE(parsed.has_value());
+  REQUIRE(parsed->image.has_value());
+  REQUIRE(parsed->image->channel == std::optional<std::uint64_t>{0});
 }
 
 TEST_CASE("Multiple physical spans are preserved", "[trace-model][wp200]") {
@@ -164,6 +223,8 @@ TEST_CASE("Malformed serialized input returns nullopt", "[trace-model][wp200]") 
   REQUIRE_FALSE(deserialize("node:1;bogus:2").has_value());    // unknown key
   REQUIRE_FALSE(deserialize("image:1,2").has_value());         // wrong arity
   REQUIRE_FALSE(deserialize("physical:1").has_value());        // wrong arity
+  REQUIRE_FALSE(deserialize("image:0,0,0,0,0;packed_sample:7,2")
+                    .has_value());                              // crosses byte
   REQUIRE_FALSE(deserialize("stage:").has_value());            // empty stage
   REQUIRE_FALSE(deserialize("nocolon").has_value());           // no key/value
 }

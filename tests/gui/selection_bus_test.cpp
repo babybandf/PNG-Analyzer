@@ -8,6 +8,7 @@
 #include <QtTest/QtTest>
 
 #include <cstdint>
+#include <optional>
 
 using pnga::trace_model::ImageCoordinate;
 using pnga::trace_model::Selection;
@@ -62,6 +63,7 @@ class SelectionBusTest : public QObject {
  private slots:
   void panelsIgnoreTheirOwnPublications();
   void staleGenerationIsDropped();
+  void mergedPublicationsPreserveIndependentDimensions();
   void hundredAlternatingPublicationsStayConsistent();
 };
 
@@ -109,6 +111,29 @@ void SelectionBusTest::staleGenerationIsDropped() {
   QCOMPARE(b.received_, 2);
   QCOMPARE(b.ownEchoes_, 0);
   QCOMPARE(bus.current(), pixel_sel(4, 5));
+}
+
+void SelectionBusTest::mergedPublicationsPreserveIndependentDimensions() {
+  SelectionBus bus;
+  FakePanel observer(kPanelB);
+  QObject::connect(&bus, &SelectionBus::selectionChanged, &observer,
+                   &FakePanel::onSelectionChanged);
+
+  bus.setDocumentGeneration(3);
+  bus.publish(kPanelA, 3, chunk_sel(7));
+
+  Selection pixel = pixel_sel(4, 5);
+  bus.publishMerged(kPanelA, 3, pixel);
+  QCOMPARE(bus.current().node, std::optional<std::uint64_t>{7});
+  QCOMPARE(bus.current().image, pixel.image);
+  QCOMPARE(bus.current().stage, pnga::trace_model::Stage::kDelivered);
+  QCOMPARE(observer.received_, 2);
+
+  // A stale partial update cannot erase or overwrite the current document.
+  bus.publishMerged(kPanelA, 2, chunk_sel(99));
+  QCOMPARE(bus.current().node, std::optional<std::uint64_t>{7});
+  QCOMPARE(bus.current().image, pixel.image);
+  QCOMPARE(observer.received_, 2);
 }
 
 void SelectionBusTest::hundredAlternatingPublicationsStayConsistent() {

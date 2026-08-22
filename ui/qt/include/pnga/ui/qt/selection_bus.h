@@ -29,6 +29,12 @@ class SelectionBus final : public QObject {
   void publish(int origin, std::uint64_t generation,
                const pnga::trace_model::Selection& selection) noexcept;
 
+  // Publishes a partial selection update. Dimensions absent from `update`
+  // remain unchanged, allowing a pixel panel and Chunk panel to coexist
+  // without clearing facts they do not understand.
+  void publishMerged(int origin, std::uint64_t generation,
+                     const pnga::trace_model::Selection& update) noexcept;
+
   // The latest accepted selection (empty for a fresh document).
   pnga::trace_model::Selection current() const noexcept { return current_; }
 

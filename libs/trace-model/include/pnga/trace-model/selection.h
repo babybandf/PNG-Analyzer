@@ -37,17 +37,38 @@ struct StreamSpan {
   bool operator==(const StreamSpan&) const = default;
 };
 
+// A packed sample selection identifies the bits of one 1/2/4-bit sample inside
+// its containing packed byte. bit_offset is counted from the byte's most
+// significant bit, matching PNG sample packing.
+struct PackedSampleCoordinate {
+  std::uint8_t bit_offset = 0;
+  std::uint8_t bit_length = 0;
+
+  bool operator==(const PackedSampleCoordinate&) const = default;
+};
+
 // Image coordinates. frame is for APNG; pass is the Adam7 pass (0 for
-// non-interlaced). A coordinate with all fields zero is valid (origin pixel).
+// non-interlaced, 1..7 for Adam7). x/y are image-global coordinates and row is
+// the pass-local scanline row. A query may accept zero pass/row as an
+// unresolved legacy hint and returns a canonical pass/row in its result. A
+// missing channel means the whole pixel is selected. sample_byte is the byte
+// within an 8/16-bit sample (0 = first byte);
+// packed_sample is mutually exclusive with sample_byte and identifies a
+// sub-byte sample. These optional fields make whole-pixel selection distinct
+// from channel 0.
 struct ImageCoordinate {
   std::uint64_t frame = 0;
   std::uint64_t pass = 0;
   std::uint64_t row = 0;
   std::uint64_t x = 0;
   std::uint64_t y = 0;
-  std::uint64_t channel = 0;
+  std::optional<std::uint64_t> channel;
+  std::optional<std::uint8_t> sample_byte;
+  std::optional<PackedSampleCoordinate> packed_sample;
 
   bool operator==(const ImageCoordinate&) const = default;
+
+  bool valid() const noexcept;
 };
 
 // Decode / analysis stage identifiers (ADR-0006 tiered policy).
