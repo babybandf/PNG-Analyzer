@@ -1,0 +1,61 @@
+name: Bug report
+description: Report a reproducible non-security defect
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include secrets or confidential images. Suspected security vulnerabilities belong in SECURITY.md's private reporting channel.
+  - type: input
+    id: revision
+    attributes:
+      label: Revision or version
+      placeholder: "commit SHA, pnga --version, or package version"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform and preset
+      placeholder: "macOS arm64; dev preset; Qt 6.11.1"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Give exact CLI commands or numbered GUI actions.
+    validations:
+      required: true
+  - type: textarea
+    id: input
+    attributes:
+      label: Input and expected behavior
+      description: Describe the smallest safe PNG/input and what should happen.
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+      description: Include stable issue ids, exit code, crash text or screenshot if safe.
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Logs and checks
+      description: Paste relevant JSON/sanitizer output with absolute paths removed.
+    validations:
+      required: false
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety checklist
+      options:
+        - label: I removed secrets, credentials and confidential user data.
+          required: true
+        - label: This is not a suspected security vulnerability.
+          required: true

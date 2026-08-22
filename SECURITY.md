@@ -22,6 +22,6 @@ Maintainers will acknowledge a complete report, investigate impact, coordinate a
 
 ## Security Baseline
 
-PNG files, caches, plugins and imported reports are untrusted input. Project code must enforce checked arithmetic, bounded allocation and decode budgets, stable ownership for mapped views, cancellation and stale-result suppression. Parser and decoder changes require malformed-input tests, and high-risk paths are expected to pass sanitizer and fuzzing gates when those facilities become available.
+PNG files, caches, plugins and imported reports are untrusted input. Project code must enforce checked arithmetic, bounded allocation and decode budgets, stable ownership for mapped views, cancellation and stale-result suppression. Parser and decoder changes require malformed-input tests. High-risk paths are expected to pass the fixed WP-603A/WP-603B fuzz smoke and the WP-603C ASan/UBSan replay gate; coverage-guided fuzzing remains a later release gate.
 
 Dependencies must be pinned and auditable. Security upgrades are isolated from feature changes and must update version locks, notices and relevant differential tests.

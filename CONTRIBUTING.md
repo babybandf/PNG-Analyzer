@@ -46,6 +46,20 @@ A pull request must report:
 
 Do not disable, weaken or delete a failing test to make a pull request pass. If acceptance cannot be met within the approved scope, report `BLOCKED` or `FAIL` with evidence.
 
+For the current mainline, the minimum verification set is:
+
+```text
+cmake --build --preset dev
+QT_QPA_PLATFORM=offscreen ctest --preset dev --output-on-failure
+cmake --build --preset asan
+QT_QPA_PLATFORM=offscreen ctest --preset asan --output-on-failure
+python3 scripts/verify_repository_layout.py
+python3 scripts/verify_dependencies.py
+```
+
+Work Packages that touch the related gates should also run the fixed fuzz,
+performance-threshold and package-smoke commands documented in `README.md`.
+
 ## Third-Party Material
 
 Third-party dependencies and source are governed by ADR-0001 and the project bootstrap specification. Any copied or derived source requires its exact upstream URL, commit, license, checksums and modification record. Test images require equivalent corpus manifest entries. Material with unknown provenance or redistribution terms is not accepted.
@@ -53,3 +67,12 @@ Third-party dependencies and source are governed by ADR-0001 and the project boo
 ## Review Expectations
 
 Reviewers prioritize correctness, bounds safety, ownership, deterministic output, cancellation, dependency direction and test quality. A passing build does not override an architecture boundary or missing provenance.
+
+## Bug reports
+
+Use the **Bug report** issue form for reproducible non-security defects. Include
+the Work Package/revision, preset and platform, exact command or GUI steps,
+expected versus observed behavior, the smallest safe input and relevant JSON
+or sanitizer output. Remove secrets, user data and absolute local paths. Use
+the private vulnerability channel in `SECURITY.md` instead of a public issue
+for suspected security impact.
