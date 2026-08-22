@@ -51,9 +51,10 @@ everything under `libs/` stays Qt-free (ADR-0003).
 - WP-5U6B: Block/Huffman/Decode tables and Hex highlights enforce bounded
   rendering caps with deterministic truncation rows; the performance test
   records cold/hot render timings without copying the source file.
-- WP-5U6C: the cross-platform GUI gate records host/DPI evidence and checks
-  reference-size layout, palette changes, the Open shortcut, deterministic
-  focus order, basic accessible names and bounded Inspector truncation rows.
+- WP-5U6C: the cross-platform GUI gate records host/DPI evidence (default,
+  150% and 200% scale runs) and checks reference-size layout, palette changes,
+  the Open shortcut, deterministic focus order, every Inspector page's basic
+  accessible name and bounded Inspector truncation rows.
 
 ## Non-goals
 

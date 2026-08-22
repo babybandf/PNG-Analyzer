@@ -119,6 +119,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
   preview_tabs_ = new QTabWidget(center_splitter_);
   preview_tabs_->setObjectName(QStringLiteral("previewTabs"));
+  preview_tabs_->setAccessibleName(QStringLiteral("Preview stages"));
   preview_tabs_->setUsesScrollButtons(true);
   image_view_ = new pnga::ui::qt::DeliveredImageView(preview_tabs_);
   preview_tabs_->addTab(image_view_, QStringLiteral("Image"));
@@ -136,6 +137,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
   hex_ = new pnga::ui::qt::HexView(center_splitter_);
   hex_->setObjectName(QStringLiteral("hexView"));
+  hex_->setAccessibleName(QStringLiteral("Hex view"));
   center_splitter_->addWidget(preview_tabs_);
   center_splitter_->addWidget(hex_);
   center_splitter_->setStretchFactor(0, 3);
@@ -169,6 +171,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   inspector_layout->setContentsMargins(6, 6, 6, 6);
   auto* coordinate_bar = new QWidget(inspector_container);
   coordinate_bar->setObjectName(QStringLiteral("coordinateToolbar"));
+  coordinate_bar->setAccessibleName(QStringLiteral("Coordinate toolbar"));
   auto* coordinate_layout = new QHBoxLayout(coordinate_bar);
   coordinate_layout->setContentsMargins(0, 0, 0, 0);
   coordinate_layout->addWidget(new QLabel(QStringLiteral("X"), coordinate_bar));
@@ -217,16 +220,25 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   inspector_->setObjectName(QStringLiteral("reconstructInspector"));
   inspector_->setAccessibleName(QStringLiteral("Reconstruct inspector"));
   inspector_tabs_->addTab(inspector_, QStringLiteral("Reconstruct"));
-  const auto addInspectorPlaceholder = [this](const QString& title) {
+  const auto addInspectorPlaceholder = [this](const QString& title,
+                                               const QString& object_name,
+                                               const QString& accessible_name) {
     auto* label = new QLabel(QStringLiteral("Not available for current selection"),
                              inspector_tabs_);
+    label->setObjectName(object_name);
+    label->setAccessibleName(accessible_name);
     label->setAlignment(Qt::AlignCenter);
     inspector_tabs_->addTab(label, title);
   };
-  addInspectorPlaceholder(QStringLiteral("Pixel"));
-  addInspectorPlaceholder(QStringLiteral("Scanline"));
-  addInspectorPlaceholder(QStringLiteral("Source"));
-  addInspectorPlaceholder(QStringLiteral("Format Context"));
+  addInspectorPlaceholder(QStringLiteral("Pixel"), QStringLiteral("pixelInspector"),
+                          QStringLiteral("Pixel inspector"));
+  addInspectorPlaceholder(QStringLiteral("Scanline"), QStringLiteral("scanlineInspector"),
+                          QStringLiteral("Scanline inspector"));
+  addInspectorPlaceholder(QStringLiteral("Source"), QStringLiteral("sourceInspector"),
+                          QStringLiteral("Source inspector"));
+  addInspectorPlaceholder(QStringLiteral("Format Context"),
+                          QStringLiteral("formatContextInspector"),
+                          QStringLiteral("Format context inspector"));
   block_inspector_ = new pnga::ui::qt::BlockInspector(inspector_tabs_);
   block_inspector_->setObjectName(QStringLiteral("blockInspector"));
   block_inspector_->setAccessibleName(QStringLiteral("DEFLATE block inspector"));

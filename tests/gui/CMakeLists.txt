@@ -152,6 +152,14 @@ add_test(NAME gui_cross_platform_gate_tests
   COMMAND pnga_gui_cross_platform_gate_tests)
 set_tests_properties(gui_cross_platform_gate_tests PROPERTIES
   ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+add_test(NAME gui_cross_platform_gate_dpi_150_tests
+  COMMAND pnga_gui_cross_platform_gate_tests)
+set_tests_properties(gui_cross_platform_gate_dpi_150_tests PROPERTIES
+  ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_SCALE_FACTOR=1.5;QT_SCALE_FACTOR_ROUNDING_POLICY=PassThrough")
+add_test(NAME gui_cross_platform_gate_dpi_200_tests
+  COMMAND pnga_gui_cross_platform_gate_tests)
+set_tests_properties(gui_cross_platform_gate_dpi_200_tests PROPERTIES
+  ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_SCALE_FACTOR=2;QT_SCALE_FACTOR_ROUNDING_POLICY=PassThrough")
 
 add_executable(pnga_gui_stage_inspector_tests
   stage_inspector_test.cpp

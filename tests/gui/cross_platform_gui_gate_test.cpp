@@ -29,6 +29,7 @@
 #include <QTabBar>
 #include <QTabWidget>
 #include <QTableWidget>
+#include <QtGlobal>
 
 #include <cstddef>
 #include <cstdint>
@@ -57,6 +58,9 @@ void verify_bounded_table(Widget& widget, int expected_rows) {
   auto* table = widget.template findChild<QTableWidget*>();
   QVERIFY(table != nullptr);
   QCOMPARE(table->rowCount(), expected_rows);
+  QVERIFY(table->item(expected_rows - 1, 1) != nullptr);
+  QCOMPARE(table->item(expected_rows - 1, 1)->text(),
+           QStringLiteral("truncated"));
 }
 
 }  // namespace
@@ -82,6 +86,13 @@ void CrossPlatformGuiGateTest::initTestCase() {
           << "logical_dpi=" << screen->logicalDotsPerInch();
   QVERIFY(screen->devicePixelRatio() > 0.0);
   QVERIFY(screen->logicalDotsPerInch() > 0.0);
+  const QByteArray requested_scale = qgetenv("QT_SCALE_FACTOR");
+  if (!requested_scale.isEmpty()) {
+    bool ok = false;
+    const qreal expected_scale = requested_scale.toDouble(&ok);
+    QVERIFY(ok);
+    QVERIFY(qAbs(screen->devicePixelRatio() - expected_scale) < 0.01);
+  }
 }
 
 void CrossPlatformGuiGateTest::layoutSurvivesReferenceSizesAndDpi() {
@@ -118,6 +129,9 @@ void CrossPlatformGuiGateTest::layoutSurvivesReferenceSizesAndDpi() {
   QVERIFY(x->sizeHint().height() > 0);
   QVERIFY(base->sizeHint().height() > 0);
   QVERIFY(QFontMetrics(window.font()).height() > 0);
+  QVERIFY(window.findChild<QWidget*>(QStringLiteral("coordinateToolbar")) !=
+          nullptr);
+  QVERIFY(window.findChild<QWidget*>(QStringLiteral("hexView")) != nullptr);
 }
 
 void CrossPlatformGuiGateTest::themeSwitchKeepsInspectorVisible() {
@@ -205,10 +219,23 @@ void CrossPlatformGuiGateTest::accessibilityNamesCoverControlsAndInspectors() {
   check("hexFollowPixel");
   check("inspectorTabs");
   check("reconstructInspector");
+  check("pixelInspector");
+  check("scanlineInspector");
+  check("sourceInspector");
+  check("formatContextInspector");
   check("blockInspector");
   check("huffmanInspector");
   check("decodeTraceInspector");
   check("validationStatus");
+  check("previewTabs");
+  check("coordinateToolbar");
+  check("hexView");
+  auto* inspector = window.findChild<QTabWidget*>(QStringLiteral("inspectorTabs"));
+  QVERIFY(inspector != nullptr);
+  for (int i = 0; i < inspector->count(); ++i) {
+    QVERIFY(!inspector->tabText(i).trimmed().isEmpty());
+    QVERIFY(!inspector->widget(i)->accessibleName().trimmed().isEmpty());
+  }
 }
 
 void CrossPlatformGuiGateTest::inspectorTruncationContractsRemainBounded() {
