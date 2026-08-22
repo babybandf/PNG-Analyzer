@@ -7,10 +7,12 @@
 #include <pnga/core/version.h>
 #include <pnga/io/byte_source.h>
 #include <pnga/png-format/chunk_index.h>
+#include <pnga/analysis-engine/validation.h>
 
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <iterator>
 #include <memory>
 #include <system_error>
 
@@ -27,7 +29,8 @@ constexpr int kExitValidationIssues = 3;
 
 // Format errors stop scanning; trailing-bytes-after-IEND is a validation
 // issue that still yields a parseable tree.
-int exit_code_for(const pnga::png_format::ChunkIndex& index) {
+int exit_code_for(const pnga::png_format::ChunkIndex& index,
+                  const pnga::analysis_engine::DocumentValidationReport& report) {
   using pnga::png_format::ChunkIssueKind;
   bool validation = false;
   for (const auto& issue : index.issues) {
@@ -43,7 +46,7 @@ int exit_code_for(const pnga::png_format::ChunkIndex& index) {
         break;
     }
   }
-  return validation ? kExitValidationIssues : kExitOk;
+  return validation || !report.issues.empty() ? kExitValidationIssues : kExitOk;
 }
 
 void print_usage(FILE* out) {
@@ -96,10 +99,13 @@ int run_analyze_command(int argc, char** argv, bool validate) {
 
   const pnga::png_format::ChunkIndex index =
       pnga::png_format::index_chunks(*source);
+  const pnga::analysis_engine::DocumentValidationReport report =
+      validate ? pnga::analysis_engine::validate_document(*source, index)
+               : pnga::validation::validate_structure(index);
 
   const bool json = has_flag(argc, argv, "--json");
   if (validate) {
-    std::puts(pnga::cli::validate_json(file, index).c_str());
+    std::puts(pnga::cli::validate_json(file, index, report).c_str());
   } else if (json) {
     std::puts(pnga::cli::inspect_json(file, index).c_str());
   } else {
@@ -119,7 +125,7 @@ int run_analyze_command(int argc, char** argv, bool validate) {
                   static_cast<unsigned long long>(issue.offset));
     }
   }
-  return exit_code_for(index);
+  return exit_code_for(index, report);
 }
 
 }  // namespace

@@ -20,6 +20,7 @@ add_library(pnga_analysis_engine
   src/trace_orchestrator.cpp
   src/trace_inspector_bundle.cpp
   src/trace_inspector_state.cpp
+  src/validation.cpp
 )
 add_library(pnga::analysis_engine ALIAS pnga_analysis_engine)
 
@@ -35,6 +36,7 @@ target_link_libraries(pnga_analysis_engine PUBLIC
   pnga::deflate_index
   pnga::deflate_trace
   pnga::io
+  pnga::validation
 )
 target_compile_features(pnga_analysis_engine PUBLIC cxx_std_20)
 set_target_properties(pnga_analysis_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)

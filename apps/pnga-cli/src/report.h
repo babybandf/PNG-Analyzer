@@ -6,6 +6,7 @@
 // or iteration order.
 
 #include <pnga/png-format/chunk_index.h>
+#include <pnga/analysis-engine/validation.h>
 
 #include <string>
 
@@ -21,7 +22,8 @@ std::string inspect_json(const std::string& file,
 
 // `pnga validate <file> --json`: file identity, validity and the issue list.
 std::string validate_json(const std::string& file,
-                          const pnga::png_format::ChunkIndex& index);
+                          const pnga::png_format::ChunkIndex& index,
+                          const pnga::analysis_engine::DocumentValidationReport& report);
 
 // `pnga inspect/validate <file>` read-failure report (file could not be read).
 std::string error_json(const std::string& file, int error_code);

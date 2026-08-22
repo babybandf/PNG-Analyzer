@@ -5,12 +5,15 @@
 
 #include <pnga/png-format/chunk_index.h>
 
+#include <zlib.h>
+
 #include <array>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -29,7 +32,27 @@ std::string kCliPath = PNGA_CLI_PATH;
 std::byte B(unsigned char c) { return static_cast<std::byte>(c); }
 
 std::vector<std::byte> chunk_bytes(const char* type, std::uint32_t length,
-                                   std::uint32_t crc = 0) {
+                                   std::optional<std::uint32_t> crc_override =
+                                       std::nullopt) {
+  std::vector<std::byte> data(length, B(0x11));
+  if (std::string(type) == "IHDR" && length >= 13) {
+    data.assign(length, B(0));
+    data[3] = B(1);
+    data[7] = B(1);
+    data[8] = B(8);
+    data[9] = B(6);
+  } else if (std::string(type) == "IDAT" && length >= 2) {
+    data[0] = B(0x78);
+    data[1] = B(0x9c);
+  }
+  uLong computed = crc32(0L, Z_NULL, 0);
+  computed = crc32(computed, reinterpret_cast<const Bytef*>(type), 4);
+  if (!data.empty()) {
+    computed = crc32(computed, reinterpret_cast<const Bytef*>(data.data()),
+                     static_cast<uInt>(data.size()));
+  }
+  const std::uint32_t crc = crc_override.value_or(
+      static_cast<std::uint32_t>(computed));
   std::vector<std::byte> out;
   out.push_back(B(static_cast<unsigned char>(length >> 24)));
   out.push_back(B(static_cast<unsigned char>(length >> 16)));
@@ -38,9 +61,7 @@ std::vector<std::byte> chunk_bytes(const char* type, std::uint32_t length,
   for (int i = 0; i < 4; ++i) {
     out.push_back(B(static_cast<unsigned char>(type[i])));
   }
-  for (std::uint32_t i = 0; i < length; ++i) {
-    out.push_back(B(0x11));
-  }
+  out.insert(out.end(), data.begin(), data.end());
   out.push_back(B(static_cast<unsigned char>(crc >> 24)));
   out.push_back(B(static_cast<unsigned char>(crc >> 16)));
   out.push_back(B(static_cast<unsigned char>(crc >> 8)));
@@ -148,19 +169,21 @@ TEST_CASE("pnga inspect --json emits a deterministic chunk tree",
 TEST_CASE("pnga validate --json reports a clean file as valid",
           "[cli][wp103]") {
   const auto path = test_file("pnga_valid.png");
-  write_file(path, png_bytes({chunk_bytes("IHDR", 13), chunk_bytes("IEND", 0)}));
+  write_file(path, png_bytes({chunk_bytes("IHDR", 13), chunk_bytes("IDAT", 8),
+                              chunk_bytes("IEND", 0)}));
 
   const CliResult r = run_cli("validate " + quote(path.string()) + " --json");
   const std::string expected = std::string("{\"file\":\"") +
                                json_escape(path.string()) +
-                               "\",\"size\":45,\"valid\":true,\"issues\":[]}";
+                               "\",\"size\":65,\"valid\":true,\"issues\":[]}";
   REQUIRE(r.exit_code == 0);
   REQUIRE(r.stdout_text == expected);
 }
 
 TEST_CASE("pnga validate --json reports trailing bytes after IEND",
           "[cli][wp103]") {
-  auto data = png_bytes({chunk_bytes("IHDR", 13), chunk_bytes("IEND", 0)});
+  auto data = png_bytes({chunk_bytes("IHDR", 13), chunk_bytes("IDAT", 8),
+                         chunk_bytes("IEND", 0)});
   data.insert(data.end(), {std::byte{0xDE}, std::byte{0xAD}, std::byte{0xBE}});
   const auto path = test_file("pnga_trailing.png");
   write_file(path, data);
@@ -168,8 +191,10 @@ TEST_CASE("pnga validate --json reports trailing bytes after IEND",
   const CliResult r = run_cli("validate " + quote(path.string()) + " --json");
   const std::string expected =
       std::string("{\"file\":\"") + json_escape(path.string()) +
-      "\",\"size\":48,\"valid\":false,"
-      "\"issues\":[{\"kind\":\"trailing_bytes_after_iend\",\"offset\":45}]}";
+      "\",\"size\":68,\"valid\":false,"
+      "\"issues\":[{\"rule_id\":\"data_after_iend\",\"severity\":\"error\","
+      "\"message\":\"bytes appear after the IEND chunk\",\"offset\":65,"
+      "\"spec_ref\":\"PNG:5.2\"}]}";
   REQUIRE(r.exit_code == 3);  // validation issue
   REQUIRE(r.stdout_text == expected);
 }

@@ -9,6 +9,7 @@
 #include <pnga/analysis-engine/query_coordinator.h>
 #include <pnga/analysis-engine/reference_decode.h>
 #include <pnga/analysis-engine/stage_analysis.h>
+#include <pnga/analysis-engine/validation.h>
 #include <pnga/io/byte_source.h>
 #include <pnga/png-format/chunk_index.h>
 #include <pnga/trace-model/selection.h>
@@ -103,6 +104,35 @@ class StageWorker final : public QThread {
   std::shared_ptr<pnga::analysis_engine::StageSet> result_;
 };
 
+// Runs the complete Qt-free validation bundle off the GUI thread. The copied
+// ChunkIndex preserves deterministic structure while shared source ownership
+// keeps every borrowed range alive until publication.
+class ValidationWorker final : public QThread {
+  Q_OBJECT
+ public:
+  ValidationWorker(std::uint64_t generation,
+                   std::shared_ptr<pnga::io::IByteSource> source,
+                   pnga::png_format::ChunkIndex index,
+                   QObject* parent = nullptr);
+
+  std::uint64_t generation() const noexcept { return generation_; }
+  pnga::analysis_engine::DocumentValidationReport result() const {
+    return result_;
+  }
+
+ signals:
+  void validationDone(std::uint64_t generation);
+
+ protected:
+  void run() override;
+
+ private:
+  std::uint64_t generation_;
+  std::shared_ptr<pnga::io::IByteSource> source_;
+  pnga::png_format::ChunkIndex index_;
+  pnga::analysis_engine::DocumentValidationReport result_;
+};
+
 // Bridges the Qt-free QueryCoordinator's worker-thread status callback onto the
 // GUI thread via a queued signal.
 class QueryStatusBridge final : public QObject {
@@ -128,6 +158,7 @@ class MainWindow final : public QMainWindow {
                                const QModelIndex& previous);
   void onDecodeDone(std::uint64_t generation);
   void onStageDone(std::uint64_t generation);
+  void onValidationDone(std::uint64_t generation);
   void onPixelSelected(int x, int y);
   void onRowQueryStatus(std::uint64_t row, int status);
   void resetLayout();
@@ -136,6 +167,7 @@ class MainWindow final : public QMainWindow {
   void resetDocument();
   void startDecode();
   void startStageAnalysis();
+  void startValidation();
   void openQueryCoordinator(const pnga::png_reconstruction::ImageHeader& header);
   void restoreWorkspace();
   void saveWorkspace() const;
@@ -180,10 +212,13 @@ class MainWindow final : public QMainWindow {
   QTreeView* tree_ = nullptr;
   DecodeWorker* decode_worker_ = nullptr;
   StageWorker* stage_worker_ = nullptr;
+  ValidationWorker* validation_worker_ = nullptr;
   std::unique_ptr<pnga::analysis_engine::QueryCoordinator> query_;
   QueryStatusBridge* query_bridge_ = nullptr;
   std::uint64_t generation_ = 0;
   QLabel* pixel_label_ = nullptr;
+  QLabel* validation_label_ = nullptr;
+  pnga::analysis_engine::DocumentValidationReport validation_report_;
 };
 
 #endif  // PNG_ANALYZER_GUI_MAIN_WINDOW_H

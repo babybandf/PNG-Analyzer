@@ -208,6 +208,7 @@ void CrossPlatformGuiGateTest::accessibilityNamesCoverControlsAndInspectors() {
   check("blockInspector");
   check("huffmanInspector");
   check("decodeTraceInspector");
+  check("validationStatus");
 }
 
 void CrossPlatformGuiGateTest::inspectorTruncationContractsRemainBounded() {

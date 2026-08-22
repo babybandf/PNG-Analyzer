@@ -11,5 +11,6 @@ target_link_libraries(pnga_cli PRIVATE
   pnga::core
   pnga::io
   pnga::png_format
+  pnga::analysis_engine
 )
 target_compile_features(pnga_cli PRIVATE cxx_std_20)

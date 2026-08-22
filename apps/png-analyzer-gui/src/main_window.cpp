@@ -51,6 +51,7 @@
 #include <filesystem>
 #include <memory>
 #include <limits>
+#include <iterator>
 #include <system_error>
 #include <vector>
 
@@ -90,6 +91,19 @@ void StageWorker::run() {
   result_ = std::make_shared<pnga::analysis_engine::StageSet>(
       pnga::analysis_engine::analyze_source(*source_));
   emit stageDone(generation_);
+}
+
+ValidationWorker::ValidationWorker(
+    std::uint64_t generation, std::shared_ptr<pnga::io::IByteSource> source,
+    pnga::png_format::ChunkIndex index, QObject* parent)
+    : QThread(parent),
+      generation_(generation),
+      source_(std::move(source)),
+      index_(std::move(index)) {}
+
+void ValidationWorker::run() {
+  result_ = pnga::analysis_engine::validate_document(*source_, index_);
+  emit validationDone(generation_);
 }
 
 // ---------------------------------------------------------------------------
@@ -242,6 +256,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
   pixel_label_ = new QLabel(QStringLiteral("No image"), this);
   statusBar()->addWidget(pixel_label_);
+  validation_label_ = new QLabel(QStringLiteral("Validation: not loaded"), this);
+  validation_label_->setObjectName(QStringLiteral("validationStatus"));
+  validation_label_->setAccessibleName(QStringLiteral("Validation status"));
+  statusBar()->addPermanentWidget(validation_label_);
 
   QMenu* fileMenu = menuBar()->addMenu(QStringLiteral("&File"));
   QAction* openAction = fileMenu->addAction(QStringLiteral("&Open..."));
@@ -598,6 +616,18 @@ void MainWindow::startStageAnalysis() {
   worker->start();
 }
 
+void MainWindow::startValidation() {
+  if (validation_worker_ != nullptr) {
+    validation_worker_ = nullptr;
+  }
+  auto* worker = new ValidationWorker(generation_, source_, index_, this);
+  validation_worker_ = worker;
+  connect(worker, &ValidationWorker::validationDone, this,
+          &MainWindow::onValidationDone);
+  connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+  worker->start();
+}
+
 void MainWindow::onStageDone(std::uint64_t generation) {
   if (generation != generation_ || stage_worker_ == nullptr) {
     return;  // stale stage analysis; never overwrite the current document
@@ -613,6 +643,36 @@ void MainWindow::onStageDone(std::uint64_t generation) {
   updateHexSource();
   stage_worker_ = nullptr;
   openQueryCoordinator(header);
+}
+
+void MainWindow::onValidationDone(std::uint64_t generation) {
+  if (generation != generation_ || validation_worker_ == nullptr) {
+    return;
+  }
+  validation_report_ = validation_worker_->result();
+  if (validation_report_.issues.empty()) {
+    validation_label_->setText(QStringLiteral("Validation: OK"));
+    validation_label_->setToolTip(QStringLiteral("No validation issues"));
+  } else {
+    const auto& first = validation_report_.issues.front();
+    validation_label_->setText(
+        QStringLiteral("Validation: %1 issue(s), %2 @ %3")
+            .arg(static_cast<qulonglong>(validation_report_.issues.size()))
+            .arg(QString::fromStdString(first.rule_id))
+            .arg(static_cast<qulonglong>(first.offset)));
+    QString tooltip;
+    for (const auto& issue : validation_report_.issues) {
+      if (!tooltip.isEmpty()) {
+        tooltip += QStringLiteral("\n");
+      }
+      tooltip += QStringLiteral("%1 @ %2: %3")
+                     .arg(QString::fromStdString(issue.rule_id))
+                     .arg(static_cast<qulonglong>(issue.offset))
+                     .arg(QString::fromStdString(issue.message));
+    }
+    validation_label_->setToolTip(tooltip);
+  }
+  validation_worker_ = nullptr;
 }
 
 void MainWindow::onRowQueryStatus(std::uint64_t row, int status) {
@@ -651,6 +711,10 @@ bool MainWindow::openFile(const QString& path) {
     lock_check_->setChecked(false);
   }
   resetDocument();
+  validation_report_ = {};
+  validation_label_->setText(QStringLiteral("Validation: checking…"));
+  validation_label_->setToolTip(QString());
+  startValidation();
   startDecode();
   startStageAnalysis();
   return true;

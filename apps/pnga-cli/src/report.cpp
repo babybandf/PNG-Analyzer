@@ -70,8 +70,8 @@ void append_chunks(std::ostringstream& out,
   out << ']';
 }
 
-void append_issues(std::ostringstream& out,
-                   const pnga::png_format::ChunkIndex& index) {
+void append_index_issues(std::ostringstream& out,
+                         const pnga::png_format::ChunkIndex& index) {
   out << '"' << "issues" << "\":[";
   for (std::size_t i = 0; i < index.issues.size(); ++i) {
     const auto& issue = index.issues[i];
@@ -81,6 +81,38 @@ void append_issues(std::ostringstream& out,
     out << '{'
         << "\"kind\":\"" << issue_kind_text(issue.kind) << "\","
         << "\"offset\":" << issue.offset
+        << '}';
+  }
+  out << ']';
+}
+
+const char* severity_text(pnga::validation::Severity severity) noexcept {
+  switch (severity) {
+    case pnga::validation::Severity::kInfo:
+      return "info";
+    case pnga::validation::Severity::kWarning:
+      return "warning";
+    case pnga::validation::Severity::kError:
+      return "error";
+  }
+  return "error";
+}
+
+void append_validation_issues(
+    std::ostringstream& out,
+    const pnga::analysis_engine::DocumentValidationReport& report) {
+  out << '"' << "issues" << "\":[";
+  for (std::size_t i = 0; i < report.issues.size(); ++i) {
+    const auto& issue = report.issues[i];
+    if (i != 0) {
+      out << ',';
+    }
+    out << '{'
+        << "\"rule_id\":\"" << json_escape(issue.rule_id) << "\","
+        << "\"severity\":\"" << severity_text(issue.severity) << "\","
+        << "\"message\":\"" << json_escape(issue.message) << "\","
+        << "\"offset\":" << issue.offset << ','
+        << "\"spec_ref\":\"" << json_escape(issue.spec_ref) << "\""
         << '}';
   }
   out << ']';
@@ -117,20 +149,21 @@ std::string inspect_json(const std::string& file,
       << ',';
   append_chunks(out, index);
   out << ',';
-  append_issues(out, index);
+  append_index_issues(out, index);
   out << '}';
   return out.str();
 }
 
 std::string validate_json(const std::string& file,
-                          const pnga::png_format::ChunkIndex& index) {
+                          const pnga::png_format::ChunkIndex& index,
+                          const pnga::analysis_engine::DocumentValidationReport& report) {
   std::ostringstream out;
   out << '{'
       << "\"file\":\"" << json_escape(file) << "\","
       << "\"size\":" << index.file_size << ","
-      << "\"valid\":" << (index.issues.empty() ? "true" : "false")
+      << "\"valid\":" << (report.issues.empty() ? "true" : "false")
       << ',';
-  append_issues(out, index);
+  append_validation_issues(out, report);
   out << '}';
   return out.str();
 }
