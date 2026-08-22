@@ -73,9 +73,11 @@ void MainWindowLayoutTest::defaultLayoutHasRequiredRegions() {
   auto* hex_source =
       window.findChild<QComboBox*>(QStringLiteral("hexSource"));
   QVERIFY(hex_source != nullptr);
-  QCOMPARE(hex_source->count(), 2);
+  QCOMPARE(hex_source->count(), 4);
   QCOMPARE(hex_source->itemText(0), QStringLiteral("File"));
   QCOMPARE(hex_source->itemText(1), QStringLiteral("IDAT Stream"));
+  QCOMPARE(hex_source->itemText(2), QStringLiteral("Inflated"));
+  QCOMPARE(hex_source->itemText(3), QStringLiteral("Defiltered"));
   QVERIFY(window.findChild<QCheckBox*>(QStringLiteral("hexFollowPixel")) != nullptr);
 }
 

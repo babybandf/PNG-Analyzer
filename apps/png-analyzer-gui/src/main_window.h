@@ -148,6 +148,7 @@ class MainWindow final : public QMainWindow {
 
  private:
   std::shared_ptr<pnga::io::IByteSource> source_;
+  std::shared_ptr<const pnga::analysis_engine::StageSet> stage_set_;
   pnga::png_format::ChunkIndex index_;
   pnga::ui::qt::ChunkModel* model_ = nullptr;
   pnga::ui::qt::HexView* hex_ = nullptr;

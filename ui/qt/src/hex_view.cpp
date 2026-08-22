@@ -86,6 +86,14 @@ void HexView::paintEvent(QPaintEvent*) {
     p.drawText(rect(), Qt::AlignCenter, QStringLiteral("No file loaded"));
     return;
   }
+  if (source_->status() != HexDataStatus::kReady) {
+    p.drawText(rect(), Qt::AlignCenter,
+               QStringLiteral("%1: %2")
+                   .arg(QString::fromLatin1(source_->name()))
+                   .arg(QString::fromLatin1(
+                       hex_data_status_text(source_->status()))));
+    return;
+  }
   if (source_->size() == 0) {
     p.drawText(rect(), Qt::AlignCenter, QStringLiteral("Empty file"));
     return;

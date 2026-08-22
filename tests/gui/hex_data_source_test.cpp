@@ -1,6 +1,7 @@
 // WP-5U4A source abstraction tests: File ownership and virtual IDAT windows.
 
 #include <pnga/io/byte_source.h>
+#include <pnga/analysis-engine/stage_analysis.h>
 #include <pnga/png-format/virtual_idat_stream.h>
 #include <pnga/ui/qt/hex_data_source.h>
 
@@ -15,6 +16,7 @@ class HexDataSourceTest : public QObject {
  private slots:
   void fileSourceReadsAndKeepsBackingAlive();
   void idatSourceReadsAcrossSegmentsWithoutConcatenation();
+  void derivedSourcesExposeStageBytesAndStates();
 };
 
 void HexDataSourceTest::fileSourceReadsAndKeepsBackingAlive() {
@@ -51,6 +53,32 @@ void HexDataSourceTest::idatSourceReadsAcrossSegmentsWithoutConcatenation() {
   QCOMPARE(static_cast<unsigned>(bytes[1]), 11U);
   QCOMPARE(static_cast<unsigned>(bytes[2]), 13U);
   QCOMPARE(static_cast<unsigned>(bytes[3]), 14U);
+}
+
+void HexDataSourceTest::derivedSourcesExposeStageBytesAndStates() {
+  auto unavailable = pnga::ui::qt::make_inflated_hex_source(nullptr);
+  QCOMPARE(unavailable->status(),
+           pnga::ui::qt::HexDataStatus::kUnavailable);
+
+  auto failed = std::make_shared<pnga::analysis_engine::StageSet>();
+  failed->success = false;
+  auto error = pnga::ui::qt::make_defiltered_hex_source(failed);
+  QCOMPARE(error->status(), pnga::ui::qt::HexDataStatus::kError);
+
+  auto ready = std::make_shared<pnga::analysis_engine::StageSet>();
+  ready->success = true;
+  ready->filtered = {std::byte{7}, std::byte{8}};
+  ready->unfiltered = {std::byte{9}, std::byte{10}};
+  const auto inflated = pnga::ui::qt::make_inflated_hex_source(ready);
+  const auto defiltered =
+      pnga::ui::qt::make_defiltered_hex_source(ready);
+  QCOMPARE(inflated->status(), pnga::ui::qt::HexDataStatus::kReady);
+  QCOMPARE(defiltered->status(), pnga::ui::qt::HexDataStatus::kReady);
+  std::array<std::byte, 2> bytes{};
+  QVERIFY(inflated->read(0, bytes.data(), bytes.size()));
+  QCOMPARE(static_cast<unsigned>(bytes[0]), 7U);
+  QVERIFY(defiltered->read(0, bytes.data(), bytes.size()));
+  QCOMPARE(static_cast<unsigned>(bytes[0]), 9U);
 }
 
 QTEST_MAIN(HexDataSourceTest)

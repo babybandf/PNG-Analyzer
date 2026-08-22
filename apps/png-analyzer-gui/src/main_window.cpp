@@ -176,6 +176,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   hex_source_combo_->setObjectName(QStringLiteral("hexSource"));
   hex_source_combo_->addItem(QStringLiteral("File"));
   hex_source_combo_->addItem(QStringLiteral("IDAT Stream"));
+  hex_source_combo_->addItem(QStringLiteral("Inflated"));
+  hex_source_combo_->addItem(QStringLiteral("Defiltered"));
   coordinate_layout->addWidget(hex_source_combo_);
   hex_follow_check_ = new QCheckBox(QStringLiteral("Hex follows pixel"),
                                     coordinate_bar);
@@ -291,7 +293,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
           [this](int index) {
             view_state_.hex_source = index == 1
                                          ? pnga::ui::qt::HexSource::kIdatStream
-                                         : pnga::ui::qt::HexSource::kFile;
+                                         : index == 2
+                                               ? pnga::ui::qt::HexSource::kInflated
+                                               : index == 3
+                                                     ? pnga::ui::qt::HexSource::kDefiltered
+                                                     : pnga::ui::qt::HexSource::kFile;
             updateHexSource();
           });
 
@@ -367,7 +373,7 @@ void MainWindow::restoreWorkspace() {
 
   const int base = settings.value(QStringLiteral("view/numericBase"), 0).toInt();
   const int source = settings.value(QStringLiteral("view/hexSource"), 0).toInt();
-  if (base < 0 || base > 1 || source < 0 || source > 1) {
+  if (base < 0 || base > 1 || source < 0 || source > 3) {
     applyDefaultWorkspace();
     return;
   }
@@ -416,6 +422,11 @@ void MainWindow::updateHexSource() {
   if (view_state_.hex_source == pnga::ui::qt::HexSource::kIdatStream) {
     const pnga::png_format::VirtualIDATStream stream(index_);
     hex_->setSource(pnga::ui::qt::make_idat_hex_source(source, stream));
+  } else if (view_state_.hex_source == pnga::ui::qt::HexSource::kInflated) {
+    hex_->setSource(pnga::ui::qt::make_inflated_hex_source(stage_set_));
+  } else if (view_state_.hex_source ==
+             pnga::ui::qt::HexSource::kDefiltered) {
+    hex_->setSource(pnga::ui::qt::make_defiltered_hex_source(stage_set_));
   } else {
     hex_->setSource(pnga::ui::qt::make_file_hex_source(source));
   }
@@ -557,12 +568,14 @@ void MainWindow::onStageDone(std::uint64_t generation) {
     return;  // stale stage analysis; never overwrite the current document
   }
   const auto stage = stage_worker_->result();
+  stage_set_ = stage;
   const auto header = stage->header;
   inspector_->setStageSet(stage);
   pixel_view_->setStageSet(stage);
   filter_map_view_->setStageSet(stage);
   filtered_view_->setStageSet(stage);
   defiltered_view_->setStageSet(stage);
+  updateHexSource();
   stage_worker_ = nullptr;
   openQueryCoordinator(header);
 }
@@ -591,6 +604,7 @@ bool MainWindow::openFile(const QString& path) {
   ++generation_;
   bus_->setDocumentGeneration(generation_);
   view_state_.set_document_generation(generation_);
+  stage_set_.reset();
   pixel_view_->clear();
   filter_map_view_->clear();
   filtered_view_->clear();
