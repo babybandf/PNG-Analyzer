@@ -33,7 +33,7 @@
 | M3 可观测重建流水线 | 实现完成 | WP-300～306 | conformance corpus 与 sanitizer Gate 尚未形成完整证据包 |
 | M4 大文件索引与随机访问 | 实现完成 | WP-400～406 | 跨平台机器基线尚未冻结 |
 | M5 Deep Deflate Trace | Block/Huffman/Decode Trace Inspector、bounded Trace Gate、WP-5U6A 状态契约、WP-5U6B 性能 Gate 与 WP-5U6C GUI Gate 已实现 | WP-500～504、WP-5U0～WP-5U5B、WP-5T0A～WP-5T0B、WP-505A～WP-505C、bounded Trace Gate、WP-5U6A～WP-5U6C | 三平台原生 CI、正式 fuzz corpus、发布证据仍未完成 |
-| M6 Validation、Statistics、发布 | WP-600A～WP-600C、WP-602A、WP-603A～WP-603C、WP-604A～WP-604B、WP-605A～WP-605C 已实现 | Structural/integrity/semantic/decode/resource 规则、Qt-free bounded statistics engine、单一 analysis-engine 聚合入口、CLI JSON 与 GUI worker 状态整合、固定 fuzz replay 的 ASan/UBSan 门禁、生成式性能 corpus/runner、机器记录 schema、固定阈值 gate、portable package smoke、用户/开发者/Trace/bug report 文档、RC audit runner | WP-602B UI/export 范围决策、coverage-guided fuzz、跨平台性能基线与原生安装器 |
+| M6 Validation、Statistics、发布 | WP-600A～WP-600C、WP-602A、WP-602B、WP-603A～WP-603C、WP-604A～WP-604B、WP-605A～WP-605C 已实现/决策 | Structural/integrity/semantic/decode/resource 规则、Qt-free bounded statistics engine、单一 analysis-engine 聚合入口、WP-602B v1 延后决策、CLI JSON 与 GUI worker 状态整合、固定 fuzz replay 的 ASan/UBSan 门禁、生成式性能 corpus/runner、机器记录 schema、固定阈值 gate、portable package smoke、用户/开发者/Trace/bug report 文档、RC audit runner | coverage-guided fuzz、跨平台性能基线与原生安装器 |
 | M7 APNG | 未开始 | 模型预留 frame 维度 | 维持 post-v1 |
 
 截至当前提交，M0～M4、M5 的 WP-500～504、WP-5U0～WP-5U6C、WP-5T0A～WP-5T0B 及 M6 的 WP-600A～WP-600C、WP-603A～WP-603C、WP-604A～WP-604B、WP-605A～WP-605C 已有实现提交。这里的“实现完成”不等于里程碑 Gate 已关闭；Gate 仍要求相应 coverage-guided corpus、跨平台性能、原生安装器和人工交互证据。
@@ -398,7 +398,7 @@ M5 UI Gate 通过后，按以下顺序推进：
 原 WP-602 拆成两个小工作包，并在 M5 Gate 时决定是否进入 v1：
 
 - `WP-602A Statistics Engine`：Chunk、filter、block、token、length/distance 的 Qt-free 聚合模型。
-- `WP-602B Statistics UI & Export`：表格/图表、确定性 JSON/CSV export 与 selection 导航。
+- `WP-602B Statistics UI & Export`：已决定不进入首个单文件 v1；表格/图表、确定性 JSON/CSV export 与 selection 导航需后续重新批准。
 
 它们只依赖现有 trace/validation 数据，不依赖 Compare。若 M5 Gate 时资源不足，两项整体移动到 v1 后，不影响单文件分析闭环。
 
@@ -415,10 +415,10 @@ WP-700～703 不变。静态 PNG 模型继续保留 frame 维度，但任何 Fra
 `WP-5U0` 已由 `docs/development/wp-5u0-ui-spec.md` 冻结，且其依赖的
 WP-5U1～WP-5U5B、WP-5T0A～WP-5T0B、WP-505A～WP-505C、bounded Trace Gate 与
 WP-5U6A～WP-5U6C、WP-600A～WP-600C、WP-603A～WP-603C、WP-604A～WP-604B、WP-605A～WP-605C 已落地。
-当前没有可在不新增架构边界的情况下直接实现的发布工作包；推荐下一项为
-`WP-602A Statistics Engine` 的范围、接口、首版 Qt-free 实现和 immutable analysis
-适配器已冻结并提交；下一步是决定是否启动 `WP-602B Statistics UI & Export`。
-不得改变 `pnga_statistics` 的依赖方向，或
+当前没有可在不新增架构边界的情况下直接实现的发布工作包；`WP-602A Statistics
+Engine` 的范围、接口、首版 Qt-free 实现和 immutable analysis 适配器已冻结并提交，
+`WP-602B Statistics UI & Export` 已按 v1 范围决策延后。下一项推荐转入 coverage-
+guided fuzz 证据准备，不得改变 `pnga_statistics` 的依赖方向，或
 把解析/解码逻辑放进该模块。
 
 WP-5U0 已冻结的产品决策继续作为后续实现约束：
@@ -430,5 +430,7 @@ WP-5U0 已冻结的产品决策继续作为后续实现约束：
 - Statistics 不作为首个单文件 v1 的强制验收项。
 - WP-602A 首版只提供 bounded scalar aggregation；UI/export 继续留在 WP-602B
   决策，不自动扩大当前 v1 surface。
+- WP-602B 已决定延后；当前 user guide 与 CLI JSON contract 不增加 Statistics
+  入口，后续若重启必须先冻结 schema、预算与导航验收。
 
 这些决策一旦冻结，后续每个带后缀的最小工作包都能以自动测试、固定样本和人工 checklist 独立验收，不需要开发者在实现中临时猜测产品语义。
