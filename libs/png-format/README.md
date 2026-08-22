@@ -5,7 +5,7 @@ Physical and logical PNG structure (REPOSITORY_LAYOUT.md §5.3).
 ## Responsibility
 
 - PNG signature and Chunk envelope parsing.
-- Chunk type flags, field decoding, order metadata and CRC calculation (later WPs).
+- Chunk type flags, field decoding, order metadata and bounded CRC calculation.
 - `VirtualIDATStream` and logical-to-physical span mapping (later WPs).
 - Static PNG and APNG Chunk data structures.
 

@@ -1,6 +1,7 @@
 # Unit tests for libs/validation. Catch2 is test-only (layout contract §8.4).
 
 add_executable(pnga_validation_tests
+  integrity_test.cpp
   structural_test.cpp
 )
 target_link_libraries(pnga_validation_tests PRIVATE

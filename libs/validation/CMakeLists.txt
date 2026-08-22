@@ -3,6 +3,7 @@
 # rule batch. ADR-0003: this target must never link Qt.
 
 add_library(pnga_validation
+  src/integrity.cpp
   src/structural.cpp
 )
 add_library(pnga::validation ALIAS pnga_validation)
