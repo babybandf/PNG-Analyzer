@@ -10,6 +10,59 @@
 
 namespace pnga::ui::qt {
 
+namespace {
+
+QString chunk_purpose(const QString& type) {
+  if (type == QStringLiteral("IHDR")) {
+    return QStringLiteral("image header that defines dimensions and encoding");
+  }
+  if (type == QStringLiteral("PLTE")) {
+    return QStringLiteral("palette entries used to map indexes to RGB colors");
+  }
+  if (type == QStringLiteral("IDAT")) {
+    return QStringLiteral("compressed image data stream");
+  }
+  if (type == QStringLiteral("IEND")) {
+    return QStringLiteral("end marker for the PNG datastream");
+  }
+  if (type == QStringLiteral("tRNS")) {
+    return QStringLiteral("transparency information for palette or grayscale data");
+  }
+  if (type == QStringLiteral("cHRM")) {
+    return QStringLiteral("primary chromaticities and white point");
+  }
+  if (type == QStringLiteral("gAMA")) {
+    return QStringLiteral("image gamma value for display compensation");
+  }
+  if (type == QStringLiteral("sRGB")) {
+    return QStringLiteral("sRGB rendering intent");
+  }
+  if (type == QStringLiteral("pHYs")) {
+    return QStringLiteral("physical pixel dimensions and units");
+  }
+  if (type == QStringLiteral("tIME")) {
+    return QStringLiteral("last image modification time");
+  }
+  if (type == QStringLiteral("tEXt")) {
+    return QStringLiteral("uncompressed textual metadata");
+  }
+  if (type == QStringLiteral("zTXt")) {
+    return QStringLiteral("compressed textual metadata");
+  }
+  if (type == QStringLiteral("iTXt")) {
+    return QStringLiteral("international textual metadata with language support");
+  }
+  return QStringLiteral("application-specific or unsupported chunk data");
+}
+
+QString chunk_description(const QString& type) {
+  const QString escaped_type = type.toHtmlEscaped();
+  return QStringLiteral("<b>%1</b> — %2.")
+      .arg(escaped_type, chunk_purpose(type));
+}
+
+}  // namespace
+
 ChunkDetailPanel::ChunkDetailPanel(QWidget* parent) : QWidget(parent) {
   setObjectName(QStringLiteral("chunkDetailPanel"));
   setAccessibleName(QStringLiteral("Selected chunk details"));
@@ -18,6 +71,16 @@ ChunkDetailPanel::ChunkDetailPanel(QWidget* parent) : QWidget(parent) {
   auto* layout = new QVBoxLayout(this);
   layout->setContentsMargins(4, 4, 4, 4);
   layout->setSpacing(4);
+
+  description_ = new QLabel(this);
+  description_->setObjectName(QStringLiteral("chunkDetailDescription"));
+  description_->setAccessibleName(QStringLiteral("Chunk purpose"));
+  description_->setTextFormat(Qt::RichText);
+  description_->setText(QStringLiteral("Select a chunk to see its purpose."));
+  description_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+  description_->setTextInteractionFlags(Qt::TextSelectableByMouse |
+                                         Qt::TextSelectableByKeyboard);
+  layout->addWidget(description_);
 
   summary_ = new QLabel(this);
   summary_->setObjectName(QStringLiteral("chunkDetailSummary"));
@@ -49,15 +112,18 @@ ChunkDetailPanel::ChunkDetailPanel(QWidget* parent) : QWidget(parent) {
 }
 
 void ChunkDetailPanel::setLoading() {
+  description_->setText(QStringLiteral("Loading the selected chunk purpose…"));
   summary_->setText(QStringLiteral("Loading selected chunk details…"));
   table_->setRowCount(0);
 }
 
 void ChunkDetailPanel::setDetail(
     const pnga::png_format::ChunkDetail& detail) {
+  const QString type = QString::fromStdString(detail.type);
+  description_->setText(chunk_description(type));
   summary_->setText(
       QStringLiteral("%1  •  %2 bytes  •  data @ %3")
-          .arg(QString::fromStdString(detail.type))
+          .arg(type)
           .arg(static_cast<qulonglong>(detail.data_length))
           .arg(static_cast<qulonglong>(detail.data_offset)));
   table_->setUpdatesEnabled(false);
@@ -77,6 +143,7 @@ void ChunkDetailPanel::setDetail(
 }
 
 void ChunkDetailPanel::clear() {
+  description_->setText(QStringLiteral("Select a chunk to see its purpose."));
   summary_->setText(QStringLiteral("Select a chunk to inspect its fields"));
   table_->setRowCount(0);
 }

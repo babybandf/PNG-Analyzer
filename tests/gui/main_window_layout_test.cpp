@@ -385,11 +385,15 @@ void MainWindowLayoutTest::chunkDockStaysResizableAndRedockableAfterOpen() {
       window.findChild<QTableWidget*>(QStringLiteral("chunkDetailTable"));
   auto* detail_summary =
       window.findChild<QLabel*>(QStringLiteral("chunkDetailSummary"));
+  auto* detail_description =
+      window.findChild<QLabel*>(QStringLiteral("chunkDetailDescription"));
   QVERIFY(chunks != nullptr);
   QVERIFY(tree != nullptr);
   QVERIFY(chunk_splitter != nullptr);
   QVERIFY(detail_table != nullptr);
   QVERIFY(detail_summary != nullptr);
+  QVERIFY(detail_description != nullptr);
+  QCOMPARE(detail_description->textFormat(), Qt::RichText);
   QCOMPARE(chunk_splitter->orientation(), Qt::Vertical);
   QCOMPARE(detail_table->horizontalScrollBarPolicy(), Qt::ScrollBarAsNeeded);
   QCOMPARE(detail_table->verticalScrollBarPolicy(), Qt::ScrollBarAsNeeded);
@@ -416,6 +420,10 @@ void MainWindowLayoutTest::chunkDockStaysResizableAndRedockableAfterOpen() {
   QCoreApplication::processEvents();
   QTRY_VERIFY_WITH_TIMEOUT(detail_summary->text().contains(QStringLiteral("IHDR")),
                            1000);
+  QTRY_VERIFY_WITH_TIMEOUT(
+      detail_description->text().contains(QStringLiteral("<b>IHDR</b>")),
+      1000);
+  QVERIFY(detail_description->text().contains(QStringLiteral("image header")));
   QVERIFY(detail_table->rowCount() >= 7);
   chunk_splitter->setSizes({120, 260});
   QCoreApplication::processEvents();
@@ -426,6 +434,10 @@ void MainWindowLayoutTest::chunkDockStaysResizableAndRedockableAfterOpen() {
       QItemSelectionModel::SelectCurrent | QItemSelectionModel::Rows);
   QTRY_VERIFY_WITH_TIMEOUT(detail_summary->text().contains(QStringLiteral("IDAT")),
                            1000);
+  QTRY_VERIFY_WITH_TIMEOUT(
+      detail_description->text().contains(QStringLiteral("<b>IDAT</b>")),
+      1000);
+  QVERIFY(detail_description->text().contains(QStringLiteral("compressed image data")));
   QVERIFY(detail_table->rowCount() >= 4);
   QCOMPARE(chunks->width(), adjusted_width);
 

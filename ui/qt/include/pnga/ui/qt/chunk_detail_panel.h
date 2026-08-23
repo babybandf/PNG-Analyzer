@@ -24,6 +24,7 @@ class ChunkDetailPanel final : public QWidget {
   QTableWidget* table() const noexcept { return table_; }
 
  private:
+  QLabel* description_ = nullptr;
   QLabel* summary_ = nullptr;
   QTableWidget* table_ = nullptr;
 };
