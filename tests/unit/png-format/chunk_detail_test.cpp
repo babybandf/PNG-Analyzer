@@ -77,6 +77,7 @@ TEST_CASE("Chunk detail decodes IHDR fields", "[png-format][chunk-detail]") {
   REQUIRE(has_field(detail, "Height", "16"));
   REQUIRE(has_field(detail, "Bit depth", "8"));
   REQUIRE(has_field(detail, "Color type", "6"));
+  REQUIRE(has_field(detail, "Color type", "Truecolor with alpha"));
 }
 
 TEST_CASE("Chunk detail expands palette entries", "[png-format][chunk-detail]") {

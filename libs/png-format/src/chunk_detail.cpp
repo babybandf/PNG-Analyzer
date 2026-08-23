@@ -48,6 +48,23 @@ std::string numeric(std::uint64_t value) {
   return number(value) + " (" + hex_number(value) + ")";
 }
 
+const char* color_type_name(unsigned int value) noexcept {
+  switch (value) {
+    case 0:
+      return "Grayscale";
+    case 2:
+      return "Truecolor";
+    case 3:
+      return "Indexed-color";
+    case 4:
+      return "Grayscale with alpha";
+    case 6:
+      return "Truecolor with alpha";
+    default:
+      return "Unknown/reserved";
+  }
+}
+
 std::string scaled(std::uint32_t value, std::uint32_t scale) {
   const std::uint32_t whole = value / scale;
   const std::uint32_t fraction = value % scale;
@@ -147,7 +164,9 @@ void parse_ihdr(ChunkDetail& detail, const pnga::io::ByteView& view) {
   add(detail, "Width", numeric(read_u32_be(view.data)));
   add(detail, "Height", numeric(read_u32_be(view.data + 4)));
   add(detail, "Bit depth", numeric(byte_value(view.data[8])));
-  add(detail, "Color type", numeric(byte_value(view.data[9])));
+  const unsigned int color_type = byte_value(view.data[9]);
+  add(detail, "Color type",
+      numeric(color_type) + " (" + color_type_name(color_type) + ")");
   add(detail, "Compression method", numeric(byte_value(view.data[10])));
   add(detail, "Filter method", numeric(byte_value(view.data[11])));
   add(detail, "Interlace method", numeric(byte_value(view.data[12])));
