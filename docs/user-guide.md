@@ -20,7 +20,7 @@ region can be reported without discarding structure already verified.
    Select a pixel to lock its coordinate; hover remains a lightweight local
    state.
 5. Use the Inspector tabs for **Reconstruction** and **Compression**. The Hex
-   panel's vertical tabs switch between **File**, **IDAT Stream**, **Inflated**
+   panel's vertical tabs switch between **File**, **IDAT**, **Inflated**
    and **Defiltered** while keeping one shared Hex view. Trace replay remains
    on demand and may report partial, replaying, cancelled or error state.
 6. Read the validation status in the status bar. A report includes a stable

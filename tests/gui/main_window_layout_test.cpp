@@ -105,7 +105,7 @@ void MainWindowLayoutTest::defaultLayoutHasRequiredRegions() {
   QVERIFY(hex_source != nullptr);
   QCOMPARE(hex_source->count(), 4);
   QCOMPARE(hex_source->tabText(0), QStringLiteral("File"));
-  QCOMPARE(hex_source->tabText(1), QStringLiteral("IDAT Stream"));
+  QCOMPARE(hex_source->tabText(1), QStringLiteral("IDAT"));
   QCOMPARE(hex_source->tabText(2), QStringLiteral("Inflated"));
   QCOMPARE(hex_source->tabText(3), QStringLiteral("Defiltered"));
 }

@@ -16,8 +16,7 @@ struct SourcePresentation {
 
 constexpr SourcePresentation kSources[] = {
     {"File", "PNG physical file bytes", "Hex source: File"},
-    {"IDAT Stream", "Virtual concatenated IDAT payload stream",
-     "Hex source: IDAT Stream"},
+    {"IDAT", "Virtual concatenated IDAT payload stream", "Hex source: IDAT"},
     {"Inflated", "Inflate output filtered scanline bytes",
      "Hex source: Inflated"},
     {"Defiltered", "Reconstructed packed scanline bytes",

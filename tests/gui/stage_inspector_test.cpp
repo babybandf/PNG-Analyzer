@@ -169,6 +169,8 @@ void StageInspectorModelTest::reconstructReportUsesViewModel() {
   QVERIFY(text.contains(QStringLiteral("Scanline location")));
   QVERIFY(text.contains(QStringLiteral("Filtered data")));
   QVERIFY(text.contains(QStringLiteral("Pixel neighborhood")));
+  QVERIFY(!text.contains(QStringLiteral("y-1")));
+  QVERIFY(!text.contains(QStringLiteral("y (current)")));
   QVERIFY(text.contains(QStringLiteral("Filter / predictor / bounds")));
   QVERIFY(text.contains(QStringLiteral("Per-channel reconstruction")));
   QVERIFY(text.contains(QStringLiteral("Final RGBA")));

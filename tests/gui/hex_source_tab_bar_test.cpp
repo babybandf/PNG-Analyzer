@@ -23,7 +23,7 @@ void HexSourceTabBarTest::exposesStableSourcesAndMetadata() {
   QVERIFY(bar.styleSheet().contains(QStringLiteral("background-color: #d0d0d0")));
   QVERIFY(bar.styleSheet().contains(QStringLiteral("font-weight: bold")));
   QCOMPARE(bar.tabText(0), QStringLiteral("File"));
-  QCOMPARE(bar.tabText(1), QStringLiteral("IDAT Stream"));
+  QCOMPARE(bar.tabText(1), QStringLiteral("IDAT"));
   QCOMPARE(bar.tabText(2), QStringLiteral("Inflated"));
   QCOMPARE(bar.tabText(3), QStringLiteral("Defiltered"));
   for (int index = 0; index < bar.count(); ++index) {

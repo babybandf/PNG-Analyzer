@@ -28,6 +28,20 @@ QString number(std::uint64_t value, bool hex) {
 
 QString value8(std::uint8_t value, bool hex) { return number(value, hex); }
 
+QString row_coordinate(std::uint64_t origin, int delta, bool hexadecimal) {
+  const auto magnitude = static_cast<std::uint64_t>(delta < 0 ? -delta : delta);
+  if (delta < 0) {
+    if (origin < magnitude) {
+      return QStringLiteral("—");
+    }
+    return number(origin - magnitude, hexadecimal);
+  }
+  if (origin > std::numeric_limits<std::uint64_t>::max() - magnitude) {
+    return QStringLiteral("—");
+  }
+  return number(origin + magnitude, hexadecimal);
+}
+
 QString section(const QString& title) {
   return QStringLiteral("<h3 style=\"margin:10px 0 3px 0;\">%1</h3>")
       .arg(esc(title));
@@ -282,8 +296,8 @@ void StageInspector::refreshReport() {
     }
     html += QStringLiteral("</tr>");
     for (int dy = -1; dy <= 1; ++dy) {
-      html += QStringLiteral("<tr><th>y%1</th>")
-          .arg(dy == 0 ? QStringLiteral(" (current)") : QString::number(dy));
+      html += QStringLiteral("<tr><th>%1</th>")
+          .arg(row_coordinate(y_, dy, hexadecimal_));
       for (int dx = -2; dx <= 2; ++dx) {
         const std::int64_t sx = static_cast<std::int64_t>(x_) + dx;
         const std::int64_t sy = static_cast<std::int64_t>(y_) + dy;

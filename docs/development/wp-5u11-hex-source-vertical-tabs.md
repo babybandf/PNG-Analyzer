@@ -12,7 +12,7 @@
 截图标号 1 指向的控件实际是一个 Hex Source 下拉框，其中包含四个数据源选项：
 
 1. `File`
-2. `IDAT Stream`
+2. `IDAT`
 3. `Inflated`
 4. `Defiltered`
 
@@ -34,7 +34,7 @@ Central Area
 └───────┴────────────────────────────────────────────────────┘
 ```
 
-正式 UI 使用完整标签 `File`、`IDAT Stream`、`Inflated`、`Defiltered`，不得使用
+正式 UI 使用完整标签 `File`、`IDAT`、`Inflated`、`Defiltered`，不得使用
 无法辨识的单字母或无说明图标。标签沿 Hex View 左边缘由上到下排列，标签文字使用
 West tab 的竖向朝向，以控制横向占用。
 
@@ -84,7 +84,7 @@ X | Y | Lock | DEC/HEX
 | 标签 | 数据语义 | 现有数据源 |
 |---|---|---|
 | `File` | PNG 物理文件字节 | `make_file_hex_source()` |
-| `IDAT Stream` | 多个 IDAT payload 组成的虚拟逻辑流 | `make_idat_hex_source()` |
+| `IDAT` | 多个 IDAT payload 组成的虚拟逻辑流 | `make_idat_hex_source()` |
 | `Inflated` | Inflate 输出的 filtered scanline 字节，包含 filter byte | `make_inflated_hex_source()` |
 | `Defiltered` | reverse filter 后的 reconstructed packed scanline 字节 | `make_defiltered_hex_source()` |
 
@@ -216,7 +216,7 @@ X → Y → Lock → DEC/HEX
 
 ```text
 0 = File
-1 = IDAT Stream
+1 = IDAT
 2 = Inflated
 3 = Defiltered
 ```
@@ -263,7 +263,7 @@ X  [value]  Y  [value]  [Lock]  [DEC/HEX]
 |---|---|---|
 | 无文件 | 任意 | `No file loaded` 或稳定的 source unavailable 文案 |
 | 文件已索引 | File | 显示物理文件字节 |
-| 文件已索引 | IDAT Stream | 显示虚拟 IDAT payload 流 |
+| 文件已索引 | IDAT | 显示虚拟 IDAT payload 流 |
 | StageSet 未就绪 | Inflated/Defiltered | 显示对应 source unavailable/loading，不跳页 |
 | StageSet ready | Inflated | 显示 filtered scanline bytes |
 | StageSet ready | Defiltered | 显示 reconstructed packed bytes |
@@ -301,7 +301,7 @@ X  [value]  Y  [value]  [Lock]  [DEC/HEX]
 
 最便宜的判别测试：构造 MainWindow 后确认 Inspector 中不存在 `hexSource` 下拉框，
 也不存在 `hexFollowPixel` 复选框；Hex panel 左侧存在四个标签。激活
-`IDAT Stream` 后，保存的
+`IDAT` 后，保存的
 `SelectionViewState::hex_source` 为 `kIdatStream`，且原有单一 `HexView` 实例未被替换。
 
 ## 11. 允许和禁止路径
@@ -353,7 +353,7 @@ X  [value]  Y  [value]  [Lock]  [DEC/HEX]
 
 ### 12.2 切换
 
-- File、IDAT Stream、Inflated、Defiltered 分别切换到正确数据源。
+- File、IDAT、Inflated、Defiltered 分别切换到正确数据源。
 - 标签 item data 与 `HexSource` 一一对应，不使用显示文本判断。
 - 连续循环切换四个标签 100 次，无崩溃、重复分析、对象增长或信号倍增。
 - StageSet 到达前选中 Inflated/Defiltered，ready 后保持标签并正确显示数据。
@@ -407,7 +407,7 @@ git diff --check
 - 更新后的用户指南和当前 UI 计划。
 - 修改前后截图，至少包含：
   - File selected；
-  - IDAT Stream selected；
+  - IDAT selected；
   - Inflated unavailable 与 ready；
   - Defiltered selected；
   - 窄 Inspector 和 `900×600` 窗口。
