@@ -48,7 +48,11 @@ def probe(compiler):
         )
         if result.returncode != 0:
             lines = result.stderr.strip().splitlines()
-            return lines[-1] if lines else "probe failed"
+            if not lines:
+                return "probe failed"
+            # Keep enough linker context to make a NOT_CONFIGURED report
+            # actionable while avoiding compiler-specific absolute paths.
+            return " | ".join(lines[-4:])
     return None
 
 

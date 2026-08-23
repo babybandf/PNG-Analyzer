@@ -185,7 +185,15 @@ jobs:
 
       - name: Provide LLVM fuzzer toolchain
         shell: bash
-        run: sudo apt-get update && sudo apt-get install -y clang pkg-config
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm pkg-config
+          fuzzer_package="$(apt-cache search '^libfuzzer-[0-9]+-dev$' | awk '{print $1}' | sort -V | tail -n 1)"
+          if [[ -z "${fuzzer_package}" ]]; then
+            echo "No versioned libFuzzer development package is available" >&2
+            exit 1
+          fi
+          sudo apt-get install -y "${fuzzer_package}"
 
       - name: Cache vcpkg tool checkout
         uses: actions/cache@v4
