@@ -196,12 +196,6 @@ QString render_html(const ModelStagePixelProcessView& view,
                                           ? dependency_marker(view, row, column)
                                           : QString());
         QString value = esc(cell_value(cell, view.stage, hexadecimal));
-        if (cell.current) {
-          value = QStringLiteral("CURRENT:%1").arg(value);
-          if (view.stage == StagePixelProcessStage::kFiltered) {
-            value = QStringLiteral("X/%1").arg(value);
-          }
-        }
         if (!marker.isEmpty()) {
           value += QStringLiteral("<br><b>%1</b>").arg(esc(marker));
         }
