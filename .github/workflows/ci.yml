@@ -132,6 +132,27 @@ jobs:
         shell: bash
         run: python scripts/run_package_smoke.py
 
+      # WP-604B: enforce the deterministic performance thresholds on the
+      # Linux baseline and retain the machine-shaped WP-604A record. The
+      # existing dev build is reused; no extra production configuration is
+      # introduced for this evidence-only gate.
+      - name: Performance threshold gate (Linux)
+        if: matrix.sanitize
+        shell: bash
+        run: |
+          python scripts/run_performance_corpus.py \
+            --preset dev \
+            --skip-build \
+            --enforce-thresholds
+
+      - name: Upload performance evidence (Linux)
+        if: always() && matrix.sanitize
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-evidence-linux
+          path: build/performance/wp-604a-latest.json
+          if-no-files-found: ignore
+
       - name: Configure asan (Linux)
         if: matrix.sanitize
         shell: bash
