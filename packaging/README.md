@@ -7,6 +7,10 @@ relocatable archive:
 - Windows: ZIP
 - macOS/Linux: compressed TAR archive
 
+Release archive names use `macOS` for the macOS platform (rather than the
+toolchain-level `Darwin` identifier), for example
+`png-analyzer-0.1.0-macOS-arm64.tar.gz`.
+
 This is the first cross-platform install/start smoke boundary. Native DMG,
 MSIX, AppImage/Flatpak and Qt framework deployment remain release follow-up
 work; the archive must not claim those installer formats. On Linux, the

@@ -9,8 +9,15 @@ set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "PNG structure and Deflate analyzer")
 set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
 set(CPACK_PACKAGE_INSTALL_DIRECTORY "PNG Analyzer")
+# CMake identifies macOS as Darwin, which is useful to toolchains but not to
+# users downloading a release archive. Keep the package name user-facing
+# while preserving the native system name for all other platforms.
+set(PNGA_PACKAGE_PLATFORM "${CMAKE_SYSTEM_NAME}")
+if(APPLE)
+  set(PNGA_PACKAGE_PLATFORM "macOS")
+endif()
 set(CPACK_PACKAGE_FILE_NAME
-    "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}")
+    "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-${PNGA_PACKAGE_PLATFORM}-${CMAKE_SYSTEM_PROCESSOR}")
 
 if(WIN32)
   set(CPACK_GENERATOR "ZIP")

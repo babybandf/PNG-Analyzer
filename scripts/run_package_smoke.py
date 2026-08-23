@@ -3,6 +3,7 @@
 
 import argparse
 import os
+import platform
 import subprocess
 import tarfile
 import tempfile
@@ -113,6 +114,11 @@ def main():
     )
     if len(packages) != 1:
         raise SystemExit(f"expected one package, found: {packages}")
+    if platform.system() == "Darwin" and "-macOS-" not in packages[0].name:
+        raise SystemExit(
+            "macOS portable package must use the user-facing macOS platform name: "
+            f"{packages[0].name}"
+        )
 
     with tempfile.TemporaryDirectory(prefix="pnga-package-") as temp:
         extracted = Path(temp)
