@@ -232,7 +232,6 @@ class MainWindow final : public QMainWindow {
   pnga::ui::qt::HexView* hex_ = nullptr;
   pnga::ui::qt::DeliveredImageView* image_view_ = nullptr;
   pnga::ui::qt::PixelViewport* pixel_view_ = nullptr;
-  pnga::ui::qt::StagePreviewView* filter_map_view_ = nullptr;
   pnga::ui::qt::StagePreviewView* filtered_view_ = nullptr;
   pnga::ui::qt::StagePreviewView* defiltered_view_ = nullptr;
   pnga::ui::qt::SelectionBus* bus_ = nullptr;
@@ -247,8 +246,6 @@ class MainWindow final : public QMainWindow {
   pnga::ui::qt::ChunkDetailPanel* chunk_detail_ = nullptr;
   QTabWidget* preview_tabs_ = nullptr;
   QTabWidget* inspector_tabs_ = nullptr;
-  QTabWidget* image_inspector_tabs_ = nullptr;
-  QTabWidget* scanline_inspector_tabs_ = nullptr;
   QTabWidget* compression_inspector_tabs_ = nullptr;
   QSplitter* center_splitter_ = nullptr;
   QSpinBox* x_spin_ = nullptr;

@@ -38,6 +38,7 @@ class MainWindowLayoutTest : public QObject {
   void defaultLayoutHasRequiredRegions();
   void docksAreMovableFloatableAndClosable();
   void workspaceSettingsRoundTrip();
+  void workspaceV1MigratesStablePages();
   void corruptSettingsFallBackToDefaults();
   void resetLayoutRestoresDefaultsWithoutFileState();
   void coordinateInteractionUsesToolbarAndKeyboard();
@@ -64,31 +65,20 @@ void MainWindowLayoutTest::defaultLayoutHasRequiredRegions() {
 
   auto* preview = window.findChild<QTabWidget*>(QStringLiteral("previewTabs"));
   QVERIFY(preview != nullptr);
-  QCOMPARE(preview->count(), 5);
+  QCOMPARE(preview->count(), 4);
   QCOMPARE(preview->tabText(0), QStringLiteral("Image"));
   QCOMPARE(preview->tabText(1), QStringLiteral("Pixels"));
-  QCOMPARE(preview->tabText(2), QStringLiteral("Filter Map"));
-  QCOMPARE(preview->tabText(3), QStringLiteral("Filtered"));
-  QCOMPARE(preview->tabText(4), QStringLiteral("Defiltered"));
+  QCOMPARE(preview->tabText(2), QStringLiteral("Filtered"));
+  QCOMPARE(preview->tabText(3), QStringLiteral("Defiltered"));
 
   auto* inspector =
       window.findChild<QTabWidget*>(QStringLiteral("inspectorTabs"));
   QVERIFY(inspector != nullptr);
-  QCOMPARE(inspector->count(), 3);
-  QCOMPARE(inspector->tabText(0), QStringLiteral("Image"));
-  QCOMPARE(inspector->tabText(1), QStringLiteral("Scanline"));
-  QCOMPARE(inspector->tabText(2), QStringLiteral("Compression"));
-  auto* image_pages = window.findChild<QTabWidget*>(QStringLiteral("imageInspectorPages"));
-  auto* scanline_pages = window.findChild<QTabWidget*>(QStringLiteral("scanlineInspectorPages"));
+  QCOMPARE(inspector->count(), 2);
+  QCOMPARE(inspector->tabText(0), QStringLiteral("Reconstruction"));
+  QCOMPARE(inspector->tabText(1), QStringLiteral("Compression"));
   auto* compression_pages = window.findChild<QTabWidget*>(QStringLiteral("compressionInspectorPages"));
-  QVERIFY(image_pages != nullptr);
-  QVERIFY(scanline_pages != nullptr);
   QVERIFY(compression_pages != nullptr);
-  QCOMPARE(image_pages->tabText(0), QStringLiteral("Reconstruction"));
-  QCOMPARE(image_pages->tabText(1), QStringLiteral("Pixel"));
-  QCOMPARE(image_pages->tabText(2), QStringLiteral("Format Context"));
-  QCOMPARE(scanline_pages->tabText(0), QStringLiteral("Scanline"));
-  QCOMPARE(scanline_pages->tabText(1), QStringLiteral("Source"));
   QCOMPARE(compression_pages->tabText(0), QStringLiteral("DEFLATE Blocks"));
   QCOMPARE(compression_pages->tabText(1), QStringLiteral("Huffman"));
   QCOMPARE(compression_pages->tabText(2), QStringLiteral("Decode Trace"));
@@ -185,6 +175,32 @@ void MainWindowLayoutTest::workspaceSettingsRoundTrip() {
                ->isChecked());
 }
 
+void MainWindowLayoutTest::workspaceV1MigratesStablePages() {
+  {
+    MainWindow seed;
+    QVERIFY(seed.close());
+  }
+  QSettings settings;
+  settings.setValue(QStringLiteral("workspace/version"), 1);
+  settings.setValue(QStringLiteral("workspace/previewTab"), 3);
+  settings.setValue(QStringLiteral("workspace/inspectorTab"), 2);
+  settings.setValue(QStringLiteral("workspace/imagePage"), 2);
+  settings.setValue(QStringLiteral("workspace/scanlinePage"), 1);
+  settings.setValue(QStringLiteral("workspace/compressionPage"), 1);
+
+  MainWindow window;
+  QCOMPARE(window.findChild<QTabWidget*>(QStringLiteral("previewTabs"))
+               ->currentIndex(),
+           2);
+  QCOMPARE(window.findChild<QTabWidget*>(QStringLiteral("inspectorTabs"))
+               ->currentIndex(),
+           1);
+  QCOMPARE(window.findChild<QTabWidget*>(
+               QStringLiteral("compressionInspectorPages"))
+               ->currentIndex(),
+           1);
+}
+
 void MainWindowLayoutTest::corruptSettingsFallBackToDefaults() {
   QSettings settings;
   settings.setValue(QStringLiteral("workspace/version"), 999);
@@ -221,8 +237,8 @@ void MainWindowLayoutTest::resetLayoutRestoresDefaultsWithoutFileState() {
   QVERIFY(inspector != nullptr);
   QVERIFY(chunks != nullptr);
   QVERIFY(inspector_dock != nullptr);
-  preview->setCurrentIndex(4);
-  inspector->setCurrentIndex(4);
+  preview->setCurrentIndex(3);
+  inspector->setCurrentIndex(1);
   chunks->setFloating(true);
   inspector_dock->setFloating(true);
   QCoreApplication::processEvents();
@@ -351,14 +367,10 @@ void MainWindowLayoutTest::inspectorSwitchesKeepColumnWidths() {
   window.show();
   QCoreApplication::processEvents();
   auto* groups = window.findChild<QTabWidget*>(QStringLiteral("inspectorTabs"));
-  auto* image = window.findChild<QTabWidget*>(QStringLiteral("imageInspectorPages"));
-  auto* scanline = window.findChild<QTabWidget*>(QStringLiteral("scanlineInspectorPages"));
   auto* compression = window.findChild<QTabWidget*>(QStringLiteral("compressionInspectorPages"));
   auto* chunks = window.findChild<QDockWidget*>(QStringLiteral("chunksDock"));
   auto* inspector = window.findChild<QDockWidget*>(QStringLiteral("inspectorDock"));
   QVERIFY(groups != nullptr);
-  QVERIFY(image != nullptr);
-  QVERIFY(scanline != nullptr);
   QVERIFY(compression != nullptr);
   QVERIFY(chunks != nullptr);
   QVERIFY(inspector != nullptr);
@@ -371,8 +383,6 @@ void MainWindowLayoutTest::inspectorSwitchesKeepColumnWidths() {
   const int inspector_width = inspector->width();
   for (int i = 0; i < 10; ++i) {
     groups->setCurrentIndex(i % groups->count());
-    image->setCurrentIndex(i % image->count());
-    scanline->setCurrentIndex(i % scanline->count());
     compression->setCurrentIndex(i % compression->count());
     QCoreApplication::processEvents();
     QCOMPARE(chunks->width(), chunk_width);

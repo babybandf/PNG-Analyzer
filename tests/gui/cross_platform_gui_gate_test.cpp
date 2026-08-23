@@ -23,6 +23,7 @@
 #include <QKeySequence>
 #include <QMenuBar>
 #include <QPalette>
+#include <QPushButton>
 #include <QScreen>
 #include <QSpinBox>
 #include <QSplitter>
@@ -111,10 +112,9 @@ void CrossPlatformGuiGateTest::layoutSurvivesReferenceSizesAndDpi() {
   QVERIFY(splitter != nullptr);
   QVERIFY(inspector != nullptr);
   QVERIFY(preview != nullptr);
-  QCOMPARE(inspector->count(), 3);
-  QCOMPARE(inspector->tabText(0), QStringLiteral("Image"));
-  QCOMPARE(inspector->tabText(1), QStringLiteral("Scanline"));
-  QCOMPARE(inspector->tabText(2), QStringLiteral("Compression"));
+  QCOMPARE(inspector->count(), 2);
+  QCOMPARE(inspector->tabText(0), QStringLiteral("Reconstruction"));
+  QCOMPARE(inspector->tabText(1), QStringLiteral("Compression"));
 
   for (const QSize size : {QSize(900, 600), QSize(1600, 1000)}) {
     window.resize(size);
@@ -131,7 +131,7 @@ void CrossPlatformGuiGateTest::layoutSurvivesReferenceSizesAndDpi() {
   }
 
   auto* x = window.findChild<QSpinBox*>(QStringLiteral("xCoordinate"));
-  auto* base = window.findChild<QComboBox*>(QStringLiteral("numericBase"));
+  auto* base = window.findChild<QPushButton*>(QStringLiteral("numericBase"));
   QVERIFY(x != nullptr);
   QVERIFY(base != nullptr);
   QVERIFY(x->sizeHint().height() > 0);
@@ -179,7 +179,7 @@ void CrossPlatformGuiGateTest::shortcutsAndFocusOrderAreStable() {
   auto* x = window.findChild<QSpinBox*>(QStringLiteral("xCoordinate"));
   auto* y = window.findChild<QSpinBox*>(QStringLiteral("yCoordinate"));
   auto* lock = window.findChild<QCheckBox*>(QStringLiteral("lockCoordinate"));
-  auto* base = window.findChild<QComboBox*>(QStringLiteral("numericBase"));
+  auto* base = window.findChild<QPushButton*>(QStringLiteral("numericBase"));
   auto* source = window.findChild<QComboBox*>(QStringLiteral("hexSource"));
   auto* follow = window.findChild<QCheckBox*>(QStringLiteral("hexFollowPixel"));
   auto* tabs = window.findChild<QTabWidget*>(QStringLiteral("inspectorTabs"));
@@ -226,14 +226,8 @@ void CrossPlatformGuiGateTest::accessibilityNamesCoverControlsAndInspectors() {
   check("hexSource");
   check("hexFollowPixel");
   check("inspectorTabs");
-  check("imageInspectorPages");
-  check("scanlineInspectorPages");
   check("compressionInspectorPages");
   check("reconstructInspector");
-  check("pixelInspector");
-  check("scanlineInspector");
-  check("sourceInspector");
-  check("formatContextInspector");
   check("blockInspector");
   check("huffmanInspector");
   check("decodeTraceInspector");
