@@ -263,8 +263,8 @@ class MainWindow final : public QMainWindow {
   QueryStatusBridge* query_bridge_ = nullptr;
   std::uint64_t generation_ = 0;
   std::uint64_t chunk_selection_serial_ = 0;
+  QString current_file_path_;
   QLabel* pixel_label_ = nullptr;
-  QLabel* file_path_label_ = nullptr;
   QLabel* validation_label_ = nullptr;
   pnga::analysis_engine::DocumentValidationReport validation_report_;
 };

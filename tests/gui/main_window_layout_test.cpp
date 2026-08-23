@@ -418,10 +418,9 @@ void MainWindowLayoutTest::chunkDockStaysResizableAndRedockableAfterOpen() {
   png.flush();
   QVERIFY(window.openFile(png.fileName()));
   QCoreApplication::processEvents();
-  auto* file_path =
-      window.findChild<QLabel*>(QStringLiteral("filePathStatus"));
-  QVERIFY(file_path != nullptr);
-  QCOMPARE(file_path->text(), QFileInfo(png.fileName()).absoluteFilePath());
+  QVERIFY(window.windowTitle().contains(
+      QStringLiteral(" — %1").arg(QFileInfo(png.fileName()).absoluteFilePath())));
+  QVERIFY(window.findChild<QLabel*>(QStringLiteral("filePathStatus")) == nullptr);
   QTRY_VERIFY_WITH_TIMEOUT(detail_summary->text().contains(QStringLiteral("IHDR")),
                            1000);
   QTRY_VERIFY_WITH_TIMEOUT(

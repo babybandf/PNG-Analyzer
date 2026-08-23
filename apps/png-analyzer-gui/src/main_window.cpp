@@ -377,11 +377,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
   pixel_label_ = new QLabel(QStringLiteral("No image"), this);
   statusBar()->addWidget(pixel_label_);
-  file_path_label_ = new QLabel(QStringLiteral("No file"), this);
-  file_path_label_->setObjectName(QStringLiteral("filePathStatus"));
-  file_path_label_->setAccessibleName(QStringLiteral("Current file path"));
-  file_path_label_->setTextInteractionFlags(Qt::TextSelectableByMouse);
-  statusBar()->addWidget(file_path_label_, 1);
   validation_label_ = new QLabel(QStringLiteral("Validation: not loaded"), this);
   validation_label_->setObjectName(QStringLiteral("validationStatus"));
   validation_label_->setAccessibleName(QStringLiteral("Validation status"));
@@ -1067,8 +1062,16 @@ bool MainWindow::openFile(const QString& path) {
       std::shared_ptr<pnga::io::IByteSource>(opened.release());
   const QString absolute_path = QFileInfo(path).absoluteFilePath();
   rememberOpenedFile(path);
-  file_path_label_->setText(absolute_path);
-  file_path_label_->setToolTip(absolute_path);
+  if (!current_file_path_.isEmpty()) {
+    const QString previous_suffix =
+        QStringLiteral(" — %1").arg(current_file_path_);
+    if (windowTitle().endsWith(previous_suffix)) {
+      setWindowTitle(windowTitle().left(windowTitle().size() -
+                                       previous_suffix.size()));
+    }
+  }
+  setWindowTitle(QStringLiteral("%1 — %2").arg(windowTitle(), absolute_path));
+  current_file_path_ = absolute_path;
   source_ = source;
   index_ = pnga::png_format::index_chunks(*source_);
   ++generation_;
