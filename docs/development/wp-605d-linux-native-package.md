@@ -1,6 +1,6 @@
 # WP-605D — Linux Native Package Gate
 
-Status: **implemented; Ubuntu CI install/uninstall smoke passing** (2026-08-23)
+Status: **implemented; Ubuntu CI install/uninstall smoke passing** (2026-08-23, run `32611030790`)
 
 This work package adds Debian metadata to the existing CPack install tree and
 checks the native package without mutating the runner host. The default CPack

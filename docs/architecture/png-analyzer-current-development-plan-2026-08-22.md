@@ -1,7 +1,7 @@
 # PNG Analyzer 当前开发进度与后续执行计划（2026-08-22）
 
 > Status: Active execution supplement
-> Baseline commit: `b2b2a80` (`main`，WP-604B Linux performance gate 接入完成)
+> Baseline commit: `5daec46` (`main`，WP-605D Linux Debian native package gate 接入完成)
 > Parent plan: [PNG Analyzer Agent 可执行开发计划 v0.1](png-analyzer-agent-development-plan-v0.1.md)
 
 ## 1. 文档作用与范围
@@ -58,7 +58,7 @@ git status --short --branch
 - dev 与 ASan/UBSan 各有 35/35 个 CTest 测试入口通过（GUI 运行使用 `QT_QPA_PLATFORM=offscreen`）；新增的 150%/200% DPI GUI 注册均通过，专门 `scripts/run_gui_gate.py` 生成当前主机和三档 Qt scale evidence。测试覆盖 core、parser、reconstruction、Deflate、differential、CLI、fuzz smoke、性能 corpus runner、Qt-free bounded WP-602A Statistics Engine 与 GUI 测试；并包含 Block/Huffman/Decode Trace Inspector、统一 binding、WP-5U6A 状态机、WP-5U6B 性能回归、WP-5U6C 跨平台 GUI Gate、WP-600A/600B 规则边界测试、WP-600C CLI/GUI 报告整合、WP-603A/603B fuzz smoke、WP-603C sanitizer replay gate、WP-604A performance record 与 WP-604B threshold gate。
 - 仓库布局检查：0 failure、0 warning。
 - 依赖静态检查：0 failure、0 warning。
-- 本次核验覆盖当前 `main` 的 `b2b2a80`；布局与依赖静态审计均为 0 failure、0 warning。GUI evidence 记录 macOS arm64 / Qt 6.11.1 的默认、150% 和 200% scale 运行；WP-603D runner 已在 Ubuntu CI 产生 PASS evidence，本机 Apple toolchain 仍记录 `NOT_CONFIGURED`。CI run `32610399902` 的 Linux build 已通过 WP-604B performance threshold gate 并上传 `build/performance/wp-604a-latest.json`。原生 Windows/Linux 窗口系统、屏幕阅读器和原生安装器仍未由本机证据覆盖。
+- 本次核验覆盖当前 `main` 的 `5daec46`；布局与依赖静态审计均为 0 failure、0 warning。GUI evidence 记录 macOS arm64 / Qt 6.11.1 的默认、150% 和 200% scale 运行；WP-603D runner 已在 Ubuntu CI 产生 PASS evidence，本机 Apple toolchain 仍记录 `NOT_CONFIGURED`。CI run `32610399902` 的 Linux build 已通过 WP-604B performance threshold gate 并上传 `build/performance/wp-604a-latest.json`；CI run `32611030790` 的 Ubuntu build 另通过 WP-605D Debian staged install/uninstall 并上传 `linux-native-package`。原生 Windows/Linux 窗口系统、屏幕阅读器和 macOS/Windows 原生安装器仍未由本机证据覆盖。
 
 正式 coverage-guided fuzz 已在 Ubuntu CI run `32610155310` 通过；Linux performance threshold 已在 CI run `32610399902` 通过并保留 machine record；本机 Apple toolchain 仍为 `NOT_CONFIGURED`。macOS/Windows performance baseline、原生 DMG/MSIX/AppImage/Flatpak 或 Qt framework deployment 仍未声称通过。dev 与 ASan/UBSan 全量、WP-603C 定向 replay、WP-604A runner、WP-604B threshold gate、WP-605A portable archive smoke、WP-605B 文档自检、WP-605C RC audit 与 GUI performance scenario 均已通过；原生安装器和发布证据仍属后续 Gate。
 
@@ -422,7 +422,7 @@ WP-5U6A～WP-5U6C、WP-600A～WP-600C、WP-603A～WP-603C、WP-604A～WP-604B、
 Engine` 的范围、接口、首版 Qt-free 实现和 immutable analysis 适配器已冻结并提交，
 `WP-602B Statistics UI & Export` 已按 v1 范围决策延后，WP-603D 的 Ubuntu CI runtime
 evidence 已通过，Linux performance threshold 也已接入并通过。Linux Debian 原生包
-安装/卸载 Gate 已启动并接入 Ubuntu CI；下一项推荐是补 macOS/Windows 原生格式和
+安装/卸载 Gate 已在 CI run `32611030790` 通过并接入 Ubuntu CI；下一项推荐是补 macOS/Windows 原生格式和
 Qt framework deployment 证据。不得改变
 `pnga_statistics` 的依赖方向，或把解析/解码逻辑放进该模块。
 
