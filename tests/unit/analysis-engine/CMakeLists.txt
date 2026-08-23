@@ -13,6 +13,7 @@ add_executable(pnga_analysis_engine_tests
   reconstruct_view_model_test.cpp
   scanline_anchor_test.cpp
   stage_analysis_test.cpp
+  stage_pixel_process_view_test.cpp
   stage_viewport_test.cpp
   trace_query_test.cpp
   trace_orchestrator_test.cpp

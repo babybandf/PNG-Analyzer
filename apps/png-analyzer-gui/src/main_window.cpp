@@ -11,10 +11,11 @@
 #include <pnga/ui/qt/decode_trace_inspector.h>
 #include <pnga/ui/qt/hex_view.h>
 #include <pnga/ui/qt/hex_data_source.h>
+#include <pnga/ui/qt/hex_source_tab_bar.h>
 #include <pnga/ui/qt/huffman_inspector.h>
-#include <pnga/ui/qt/pixel_viewport.h>
 #include <pnga/ui/qt/selection_bus.h>
 #include <pnga/ui/qt/stage_inspector.h>
+#include <pnga/ui/qt/stage_pixel_process_view.h>
 #include <pnga/ui/qt/stage_preview_view.h>
 
 #include <QAbstractItemView>
@@ -22,7 +23,6 @@
 #include <QColor>
 #include <QCheckBox>
 #include <QCloseEvent>
-#include <QComboBox>
 #include <QDir>
 #include <QFileInfo>
 #include <QFrame>
@@ -236,20 +236,29 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   preview_tabs_->setUsesScrollButtons(true);
   image_view_ = new pnga::ui::qt::DeliveredImageView(preview_tabs_);
   preview_tabs_->addTab(image_view_, QStringLiteral("Image"));
-  pixel_view_ = new pnga::ui::qt::PixelViewport(preview_tabs_);
+  pixel_view_ = new pnga::ui::qt::StagePixelProcessView(
+      pnga::analysis_engine::StagePixelProcessStage::kNative, preview_tabs_);
   preview_tabs_->addTab(pixel_view_, QStringLiteral("Pixels"));
-  filtered_view_ = new pnga::ui::qt::StagePreviewView(
-      pnga::ui::qt::PreviewStage::kFiltered, preview_tabs_);
+  filtered_view_ = new pnga::ui::qt::StagePixelProcessView(
+      pnga::analysis_engine::StagePixelProcessStage::kFiltered, preview_tabs_);
   preview_tabs_->addTab(filtered_view_, QStringLiteral("Filtered"));
-  defiltered_view_ = new pnga::ui::qt::StagePreviewView(
-      pnga::ui::qt::PreviewStage::kDefiltered, preview_tabs_);
+  defiltered_view_ = new pnga::ui::qt::StagePixelProcessView(
+      pnga::analysis_engine::StagePixelProcessStage::kDefiltered, preview_tabs_);
   preview_tabs_->addTab(defiltered_view_, QStringLiteral("Defiltered"));
 
-  hex_ = new pnga::ui::qt::HexView(center_splitter_);
+  hex_panel_ = new QWidget(center_splitter_);
+  hex_panel_->setObjectName(QStringLiteral("hexPanel"));
+  hex_panel_->setAccessibleName(QStringLiteral("Hex panel"));
+  auto* hex_layout = new QHBoxLayout(hex_panel_);
+  hex_layout->setContentsMargins(0, 0, 0, 0);
+  hex_source_tabs_ = new pnga::ui::qt::HexSourceTabBar(hex_panel_);
+  hex_layout->addWidget(hex_source_tabs_);
+  hex_ = new pnga::ui::qt::HexView(hex_panel_);
   hex_->setObjectName(QStringLiteral("hexView"));
   hex_->setAccessibleName(QStringLiteral("Hex view"));
+  hex_layout->addWidget(hex_, 1);
   center_splitter_->addWidget(preview_tabs_);
-  center_splitter_->addWidget(hex_);
+  center_splitter_->addWidget(hex_panel_);
   center_splitter_->setStretchFactor(0, 3);
   center_splitter_->setStretchFactor(1, 2);
   setCentralWidget(center_splitter_);
@@ -334,19 +343,6 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   base_button_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
   base_button_->setFixedWidth(base_button_->sizeHint().width());
   coordinate_layout->addWidget(base_button_);
-  hex_source_combo_ = new QComboBox(coordinate_bar);
-  hex_source_combo_->setObjectName(QStringLiteral("hexSource"));
-  hex_source_combo_->setAccessibleName(QStringLiteral("Hex source"));
-  hex_source_combo_->addItem(QStringLiteral("File"));
-  hex_source_combo_->addItem(QStringLiteral("IDAT Stream"));
-  hex_source_combo_->addItem(QStringLiteral("Inflated"));
-  hex_source_combo_->addItem(QStringLiteral("Defiltered"));
-  coordinate_layout->addWidget(hex_source_combo_);
-  hex_follow_check_ = new QCheckBox(QStringLiteral("Hex follows pixel"),
-                                    coordinate_bar);
-  hex_follow_check_->setObjectName(QStringLiteral("hexFollowPixel"));
-  hex_follow_check_->setAccessibleName(QStringLiteral("Hex follows pixel"));
-  coordinate_layout->addWidget(hex_follow_check_);
   coordinate_layout->addStretch(1);
   // Keep the toolbar controls on one stable row without allowing their
   // combined size hint to become the Inspector's minimum width.  The toolbar
@@ -407,9 +403,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   QWidget::setTabOrder(x_spin_, y_spin_);
   QWidget::setTabOrder(y_spin_, lock_check_);
   QWidget::setTabOrder(lock_check_, base_button_);
-  QWidget::setTabOrder(base_button_, hex_source_combo_);
-  QWidget::setTabOrder(hex_source_combo_, hex_follow_check_);
-  QWidget::setTabOrder(hex_follow_check_, inspector_tabs_);
+  QWidget::setTabOrder(base_button_, preview_tabs_);
+  QWidget::setTabOrder(preview_tabs_, hex_source_tabs_);
+  QWidget::setTabOrder(hex_source_tabs_, hex_);
+  QWidget::setTabOrder(hex_, inspector_tabs_);
   inspector_dock_->setWidget(inspector_container);
   addDockWidget(Qt::RightDockWidgetArea, inspector_dock_);
 
@@ -477,8 +474,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   y_spin_->installEventFilter(this);
   lock_check_->installEventFilter(this);
   base_button_->installEventFilter(this);
-  hex_follow_check_->installEventFilter(this);
   preview_tabs_->installEventFilter(this);
+  hex_source_tabs_->installEventFilter(this);
   inspector_tabs_->installEventFilter(this);
 
   query_bridge_ = new QueryStatusBridge(this);
@@ -511,20 +508,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         hexadecimal ? pnga::ui::qt::NumericBase::kHexadecimal
                     : pnga::ui::qt::NumericBase::kDecimal;
     inspector_->setNumericBase(hexadecimal);
+    pixel_view_->setNumericBase(hexadecimal);
+    filtered_view_->setNumericBase(hexadecimal);
+    defiltered_view_->setNumericBase(hexadecimal);
     updateNumericBaseButton();
   });
-  connect(hex_follow_check_, &QCheckBox::toggled, this,
-          [this](bool checked) { view_state_.hex_follow_pixel = checked; });
-  connect(hex_source_combo_,
-          qOverload<int>(&QComboBox::currentIndexChanged), this,
-          [this](int index) {
-            view_state_.hex_source = index == 1
-                                         ? pnga::ui::qt::HexSource::kIdatStream
-                                         : index == 2
-                                               ? pnga::ui::qt::HexSource::kInflated
-                                               : index == 3
-                                                     ? pnga::ui::qt::HexSource::kDefiltered
-                                                     : pnga::ui::qt::HexSource::kFile;
+  connect(hex_source_tabs_, &pnga::ui::qt::HexSourceTabBar::sourceChanged,
+          this, [this](pnga::ui::qt::HexSource source) {
+            view_state_.hex_source = source;
             updateHexSource();
           });
 
@@ -565,24 +556,23 @@ void MainWindow::applyDefaultWorkspace() {
 
   view_state_.hex_source = pnga::ui::qt::HexSource::kFile;
   view_state_.numeric_base = pnga::ui::qt::NumericBase::kDecimal;
-  view_state_.hex_follow_pixel = true;
   view_state_.locked = preserved_locked;
   view_state_.hover = preserved_hover;
   {
     const QSignalBlocker base_blocker(base_button_);
-    const QSignalBlocker source_blocker(hex_source_combo_);
-    const QSignalBlocker follow_blocker(hex_follow_check_);
     const QSignalBlocker lock_blocker(lock_check_);
     updateNumericBaseButton();
-    hex_source_combo_->setCurrentIndex(0);
-    hex_follow_check_->setChecked(true);
     lock_check_->setChecked(preserved_locked.has_value());
     if (preserved_locked.has_value()) {
       x_spin_->setValue(static_cast<int>(preserved_locked->x));
       y_spin_->setValue(static_cast<int>(preserved_locked->y));
     }
   }
+  hex_source_tabs_->setSource(pnga::ui::qt::HexSource::kFile);
   inspector_->setNumericBase(false);
+  pixel_view_->setNumericBase(false);
+  filtered_view_->setNumericBase(false);
+  defiltered_view_->setNumericBase(false);
   updateHexSource();
 }
 
@@ -673,17 +663,15 @@ void MainWindow::restoreWorkspace() {
   view_state_.hex_source = source >= 0 && source <= 3
                                 ? static_cast<pnga::ui::qt::HexSource>(source)
                                 : pnga::ui::qt::HexSource::kFile;
-  view_state_.hex_follow_pixel =
-      settings.value(QStringLiteral("view/hexFollowPixel"), true).toBool();
   {
     const QSignalBlocker base_blocker(base_button_);
-    const QSignalBlocker source_blocker(hex_source_combo_);
-    const QSignalBlocker follow_blocker(hex_follow_check_);
     updateNumericBaseButton();
-    hex_source_combo_->setCurrentIndex(source);
-    hex_follow_check_->setChecked(view_state_.hex_follow_pixel);
   }
+  hex_source_tabs_->setSource(view_state_.hex_source);
   inspector_->setNumericBase(base == 1);
+  pixel_view_->setNumericBase(base == 1);
+  filtered_view_->setNumericBase(base == 1);
+  defiltered_view_->setNumericBase(base == 1);
   updateHexSource();
 }
 
@@ -706,8 +694,6 @@ void MainWindow::saveWorkspace() const {
                     static_cast<int>(view_state_.numeric_base));
   settings.setValue(QStringLiteral("view/hexSource"),
                     static_cast<int>(view_state_.hex_source));
-  settings.setValue(QStringLiteral("view/hexFollowPixel"),
-                    view_state_.hex_follow_pixel);
 }
 
 void MainWindow::refreshRecentFilesMenu() {
@@ -822,6 +808,9 @@ void MainWindow::openRecentFile(const QString& path) {
 }
 
 void MainWindow::updateHexSource() {
+  if (hex_source_tabs_ != nullptr) {
+    hex_source_tabs_->setSource(view_state_.hex_source);
+  }
   if (source_ == nullptr) {
     hex_->setSource(nullptr);
     return;
@@ -873,7 +862,7 @@ void MainWindow::publishLockedCoordinate() {
   }
   image_view_->setLockedPixel(
       QPoint(static_cast<int>(coordinate.x), static_cast<int>(coordinate.y)));
-  pixel_view_->setCenter(coordinate.x, coordinate.y);
+  pixel_view_->setCoordinate(coordinate.x, coordinate.y);
   filtered_view_->setCoordinate(coordinate.x, coordinate.y);
   defiltered_view_->setCoordinate(coordinate.x, coordinate.y);
   inspector_->onPixelSelected(coordinate.x, coordinate.y);
@@ -988,8 +977,8 @@ void MainWindow::paintEvent(QPaintEvent* event) {
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
   if ((watched == x_spin_ || watched == y_spin_ || watched == lock_check_ ||
-       watched == base_button_ || watched == hex_follow_check_ ||
-       watched == preview_tabs_ || watched == inspector_tabs_) &&
+       watched == base_button_ || watched == preview_tabs_ ||
+       watched == hex_source_tabs_ || watched == inspector_tabs_) &&
       event->type() == QEvent::KeyPress) {
     auto* key_event = static_cast<QKeyEvent*>(event);
     if (key_event->key() == Qt::Key_Escape) {
@@ -1255,6 +1244,11 @@ void MainWindow::onChunkSelectionChanged(const QModelIndex& current,
   }
   const auto& node = model_->chunkAt(current.row());
 
+  // Chunk offsets are physical file offsets; never apply them to a virtual
+  // IDAT or reconstructed stage address space.
+  view_state_.hex_source = pnga::ui::qt::HexSource::kFile;
+  updateHexSource();
+
   if (chunk_detail_ != nullptr && source_ != nullptr) {
     chunk_detail_->setLoading();
     auto* detail_worker = new ChunkDetailWorker(
@@ -1361,8 +1355,8 @@ void MainWindow::onPixelSelected(int x, int y) {
   sel.stage = pnga::trace_model::Stage::kDelivered;
   view_state_.set_locked(*sel.image);
   image_view_->setLockedPixel(QPoint(x, y));
-  pixel_view_->setCenter(static_cast<std::uint64_t>(x),
-                         static_cast<std::uint64_t>(y));
+  pixel_view_->setCoordinate(static_cast<std::uint64_t>(x),
+                             static_cast<std::uint64_t>(y));
   filtered_view_->setCoordinate(static_cast<std::uint64_t>(x),
                                 static_cast<std::uint64_t>(y));
   defiltered_view_->setCoordinate(static_cast<std::uint64_t>(x),

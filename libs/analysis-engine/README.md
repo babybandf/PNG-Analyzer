@@ -17,6 +17,9 @@ Orchestration rather than codec algorithms (REPOSITORY_LAYOUT.md §5.10, ADR-000
   (WP-5T0B).
 - Bounded native-sample viewport queries with a one-request cache for the
   Pixels view (WP-5U3B); viewport requests never allocate a full-size QImage.
+- Bounded stage pixel-process projections for the central Pixels, Filtered and
+  Defiltered views (WP-5U9); the query returns fixed-neighborhood facts and
+  filter events without Qt or decoder work.
 - Qt-free reconstruction view models expose pass/row/sample offsets, bounded
   `X/a/b/c` neighbor steps and stable boundary errors (WP-5U5A).
 - WP-602A adapts immutable Chunk, Stage, Deflate block and token results into

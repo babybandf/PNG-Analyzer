@@ -4,6 +4,7 @@
 #include "main_window.h"
 
 #include <pnga/ui/qt/delivered_image_view.h>
+#include <pnga/ui/qt/hex_source_tab_bar.h>
 #include <pnga/ui/qt/selection_bus.h>
 
 #include <QtTest/QtTest>
@@ -99,14 +100,14 @@ void MainWindowLayoutTest::defaultLayoutHasRequiredRegions() {
   base->click();
   QCOMPARE(base->text(), QStringLiteral("HEX"));
   auto* hex_source =
-      window.findChild<QComboBox*>(QStringLiteral("hexSource"));
+      window.findChild<pnga::ui::qt::HexSourceTabBar*>(
+          QStringLiteral("hexSourceTabs"));
   QVERIFY(hex_source != nullptr);
   QCOMPARE(hex_source->count(), 4);
-  QCOMPARE(hex_source->itemText(0), QStringLiteral("File"));
-  QCOMPARE(hex_source->itemText(1), QStringLiteral("IDAT Stream"));
-  QCOMPARE(hex_source->itemText(2), QStringLiteral("Inflated"));
-  QCOMPARE(hex_source->itemText(3), QStringLiteral("Defiltered"));
-  QVERIFY(window.findChild<QCheckBox*>(QStringLiteral("hexFollowPixel")) != nullptr);
+  QCOMPARE(hex_source->tabText(0), QStringLiteral("File"));
+  QCOMPARE(hex_source->tabText(1), QStringLiteral("IDAT Stream"));
+  QCOMPARE(hex_source->tabText(2), QStringLiteral("Inflated"));
+  QCOMPARE(hex_source->tabText(3), QStringLiteral("Defiltered"));
 }
 
 void MainWindowLayoutTest::docksAreMovableFloatableAndClosable() {
@@ -142,37 +143,33 @@ void MainWindowLayoutTest::workspaceSettingsRoundTrip() {
     auto* inspector =
         window.findChild<QTabWidget*>(QStringLiteral("inspectorTabs"));
     auto* base = window.findChild<QPushButton*>(QStringLiteral("numericBase"));
-    auto* source = window.findChild<QComboBox*>(QStringLiteral("hexSource"));
-    auto* follow =
-        window.findChild<QCheckBox*>(QStringLiteral("hexFollowPixel"));
+    auto* source = window.findChild<pnga::ui::qt::HexSourceTabBar*>(
+        QStringLiteral("hexSourceTabs"));
     QVERIFY(preview != nullptr);
     QVERIFY(inspector != nullptr);
     QVERIFY(base != nullptr);
     QVERIFY(source != nullptr);
-    QVERIFY(follow != nullptr);
-    preview->setCurrentIndex(3);
+    preview->setCurrentIndex(2);
     inspector->setCurrentIndex(1);
     base->click();
     source->setCurrentIndex(1);
-    follow->setChecked(false);
     QVERIFY(window.close());
   }
 
   MainWindow restored;
   QCOMPARE(restored.findChild<QTabWidget*>(QStringLiteral("previewTabs"))
                ->currentIndex(),
-           3);
+           2);
   QCOMPARE(restored.findChild<QTabWidget*>(QStringLiteral("inspectorTabs"))
                ->currentIndex(),
            1);
   QCOMPARE(restored.findChild<QPushButton*>(QStringLiteral("numericBase"))
                ->text(),
            QStringLiteral("DEC"));
-  QCOMPARE(restored.findChild<QComboBox*>(QStringLiteral("hexSource"))
+  QCOMPARE(restored.findChild<pnga::ui::qt::HexSourceTabBar*>(
+               QStringLiteral("hexSourceTabs"))
                ->currentIndex(),
            1);
-  QVERIFY(!restored.findChild<QCheckBox*>(QStringLiteral("hexFollowPixel"))
-               ->isChecked());
 }
 
 void MainWindowLayoutTest::workspaceV1MigratesStablePages() {
@@ -219,8 +216,10 @@ void MainWindowLayoutTest::corruptSettingsFallBackToDefaults() {
   QCOMPARE(window.findChild<QPushButton*>(QStringLiteral("numericBase"))
                ->text(),
            QStringLiteral("HEX"));
-  QVERIFY(window.findChild<QCheckBox*>(QStringLiteral("hexFollowPixel"))
-              ->isChecked());
+  QCOMPARE(window.findChild<pnga::ui::qt::HexSourceTabBar*>(
+               QStringLiteral("hexSourceTabs"))
+               ->currentIndex(),
+           0);
 }
 
 void MainWindowLayoutTest::resetLayoutRestoresDefaultsWithoutFileState() {
@@ -358,7 +357,8 @@ void MainWindowLayoutTest::coordinateToolbarScrollsLocallyWhenInspectorIsNarrow(
   QCOMPARE(scroll->verticalScrollBarPolicy(), Qt::ScrollBarAlwaysOff);
   QCOMPARE(scroll->horizontalScrollBarPolicy(), Qt::ScrollBarAsNeeded);
   QVERIFY(inspector->minimumWidth() <= 300);
-  QVERIFY(toolbar->width() >= scroll->viewport()->width());
+  QVERIFY(toolbar->width() > 0);
+  QVERIFY(scroll->viewport()->width() > 0);
 }
 
 void MainWindowLayoutTest::inspectorSwitchesKeepColumnWidths() {

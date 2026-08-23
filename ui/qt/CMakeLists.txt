@@ -14,6 +14,7 @@ add_library(pnga_ui_qt
   include/pnga/ui/qt/delivered_image_view.h
   include/pnga/ui/qt/decode_trace_inspector.h
   include/pnga/ui/qt/hex_view.h
+  include/pnga/ui/qt/hex_source_tab_bar.h
   include/pnga/ui/qt/huffman_inspector.h
   include/pnga/ui/qt/hex_data_source.h
   include/pnga/ui/qt/image_transform.h
@@ -23,6 +24,7 @@ add_library(pnga_ui_qt
   include/pnga/ui/qt/stage_inspector.h
   include/pnga/ui/qt/trace_inspector_binding.h
   include/pnga/ui/qt/stage_inspector_model.h
+  include/pnga/ui/qt/stage_pixel_process_view.h
   include/pnga/ui/qt/stage_preview_view.h
   src/about_dialog.cpp
   src/block_inspector.cpp
@@ -31,6 +33,7 @@ add_library(pnga_ui_qt
   src/delivered_image_view.cpp
   src/decode_trace_inspector.cpp
   src/hex_view.cpp
+  src/hex_source_tab_bar.cpp
   src/huffman_inspector.cpp
   src/hex_data_source.cpp
   src/image_transform.cpp
@@ -39,6 +42,7 @@ add_library(pnga_ui_qt
   src/stage_inspector.cpp
   src/trace_inspector_binding.cpp
   src/stage_inspector_model.cpp
+  src/stage_pixel_process_view.cpp
   src/stage_preview_view.cpp
   resources/png-analyzer-branding.qrc
 )

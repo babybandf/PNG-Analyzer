@@ -12,13 +12,15 @@ region can be reported without discarding structure already verified.
    through the application layer; the widgets do not parse PNG bytes.
 3. Use **Chunk List** to select a physical Chunk. The file Hex view can show
    bounded ranges and physical IDAT spans.
-4. In Preview, the fixed base stages are **Image**, **Pixels**, **Filter Map**,
-   **Filtered** and **Defiltered**. Select a pixel to lock its coordinate;
-   hover remains a lightweight local state.
-5. Use the Inspector tabs to move from reconstruction and pixel/scanline
-   context to source/format context and the bounded DEFLATE Block, Huffman and
-   Decode Trace views. Trace replay is on demand and may report partial,
-   replaying, cancelled or error state.
+4. In Preview, the current stages are **Image**, **Pixels**, **Filtered** and
+   **Defiltered**. The three stage pages share a scrollable five-by-three,
+   channel-separated neighborhood and explain the selected stage's bytes.
+   Select a pixel to lock its coordinate; hover remains a lightweight local
+   state.
+5. Use the Inspector tabs for **Reconstruction** and **Compression**. The Hex
+   panel's vertical tabs switch between **File**, **IDAT Stream**, **Inflated**
+   and **Defiltered** while keeping one shared Hex view. Trace replay remains
+   on demand and may report partial, replaying, cancelled or error state.
 6. Read the validation status in the status bar. A report includes a stable
    issue id, severity, first navigable offset where available and a tooltip
    containing the deterministic issue list.

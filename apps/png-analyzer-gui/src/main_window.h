@@ -27,7 +27,6 @@
 class QLabel;
 class QCheckBox;
 class QCloseEvent;
-class QComboBox;
 class QDockWidget;
 class QEvent;
 class QMenu;
@@ -38,6 +37,7 @@ class QSpinBox;
 class QSplitter;
 class QTabWidget;
 class QTreeView;
+class QWidget;
 
 namespace pnga::ui::qt {
 class ChunkModel;
@@ -47,10 +47,10 @@ class DeliveredImageView;
 class DecodeTraceInspector;
 class HuffmanInspector;
 class HexView;
-class PixelViewport;
+class HexSourceTabBar;
 class SelectionBus;
 class StageInspector;
-class StagePreviewView;
+class StagePixelProcessView;
 }  // namespace pnga::ui::qt
 
 namespace {
@@ -231,9 +231,9 @@ class MainWindow final : public QMainWindow {
   pnga::ui::qt::ChunkModel* model_ = nullptr;
   pnga::ui::qt::HexView* hex_ = nullptr;
   pnga::ui::qt::DeliveredImageView* image_view_ = nullptr;
-  pnga::ui::qt::PixelViewport* pixel_view_ = nullptr;
-  pnga::ui::qt::StagePreviewView* filtered_view_ = nullptr;
-  pnga::ui::qt::StagePreviewView* defiltered_view_ = nullptr;
+  pnga::ui::qt::StagePixelProcessView* pixel_view_ = nullptr;
+  pnga::ui::qt::StagePixelProcessView* filtered_view_ = nullptr;
+  pnga::ui::qt::StagePixelProcessView* defiltered_view_ = nullptr;
   pnga::ui::qt::SelectionBus* bus_ = nullptr;
   pnga::ui::qt::StageInspector* inspector_ = nullptr;
   pnga::ui::qt::BlockInspector* block_inspector_ = nullptr;
@@ -247,13 +247,13 @@ class MainWindow final : public QMainWindow {
   QTabWidget* preview_tabs_ = nullptr;
   QTabWidget* inspector_tabs_ = nullptr;
   QTabWidget* compression_inspector_tabs_ = nullptr;
+  QWidget* hex_panel_ = nullptr;
+  pnga::ui::qt::HexSourceTabBar* hex_source_tabs_ = nullptr;
   QSplitter* center_splitter_ = nullptr;
   QSpinBox* x_spin_ = nullptr;
   QSpinBox* y_spin_ = nullptr;
   QCheckBox* lock_check_ = nullptr;
-  QCheckBox* hex_follow_check_ = nullptr;
   QPushButton* base_button_ = nullptr;
-  QComboBox* hex_source_combo_ = nullptr;
   QTreeView* tree_ = nullptr;
   QMenu* recent_files_menu_ = nullptr;
   DecodeWorker* decode_worker_ = nullptr;

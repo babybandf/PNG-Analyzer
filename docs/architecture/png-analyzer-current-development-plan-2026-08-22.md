@@ -4,6 +4,13 @@
 > Baseline commit: `b3759b7` (`main`，WP-605G GitHub Release portable assets 已实现)
 > Parent plan: [PNG Analyzer Agent 可执行开发计划 v0.1](png-analyzer-agent-development-plan-v0.1.md)
 
+> Current UI refinement overlay (2026-08-23): implemented M5 UI exposes
+> Preview as `Image | Pixels | Filtered | Defiltered`, Inspector as
+> `Reconstruction | Compression`, and Hex source selection as West tabs
+> `File | IDAT Stream | Inflated | Defiltered`. The bounded stage-pixel
+> renderer and Hex tab bar are documented in WP-5U9 and WP-5U11; older milestone
+> history below remains frozen for traceability.
+
 ## 1. 文档作用与范围
 
 本文件把仓库的实际实现状态与 2026-08-22 确认的 UI 调整合并成下一阶段的可执行计划。它只修订当前状态、未开始工作包和执行顺序，不改变已接受的 ADR、仓库布局、Qt 边界或安全规则。

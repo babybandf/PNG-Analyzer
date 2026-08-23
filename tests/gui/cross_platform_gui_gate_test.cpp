@@ -11,6 +11,7 @@
 #include <pnga/ui/qt/block_inspector.h>
 #include <pnga/ui/qt/decode_trace_inspector.h>
 #include <pnga/ui/qt/huffman_inspector.h>
+#include <pnga/ui/qt/hex_source_tab_bar.h>
 
 #include <QtTest/QtTest>
 
@@ -180,22 +181,26 @@ void CrossPlatformGuiGateTest::shortcutsAndFocusOrderAreStable() {
   auto* y = window.findChild<QSpinBox*>(QStringLiteral("yCoordinate"));
   auto* lock = window.findChild<QCheckBox*>(QStringLiteral("lockCoordinate"));
   auto* base = window.findChild<QPushButton*>(QStringLiteral("numericBase"));
-  auto* source = window.findChild<QComboBox*>(QStringLiteral("hexSource"));
-  auto* follow = window.findChild<QCheckBox*>(QStringLiteral("hexFollowPixel"));
+  auto* preview = window.findChild<QTabWidget*>(QStringLiteral("previewTabs"));
+  auto* source = window.findChild<pnga::ui::qt::HexSourceTabBar*>(
+      QStringLiteral("hexSourceTabs"));
+  auto* hex = window.findChild<QWidget*>(QStringLiteral("hexView"));
   auto* tabs = window.findChild<QTabWidget*>(QStringLiteral("inspectorTabs"));
   QVERIFY(x != nullptr);
   QVERIFY(y != nullptr);
   QVERIFY(lock != nullptr);
   QVERIFY(base != nullptr);
+  QVERIFY(preview != nullptr);
   QVERIFY(source != nullptr);
-  QVERIFY(follow != nullptr);
+  QVERIFY(hex != nullptr);
   QVERIFY(tabs != nullptr);
   QVERIFY(focus_chain_reaches(x, y));
   QVERIFY(focus_chain_reaches(y, lock));
   QVERIFY(focus_chain_reaches(lock, base));
-  QVERIFY(focus_chain_reaches(base, source));
-  QVERIFY(focus_chain_reaches(source, follow));
-  QVERIFY(focus_chain_reaches(follow, tabs));
+  QVERIFY(focus_chain_reaches(base, preview));
+  QVERIFY(focus_chain_reaches(preview, source));
+  QVERIFY(focus_chain_reaches(source, hex));
+  QVERIFY(focus_chain_reaches(hex, tabs));
 
   QAction* open = nullptr;
   for (QAction* menu_action : window.menuBar()->actions()) {
@@ -223,8 +228,7 @@ void CrossPlatformGuiGateTest::accessibilityNamesCoverControlsAndInspectors() {
   check("yCoordinate");
   check("lockCoordinate");
   check("numericBase");
-  check("hexSource");
-  check("hexFollowPixel");
+  check("hexSourceTabs");
   check("inspectorTabs");
   check("compressionInspectorPages");
   check("reconstructInspector");
@@ -234,6 +238,7 @@ void CrossPlatformGuiGateTest::accessibilityNamesCoverControlsAndInspectors() {
   check("validationStatus");
   check("previewTabs");
   check("coordinateToolbar");
+  check("hexPanel");
   check("hexView");
   auto* inspector = window.findChild<QTabWidget*>(QStringLiteral("inspectorTabs"));
   QVERIFY(inspector != nullptr);

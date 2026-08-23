@@ -15,6 +15,7 @@ add_library(pnga_analysis_engine
   src/reference_decode.cpp
   src/scanline_anchor.cpp
   src/stage_analysis.cpp
+  src/stage_pixel_process_view.cpp
   src/stage_viewport.cpp
   src/statistics_adapter.cpp
   src/trace_query.cpp

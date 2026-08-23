@@ -26,7 +26,6 @@ struct SelectionViewState {
   std::optional<pnga::trace_model::ImageCoordinate> locked;
   HexSource hex_source = HexSource::kFile;
   NumericBase numeric_base = NumericBase::kDecimal;
-  bool hex_follow_pixel = true;
 
   // Returns false and preserves the old value for malformed presentation
   // coordinates. Bounds against a document's dimensions belong to the

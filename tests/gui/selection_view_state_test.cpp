@@ -35,10 +35,8 @@ void SelectionViewStateTest::preferencesStayInViewState() {
   SelectionViewState state;
   state.hex_source = HexSource::kIdatStream;
   state.numeric_base = NumericBase::kHexadecimal;
-  state.hex_follow_pixel = false;
   QCOMPARE(state.hex_source, HexSource::kIdatStream);
   QCOMPARE(state.numeric_base, NumericBase::kHexadecimal);
-  QVERIFY(!state.hex_follow_pixel);
 }
 
 void SelectionViewStateTest::generationChangeClearsCoordinates() {
