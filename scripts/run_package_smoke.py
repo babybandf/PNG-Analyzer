@@ -54,6 +54,9 @@ def main():
 
     environment = os.environ.copy()
     environment.setdefault("QT_QPA_PLATFORM", "offscreen")
+    build_dir = ROOT / "build" / args.preset
+    if not (build_dir / "CMakeCache.txt").is_file():
+        run(["cmake", "--preset", args.preset], environment)
     run(
         [
             "cmake",
