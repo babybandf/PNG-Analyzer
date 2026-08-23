@@ -190,7 +190,7 @@ void StageInspectorModelTest::pixelNeighborhoodShowsPaethCDependency() {
   const QString neighborhood =
       text.section(QStringLiteral("Pixel neighborhood"), 1, 1)
           .section(QStringLiteral("Legend:"), 0, 0);
-  QVERIFY(neighborhood.contains(QStringLiteral("c: 23\nb: 26")));
+  QVERIFY(neighborhood.contains(QStringLiteral("23\nc\n26\nb")));
 }
 
 void StageInspectorModelTest::filterReportUsesActualDependencyRoles() {
