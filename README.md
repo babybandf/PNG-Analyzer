@@ -1,7 +1,7 @@
 # PNG Analyzer
 
 <p align="center">
-  <img src="ui/qt/resources/branding/png-analyzer-icon-reference.png"
+  <img src="ui/qt/resources/icons/png/png-analyzer-1024.png"
        alt="PNG Analyzer icon" width="256">
 </p>
 
