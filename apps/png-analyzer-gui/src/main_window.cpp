@@ -787,9 +787,16 @@ bool MainWindow::openFile(const QString& path) {
 }
 
 void MainWindow::onOpenTriggered() {
+  // Development builds may be launched directly from inside the .app bundle
+  // and do not carry the production bundle metadata used by NSOpenPanel. Use
+  // Qt's dialog in that case so File -> Open remains visible and modal on
+  // macOS as well as on the other desktop platforms.
+  raise();
+  activateWindow();
   const QString path = QFileDialog::getOpenFileName(
       this, QStringLiteral("Open PNG"), QString(),
-      QStringLiteral("PNG files (*.png);;All files (*)"));
+      QStringLiteral("PNG files (*.png);;All files (*)"), nullptr,
+      QFileDialog::DontUseNativeDialog);
   if (path.isEmpty()) {
     return;
   }
