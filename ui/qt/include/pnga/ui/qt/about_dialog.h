@@ -8,6 +8,8 @@
 // external application fails, the text remains selectable and copyable.
 
 #include <QDialog>
+#include <QIcon>
+#include <QPixmap>
 #include <QString>
 
 class QLabel;
@@ -28,6 +30,11 @@ struct AboutContent {
 // Returns the standard About content with the version filled in.
 AboutContent default_about_content();
 
+// Returns the multi-resolution application icon from the compiled Qt
+// resources. This also makes the static resource collection available to
+// executables and tests linking pnga::ui_qt.
+QIcon application_icon();
+
 class AboutDialog final : public QDialog {
   Q_OBJECT
  public:
@@ -40,9 +47,11 @@ class AboutDialog final : public QDialog {
   QString githubHref() const;      // link target (https scheme)
   QString emailHref() const;       // link target (mailto scheme)
   bool textSelectable() const;     // labels are copyable
+  QPixmap brandPixmap() const;     // visible approved brand lockup
 
  private:
   AboutContent content_;
+  QLabel* brand_label_ = nullptr;
   QLabel* name_label_ = nullptr;
   QLabel* version_label_ = nullptr;
   QLabel* github_label_ = nullptr;

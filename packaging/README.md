@@ -53,3 +53,12 @@ portable package as `portable-package-Windows` (ZIP) and equivalent TGZ
 artifacts for macOS/Linux, so it can be downloaded from the Actions run.
 The `release-portable` workflow publishes those same three CPack archives as
 assets on an existing `v*` GitHub Release; it never creates or pushes a tag.
+
+## Brand icon assets
+
+- `icons/png-analyzer.ico` brands the Windows GUI executable and NSIS
+  installer/uninstaller.
+- `icons/png-analyzer.icns` is copied into the macOS application bundle and
+  named by its bundle metadata.
+- `icons/linux/hicolor/` is installed with `linux/png-analyzer.desktop` when
+  the Qt GUI is configured on Linux.

@@ -7,6 +7,7 @@
 #include <pnga/analysis-engine/block_inspector.h>
 #include <pnga/analysis-engine/decode_trace_inspector.h>
 #include <pnga/analysis-engine/huffman_inspector.h>
+#include <pnga/ui/qt/about_dialog.h>
 #include <pnga/ui/qt/block_inspector.h>
 #include <pnga/ui/qt/decode_trace_inspector.h>
 #include <pnga/ui/qt/huffman_inspector.h>
@@ -77,6 +78,10 @@ class CrossPlatformGuiGateTest : public QObject {
 };
 
 void CrossPlatformGuiGateTest::initTestCase() {
+  QApplication::setWindowIcon(pnga::ui::qt::application_icon());
+  QVERIFY(!QApplication::windowIcon().isNull());
+  MainWindow icon_probe;
+  QVERIFY(!icon_probe.windowIcon().isNull());
   const auto* screen = QGuiApplication::primaryScreen();
   QVERIFY(screen != nullptr);
   qInfo() << "GUI gate platform=" << QSysInfo::prettyProductName()

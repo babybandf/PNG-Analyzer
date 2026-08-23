@@ -7,6 +7,7 @@
 // visible window.
 
 #include <pnga/core/version.h>
+#include <pnga/ui/qt/about_dialog.h>
 
 #include <QApplication>
 #include <QString>
@@ -16,6 +17,7 @@
 int main(int argc, char** argv) {
   QApplication app(argc, argv);
   app.setApplicationName(QStringLiteral("png-analyzer"));
+  app.setWindowIcon(pnga::ui::qt::application_icon());
 
   MainWindow window;
   window.setWindowTitle(

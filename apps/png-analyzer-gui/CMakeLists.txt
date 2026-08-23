@@ -4,9 +4,31 @@
 # PNG data (AGENTS.md); it composes pnga::ui_qt models and widgets. The chunk
 # index is built by libs/png-format; the app wires it to the UI.
 
+set(PNGA_GUI_PLATFORM_SOURCES)
+if(WIN32)
+  enable_language(RC)
+  set(PNGA_WINDOWS_ICON_PATH
+      "${CMAKE_SOURCE_DIR}/packaging/icons/png-analyzer.ico")
+  configure_file(
+    src/png-analyzer.rc.in
+    "${CMAKE_CURRENT_BINARY_DIR}/png-analyzer.rc"
+    @ONLY
+  )
+  list(APPEND PNGA_GUI_PLATFORM_SOURCES
+       "${CMAKE_CURRENT_BINARY_DIR}/png-analyzer.rc")
+elseif(APPLE)
+  set(PNGA_MACOS_ICON
+      "${CMAKE_SOURCE_DIR}/packaging/icons/png-analyzer.icns")
+  set_source_files_properties("${PNGA_MACOS_ICON}" PROPERTIES
+    MACOSX_PACKAGE_LOCATION Resources
+  )
+  list(APPEND PNGA_GUI_PLATFORM_SOURCES "${PNGA_MACOS_ICON}")
+endif()
+
 add_executable(pnga_analyzer_gui
   src/main.cpp
   src/main_window.cpp
+  ${PNGA_GUI_PLATFORM_SOURCES}
 )
 set_target_properties(pnga_analyzer_gui PROPERTIES
   AUTOMOC ON
@@ -14,6 +36,7 @@ set_target_properties(pnga_analyzer_gui PROPERTIES
   # Windows target remains a normal GUI executable and is handled by
   # windeployqt in the packaging smoke runner.
   MACOSX_BUNDLE ON
+  MACOSX_BUNDLE_ICON_FILE "png-analyzer.icns"
   WIN32_EXECUTABLE ON
 )
 target_link_libraries(pnga_analyzer_gui PRIVATE

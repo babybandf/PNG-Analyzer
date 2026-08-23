@@ -68,6 +68,26 @@ def main():
         ],
         environment,
     )
+    target_list = run(
+        ["cmake", "--build", "--preset", args.preset, "--target", "help"],
+        environment,
+        capture=True,
+    ).stdout
+    have_gui = "pnga_analyzer_gui" in target_list
+    if have_gui:
+        run(
+            [
+                "cmake",
+                "--build",
+                "--preset",
+                args.preset,
+                "--target",
+                "pnga_analyzer_gui",
+                "--parallel",
+                str(args.jobs),
+            ],
+            environment,
+        )
 
     package_dir = args.package_dir if args.package_dir.is_absolute() else ROOT / args.package_dir
     package_dir.mkdir(parents=True, exist_ok=True)
@@ -103,6 +123,19 @@ def main():
     for required in ("./usr/bin/pnga", "./usr/share/png-analyzer/LICENSE"):
         if required not in contents:
             raise SystemExit(f"Debian package missing {required!r}: {contents}")
+    if have_gui:
+        for size in (16, 24, 32, 48, 64, 128, 256, 512):
+            required = (
+                f"./usr/share/icons/hicolor/{size}x{size}/apps/"
+                "png-analyzer.png"
+            )
+            if required not in contents:
+                raise SystemExit(f"Debian package missing {required!r}: {contents}")
+        desktop_entry = "./usr/share/applications/png-analyzer.desktop"
+        if desktop_entry not in contents:
+            raise SystemExit(
+                f"Debian package missing {desktop_entry!r}: {contents}"
+            )
 
     with tempfile.TemporaryDirectory(prefix="pnga-deb-root-") as temp:
         root = Path(temp)

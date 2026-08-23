@@ -7,6 +7,7 @@ it must never be mistaken for a passing GUI package result.
 """
 
 import os
+import plistlib
 import shutil
 import subprocess
 import sys
@@ -132,6 +133,17 @@ def main():
     gui_target = BUILD_DIR / "apps" / "png-analyzer-gui"
     if sys.platform == "darwin":
         gui_binary = gui_target / "pnga_analyzer_gui.app" / "Contents" / "MacOS" / "pnga_analyzer_gui"
+        bundle_root = gui_target / "pnga_analyzer_gui.app" / "Contents"
+        bundle_icon = bundle_root / "Resources" / "png-analyzer.icns"
+        if not bundle_icon.is_file():
+            raise SystemExit(f"macOS bundle icon missing: {bundle_icon}")
+        with (bundle_root / "Info.plist").open("rb") as plist_file:
+            bundle_metadata = plistlib.load(plist_file)
+        if bundle_metadata.get("CFBundleIconFile") != "png-analyzer.icns":
+            raise SystemExit(
+                "macOS bundle metadata does not name png-analyzer.icns: "
+                f"{bundle_metadata.get('CFBundleIconFile')!r}"
+            )
     else:
         gui_binary = gui_target / "pnga_analyzer_gui.exe"
     if not gui_binary.exists():
@@ -178,6 +190,11 @@ def main():
                 binaries = sorted(mount.glob("*.app/Contents/MacOS/pnga_analyzer_gui"))
                 if len(binaries) != 1:
                     raise SystemExit(f"expected one mounted GUI, found: {binaries}")
+                mounted_icon = (
+                    binaries[0].parents[1] / "Resources" / "png-analyzer.icns"
+                )
+                if not mounted_icon.is_file():
+                    raise SystemExit(f"packaged macOS bundle icon missing: {mounted_icon}")
                 launch_bounded(binaries[0], environment)
             finally:
                 run(["hdiutil", "detach", str(mount)], environment)

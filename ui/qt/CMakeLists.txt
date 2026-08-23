@@ -40,6 +40,7 @@ add_library(pnga_ui_qt
   src/trace_inspector_binding.cpp
   src/stage_inspector_model.cpp
   src/stage_preview_view.cpp
+  resources/png-analyzer-branding.qrc
 )
 add_library(pnga::ui_qt ALIAS pnga_ui_qt)
 
@@ -58,6 +59,7 @@ target_link_libraries(pnga_ui_qt PUBLIC
 )
 set_target_properties(pnga_ui_qt PROPERTIES
   AUTOMOC ON
+  AUTORCC ON
   POSITION_INDEPENDENT_CODE ON
 )
 target_compile_features(pnga_ui_qt PUBLIC cxx_std_20)

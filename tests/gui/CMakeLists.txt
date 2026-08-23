@@ -261,3 +261,25 @@ target_link_libraries(pnga_gui_about_tests PRIVATE
 target_compile_features(pnga_gui_about_tests PRIVATE cxx_std_20)
 
 add_test(NAME gui_about_tests COMMAND pnga_gui_about_tests)
+
+# WP-606 verification target: build every GUI test executable without running
+# them so the documented two-target build command remains deterministic.
+add_custom_target(pnga_gui_tests DEPENDS
+  pnga_gui_chunk_model_tests
+  pnga_gui_image_transform_tests
+  pnga_gui_delivered_image_view_interaction_tests
+  pnga_gui_pixel_viewport_tests
+  pnga_gui_stage_preview_view_tests
+  pnga_gui_hex_data_source_tests
+  pnga_gui_selection_bus_tests
+  pnga_gui_selection_view_state_tests
+  pnga_gui_main_window_layout_tests
+  pnga_gui_cross_platform_gate_tests
+  pnga_gui_stage_inspector_tests
+  pnga_gui_block_inspector_tests
+  pnga_gui_huffman_inspector_tests
+  pnga_gui_decode_trace_inspector_tests
+  pnga_gui_trace_inspector_binding_tests
+  pnga_gui_trace_inspector_performance_tests
+  pnga_gui_about_tests
+)

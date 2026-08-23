@@ -45,6 +45,10 @@ endif()
 if(WIN32)
   set(CPACK_NSIS_DISPLAY_NAME "PNG Analyzer")
   set(CPACK_NSIS_PACKAGE_NAME "PNG Analyzer")
+  set(CPACK_NSIS_MUI_ICON
+      "${CMAKE_SOURCE_DIR}/packaging/icons/png-analyzer.ico")
+  set(CPACK_NSIS_MUI_UNIICON
+      "${CMAKE_SOURCE_DIR}/packaging/icons/png-analyzer.ico")
   set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
   set(CPACK_NSIS_MODIFY_PATH OFF)
 endif()

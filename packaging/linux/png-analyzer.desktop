@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=PNG Analyzer
+Comment=Inspect PNG structure and Deflate data
+Exec=pnga_analyzer_gui %F
+Icon=png-analyzer
+Terminal=false
+Categories=Graphics;Utility;
+MimeType=image/png;

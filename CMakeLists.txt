@@ -109,6 +109,18 @@ if(PNGA_HAVE_QT)
   if(PNGA_ENABLE_QT_DEPLOYMENT)
     install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/pnga-qt-deploy.cmake")
   endif()
+  if(UNIX AND NOT APPLE)
+    foreach(PNGA_ICON_SIZE 16 24 32 48 64 128 256 512)
+      install(FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/packaging/icons/linux/hicolor/${PNGA_ICON_SIZE}x${PNGA_ICON_SIZE}/apps/png-analyzer.png"
+        DESTINATION
+          "${CMAKE_INSTALL_DATADIR}/icons/hicolor/${PNGA_ICON_SIZE}x${PNGA_ICON_SIZE}/apps"
+      )
+    endforeach()
+    install(FILES packaging/linux/png-analyzer.desktop
+      DESTINATION "${CMAKE_INSTALL_DATADIR}/applications"
+    )
+  endif()
 endif()
 install(FILES README.md LICENSE
   DESTINATION ${CMAKE_INSTALL_DATADIR}/png-analyzer

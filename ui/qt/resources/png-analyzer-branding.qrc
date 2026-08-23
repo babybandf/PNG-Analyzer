@@ -1,0 +1,16 @@
+<RCC>
+  <qresource prefix="/pnga">
+    <file alias="branding/png-analyzer-icon.svg">branding/png-analyzer-icon.svg</file>
+    <file alias="branding/png-analyzer-lockup.svg">branding/png-analyzer-lockup.svg</file>
+    <file alias="branding/png-analyzer-lockup.png">branding/png-analyzer-lockup.png</file>
+    <file alias="icons/png-analyzer-16.png">icons/png/png-analyzer-16.png</file>
+    <file alias="icons/png-analyzer-24.png">icons/png/png-analyzer-24.png</file>
+    <file alias="icons/png-analyzer-32.png">icons/png/png-analyzer-32.png</file>
+    <file alias="icons/png-analyzer-48.png">icons/png/png-analyzer-48.png</file>
+    <file alias="icons/png-analyzer-64.png">icons/png/png-analyzer-64.png</file>
+    <file alias="icons/png-analyzer-128.png">icons/png/png-analyzer-128.png</file>
+    <file alias="icons/png-analyzer-256.png">icons/png/png-analyzer-256.png</file>
+    <file alias="icons/png-analyzer-512.png">icons/png/png-analyzer-512.png</file>
+    <file alias="icons/png-analyzer-1024.png">icons/png/png-analyzer-1024.png</file>
+  </qresource>
+</RCC>

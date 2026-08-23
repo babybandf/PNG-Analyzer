@@ -7,9 +7,15 @@
 
 #include <QDesktopServices>
 #include <QFont>
+#include <QIcon>
 #include <QLabel>
+#include <QPixmap>
 #include <QUrl>
 #include <QVBoxLayout>
+
+static void initialize_brand_resources() {
+  Q_INIT_RESOURCE(png_analyzer_branding);
+}
 
 namespace pnga::ui::qt {
 
@@ -17,6 +23,16 @@ AboutContent default_about_content() {
   AboutContent content;
   content.version = QString::fromUtf8(pnga::version_string());
   return content;
+}
+
+QIcon application_icon() {
+  initialize_brand_resources();
+  QIcon icon;
+  for (const int size : {16, 24, 32, 48, 64, 128, 256, 512, 1024}) {
+    icon.addFile(QStringLiteral(":/pnga/icons/png-analyzer-%1.png").arg(size),
+                 QSize(size, size));
+  }
+  return icon;
 }
 
 namespace {
@@ -37,7 +53,18 @@ QLabel* make_link_label(const QString& href, const QString& visible) {
 
 AboutDialog::AboutDialog(const AboutContent& content, QWidget* parent)
     : QDialog(parent), content_(content) {
+  initialize_brand_resources();
   setWindowTitle(QStringLiteral("About PNG Analyzer"));
+
+  brand_label_ = new QLabel(this);
+  brand_label_->setObjectName(QStringLiteral("brandVisual"));
+  brand_label_->setAccessibleName(QStringLiteral("PNG Analyzer brand"));
+  brand_label_->setAlignment(Qt::AlignCenter);
+  const QPixmap brand(
+      QStringLiteral(":/pnga/branding/png-analyzer-lockup.png"));
+  brand_label_->setPixmap(
+      brand.scaled(QSize(128, 128), Qt::KeepAspectRatio,
+                   Qt::SmoothTransformation));
 
   name_label_ = new QLabel(content_.project_name, this);
   QFont name_font = name_label_->font();
@@ -62,6 +89,8 @@ AboutDialog::AboutDialog(const AboutContent& content, QWidget* parent)
   connect(email_label_, &QLabel::linkActivated, this, open_link);
 
   auto* layout = new QVBoxLayout(this);
+  layout->addWidget(brand_label_);
+  layout->addSpacing(4);
   layout->addWidget(name_label_);
   layout->addWidget(version_label_);
   layout->addSpacing(8);
@@ -100,6 +129,10 @@ bool AboutDialog::textSelectable() const {
                      email_label_->textInteractionFlags() &
                      version_label_->textInteractionFlags();
   return (flags & Qt::TextSelectableByMouse) != 0;
+}
+
+QPixmap AboutDialog::brandPixmap() const {
+  return brand_label_ != nullptr ? brand_label_->pixmap() : QPixmap();
 }
 
 }  // namespace pnga::ui::qt

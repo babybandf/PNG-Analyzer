@@ -7,6 +7,8 @@
 
 #include <QtTest/QtTest>
 
+#include <QApplication>
+#include <QLabel>
 #include <QMenu>
 
 using pnga::ui::qt::AboutContent;
@@ -20,6 +22,8 @@ class AboutDialogTest : public QObject {
   void dialogRendersContent();
   void linkSchemesAreHttpsAndMailto();
   void textIsCopyable();
+  void brandVisualUsesCompiledResource();
+  void applicationIconUsesCompiledResource();
   void versionComesFromProjectInterface();
   void outputIsDeterministic();
   void helpMenuActionOpensDialog();
@@ -53,6 +57,23 @@ void AboutDialogTest::linkSchemesAreHttpsAndMailto() {
 void AboutDialogTest::textIsCopyable() {
   AboutDialog dlg(default_about_content());
   QVERIFY(dlg.textSelectable());
+}
+
+void AboutDialogTest::brandVisualUsesCompiledResource() {
+  AboutDialog dlg(default_about_content());
+  auto* visual = dlg.findChild<QLabel*>(QStringLiteral("brandVisual"));
+  QVERIFY(visual != nullptr);
+  QVERIFY(!dlg.brandPixmap().isNull());
+  dlg.show();
+  QCoreApplication::processEvents();
+  QVERIFY(visual->isVisible());
+}
+
+void AboutDialogTest::applicationIconUsesCompiledResource() {
+  const QIcon icon = pnga::ui::qt::application_icon();
+  QVERIFY(!icon.isNull());
+  QApplication::setWindowIcon(icon);
+  QVERIFY(!QApplication::windowIcon().isNull());
 }
 
 void AboutDialogTest::versionComesFromProjectInterface() {
