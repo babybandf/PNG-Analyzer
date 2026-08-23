@@ -54,6 +54,7 @@
 #include <QWidget>
 #include <QSettings>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -248,12 +249,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   x_spin_->setObjectName(QStringLiteral("xCoordinate"));
   x_spin_->setAccessibleName(QStringLiteral("X coordinate"));
   x_spin_->setRange(0, std::numeric_limits<int>::max());
+  x_spin_->setFixedWidth(std::max(1, x_spin_->sizeHint().width() * 2 / 3));
   coordinate_layout->addWidget(x_spin_);
   coordinate_layout->addWidget(new QLabel(QStringLiteral("Y"), coordinate_bar));
   y_spin_ = new QSpinBox(coordinate_bar);
   y_spin_->setObjectName(QStringLiteral("yCoordinate"));
   y_spin_->setAccessibleName(QStringLiteral("Y coordinate"));
   y_spin_->setRange(0, std::numeric_limits<int>::max());
+  y_spin_->setFixedWidth(std::max(1, y_spin_->sizeHint().width() * 2 / 3));
   coordinate_layout->addWidget(y_spin_);
   lock_check_ = new QCheckBox(QStringLiteral("Lock"), coordinate_bar);
   lock_check_->setObjectName(QStringLiteral("lockCoordinate"));
