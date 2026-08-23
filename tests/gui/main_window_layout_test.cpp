@@ -12,6 +12,8 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDockWidget>
+#include <QFile>
+#include <QFileInfo>
 #include <QHeaderView>
 #include <QMenu>
 #include <QMenuBar>
@@ -21,6 +23,7 @@
 #include <QStyle>
 #include <QTabWidget>
 #include <QTemporaryFile>
+#include <QTemporaryDir>
 #include <QTreeView>
 
 class MainWindowLayoutTest : public QObject {
@@ -35,6 +38,7 @@ class MainWindowLayoutTest : public QObject {
   void coordinateInteractionUsesToolbarAndKeyboard();
   void inspectorSwitchesKeepColumnWidths();
   void chunkDockStaysResizableAndRedockableAfterOpen();
+  void recentFilesMenuPersistsAndCapsHistory();
 };
 
 void MainWindowLayoutTest::init() {
@@ -312,6 +316,55 @@ void MainWindowLayoutTest::chunkDockStaysResizableAndRedockableAfterOpen() {
   chunks->setFloating(false);
   QCoreApplication::processEvents();
   QVERIFY(!chunks->isFloating());
+}
+
+void MainWindowLayoutTest::recentFilesMenuPersistsAndCapsHistory() {
+  QTemporaryDir directory;
+  QVERIFY(directory.isValid());
+  QStringList paths;
+  for (int i = 0; i < 11; ++i) {
+    const QString path = directory.filePath(
+        QStringLiteral("image-%1.png").arg(i, 2, 10, QLatin1Char('0')));
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QVERIFY(file.write("not a png") > 0);
+    paths.push_back(path);
+  }
+
+  MainWindow window;
+  auto* file_menu = window.menuBar()->actions().at(0)->menu();
+  QVERIFY(file_menu != nullptr);
+  auto* recent = window.findChild<QMenu*>(QStringLiteral("recentFilesMenu"));
+  QVERIFY(recent != nullptr);
+  const auto file_actions = file_menu->actions();
+  QVERIFY(file_actions.size() >= 3);
+  QCOMPARE(file_actions.at(0)->text(), QStringLiteral("&Open..."));
+  QVERIFY(file_actions.at(1)->isSeparator());
+  QCOMPARE(file_actions.at(2)->menu(), recent);
+
+  for (const QString& path : paths) {
+    QVERIFY(window.openFile(path));
+    QCoreApplication::processEvents();
+    QTest::qWait(5);
+  }
+
+  QSettings settings;
+  const QStringList stored =
+      settings.value(QStringLiteral("file/recentFiles")).toStringList();
+  QCOMPARE(stored.size(), 10);
+  QCOMPARE(stored.front(), QFileInfo(paths.back()).absoluteFilePath());
+  QVERIFY(!stored.contains(QFileInfo(paths.front()).absoluteFilePath()));
+  QCOMPARE(settings.value(QStringLiteral("file/lastOpenDirectory")).toString(),
+           directory.path());
+  QCOMPARE(recent->actions().size(), 10);
+  QCOMPARE(recent->actions().front()->data().toString(), stored.front());
+
+  MainWindow restored;
+  auto* restored_recent =
+      restored.findChild<QMenu*>(QStringLiteral("recentFilesMenu"));
+  QVERIFY(restored_recent != nullptr);
+  QCOMPARE(restored_recent->actions().size(), 10);
+  QCOMPARE(restored_recent->actions().front()->data().toString(), stored.front());
 }
 
 QTEST_MAIN(MainWindowLayoutTest)

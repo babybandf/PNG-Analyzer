@@ -29,6 +29,7 @@ class QCloseEvent;
 class QComboBox;
 class QDockWidget;
 class QEvent;
+class QMenu;
 class QModelIndex;
 class QSpinBox;
 class QSplitter;
@@ -173,6 +174,11 @@ class MainWindow final : public QMainWindow {
   void saveWorkspace() const;
   void applyDefaultWorkspace();
   void configureDockInteraction();
+  void refreshRecentFilesMenu();
+  void rememberOpenedFile(const QString& path);
+  void rememberLastOpenDirectory(const QString& path);
+  QString lastOpenDirectory() const;
+  void openRecentFile(const QString& path);
   void publishLockedCoordinate();
   void clearLockedCoordinate();
   void nudgeLockedCoordinate(int dx, int dy);
@@ -214,6 +220,7 @@ class MainWindow final : public QMainWindow {
   QComboBox* base_combo_ = nullptr;
   QComboBox* hex_source_combo_ = nullptr;
   QTreeView* tree_ = nullptr;
+  QMenu* recent_files_menu_ = nullptr;
   DecodeWorker* decode_worker_ = nullptr;
   StageWorker* stage_worker_ = nullptr;
   ValidationWorker* validation_worker_ = nullptr;

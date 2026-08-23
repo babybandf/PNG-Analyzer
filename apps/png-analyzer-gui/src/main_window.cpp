@@ -22,6 +22,8 @@
 #include <QCheckBox>
 #include <QCloseEvent>
 #include <QComboBox>
+#include <QDir>
+#include <QFileInfo>
 #include <QMetaObject>
 #include <QDockWidget>
 #include <QEvent>
@@ -33,6 +35,7 @@
 #include <QKeyEvent>
 #include <QKeySequence>
 #include <QLabel>
+#include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QSignalBlocker>
@@ -59,6 +62,9 @@ namespace {
 
 constexpr std::uint64_t kHeaderSpanLength = 8;
 constexpr std::uint64_t kCrcSpanLength = 4;
+constexpr int kMaxRecentFiles = 10;
+constexpr auto kRecentFilesSettingsKey = "file/recentFiles";
+constexpr auto kLastOpenDirectorySettingsKey = "file/lastOpenDirectory";
 
 }  // namespace
 
@@ -320,6 +326,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   QAction* openAction = fileMenu->addAction(QStringLiteral("&Open..."));
   openAction->setShortcut(QKeySequence::Open);
   connect(openAction, &QAction::triggered, this, &MainWindow::onOpenTriggered);
+  fileMenu->addSeparator();
+  recent_files_menu_ = fileMenu->addMenu(QStringLiteral("Open Recent"));
+  recent_files_menu_->setObjectName(QStringLiteral("recentFilesMenu"));
+  recent_files_menu_->setToolTipsVisible(true);
+  connect(recent_files_menu_, &QMenu::aboutToShow, this,
+          &MainWindow::refreshRecentFilesMenu);
+  refreshRecentFilesMenu();
 
   QMenu* viewMenu = menuBar()->addMenu(QStringLiteral("&View"));
   QAction* resetAction =
@@ -582,6 +595,117 @@ void MainWindow::saveWorkspace() const {
                     view_state_.hex_follow_pixel);
 }
 
+void MainWindow::refreshRecentFilesMenu() {
+  if (recent_files_menu_ == nullptr) {
+    return;
+  }
+
+  QSettings settings;
+  const QStringList stored =
+      settings.value(QLatin1String(kRecentFilesSettingsKey)).toStringList();
+  QStringList valid;
+  valid.reserve(kMaxRecentFiles);
+  for (const QString& stored_path : stored) {
+    if (valid.size() >= kMaxRecentFiles) {
+      break;
+    }
+    if (stored_path.isEmpty()) {
+      continue;
+    }
+    const QFileInfo info(stored_path);
+    const QString path = info.absoluteFilePath();
+    if (!info.exists() || !info.isFile() || valid.contains(path)) {
+      continue;
+    }
+    valid.push_back(path);
+  }
+  if (valid != stored) {
+    settings.setValue(QLatin1String(kRecentFilesSettingsKey), valid);
+  }
+
+  recent_files_menu_->clear();
+  if (valid.isEmpty()) {
+    QAction* empty = recent_files_menu_->addAction(
+        QStringLiteral("No Recent Files"));
+    empty->setObjectName(QStringLiteral("noRecentFiles"));
+    empty->setEnabled(false);
+    return;
+  }
+
+  for (const QString& path : valid) {
+    const QFileInfo info(path);
+    const QString label = info.fileName().isEmpty()
+                              ? QDir::toNativeSeparators(path)
+                              : info.fileName();
+    QAction* action = recent_files_menu_->addAction(label);
+    action->setData(path);
+    action->setToolTip(QDir::toNativeSeparators(path));
+    connect(action, &QAction::triggered, this, [this, path] {
+      openRecentFile(path);
+    });
+  }
+}
+
+void MainWindow::rememberLastOpenDirectory(const QString& path) {
+  const QFileInfo info(path);
+  const QString directory = info.absolutePath();
+  if (!directory.isEmpty() && QDir(directory).exists()) {
+    QSettings settings;
+    settings.setValue(QLatin1String(kLastOpenDirectorySettingsKey), directory);
+  }
+}
+
+QString MainWindow::lastOpenDirectory() const {
+  QSettings settings;
+  const QString directory =
+      settings.value(QLatin1String(kLastOpenDirectorySettingsKey)).toString();
+  return !directory.isEmpty() && QDir(directory).exists() ? directory
+                                                           : QString();
+}
+
+void MainWindow::rememberOpenedFile(const QString& path) {
+  const QFileInfo info(path);
+  const QString normalized = info.absoluteFilePath();
+  if (normalized.isEmpty()) {
+    return;
+  }
+
+  QSettings settings;
+  const QStringList stored =
+      settings.value(QLatin1String(kRecentFilesSettingsKey)).toStringList();
+  QStringList updated;
+  updated.reserve(kMaxRecentFiles);
+  updated.push_back(normalized);
+  for (const QString& stored_path : stored) {
+    if (updated.size() >= kMaxRecentFiles) {
+      break;
+    }
+    if (stored_path.isEmpty()) {
+      continue;
+    }
+    const QFileInfo stored_info(stored_path);
+    const QString candidate = stored_info.absoluteFilePath();
+    if (!stored_info.exists() || !stored_info.isFile() ||
+        updated.contains(candidate)) {
+      continue;
+    }
+    updated.push_back(candidate);
+  }
+  settings.setValue(QLatin1String(kRecentFilesSettingsKey), updated);
+  rememberLastOpenDirectory(normalized);
+  refreshRecentFilesMenu();
+}
+
+void MainWindow::openRecentFile(const QString& path) {
+  if (openFile(path)) {
+    return;
+  }
+  refreshRecentFilesMenu();
+  QMessageBox::warning(
+      this, QStringLiteral("PNG Analyzer"),
+      QStringLiteral("Could not open recent file:\n%1").arg(path));
+}
+
 void MainWindow::updateHexSource() {
   if (source_ == nullptr) {
     hex_->setSource(nullptr);
@@ -811,6 +935,7 @@ bool MainWindow::openFile(const QString& path) {
   // newer file replaces source_ (virtual dtor makes this safe).
   auto source =
       std::shared_ptr<pnga::io::IByteSource>(opened.release());
+  rememberOpenedFile(path);
   source_ = source;
   index_ = pnga::png_format::index_chunks(*source_);
   ++generation_;
@@ -845,12 +970,15 @@ void MainWindow::onOpenTriggered() {
   raise();
   activateWindow();
   const QString path = QFileDialog::getOpenFileName(
-      this, QStringLiteral("Open PNG"), QString(),
+      this, QStringLiteral("Open PNG"), lastOpenDirectory(),
       QStringLiteral("PNG files (*.png);;All files (*)"), nullptr,
       QFileDialog::DontUseNativeDialog);
   if (path.isEmpty()) {
     return;
   }
+  // Preserve the dialog location even when the selected file turns out to be
+  // unreadable, so the next Open action still starts in the same directory.
+  rememberLastOpenDirectory(path);
   if (!openFile(path)) {
     QMessageBox::warning(this, QStringLiteral("PNG Analyzer"),
                          QStringLiteral("Could not open file:\n%1").arg(path));
