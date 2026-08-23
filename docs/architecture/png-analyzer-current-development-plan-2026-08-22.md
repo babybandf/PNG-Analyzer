@@ -33,10 +33,10 @@
 | M3 可观测重建流水线 | 实现完成 | WP-300～306 | conformance corpus 与 sanitizer Gate 尚未形成完整证据包 |
 | M4 大文件索引与随机访问 | 实现完成 | WP-400～406 | 跨平台机器基线尚未冻结 |
 | M5 Deep Deflate Trace | Block/Huffman/Decode Trace Inspector、bounded Trace Gate、WP-5U6A 状态契约、WP-5U6B 性能 Gate 与 WP-5U6C GUI Gate 已实现 | WP-500～504、WP-5U0～WP-5U5B、WP-5T0A～WP-5T0B、WP-505A～WP-505C、bounded Trace Gate、WP-5U6A～WP-5U6C | 三平台原生 CI、正式 fuzz corpus、发布证据仍未完成 |
-| M6 Validation、Statistics、发布 | WP-600A～WP-600C、WP-602A、WP-602B、WP-603A～WP-603D、WP-604A～WP-604B、WP-605A～WP-605F 已实现/决策 | Structural/integrity/semantic/decode/resource 规则、Qt-free bounded statistics engine、单一 analysis-engine 聚合入口、WP-602B v1 延后决策、CLI JSON 与 GUI worker 状态整合、固定 fuzz replay 的 ASan/UBSan 门禁、可选 libFuzzer harness/runner、Ubuntu CI coverage runtime evidence、Linux CI performance threshold gate 与 machine record、生成式性能 corpus/runner、机器记录 schema、固定阈值 gate、portable package smoke、Linux Debian staged install/uninstall gate、macOS DMG/Windows NSIS CLI installer smoke、Qt framework deployment 配置与隔离 GUI 启动 smoke、用户/开发者/Trace/bug report 文档、RC audit runner | 签名/notarization/MSIX 等发布工作 |
+| M6 Validation、Statistics、发布 | WP-600A～WP-600C、WP-602A、WP-602B、WP-603A～WP-603D、WP-604A～WP-604B、WP-605A～WP-605F 已实现/决策；WP-605G 已冻结范围 | Structural/integrity/semantic/decode/resource 规则、Qt-free bounded statistics engine、单一 analysis-engine 聚合入口、WP-602B v1 延后决策、CLI JSON 与 GUI worker 状态整合、固定 fuzz replay 的 ASan/UBSan 门禁、可选 libFuzzer harness/runner、Ubuntu CI coverage runtime evidence、Linux CI performance threshold gate 与 machine record、生成式性能 corpus/runner、机器记录 schema、固定阈值 gate、portable package smoke、Linux Debian staged install/uninstall gate、macOS DMG/Windows NSIS CLI installer smoke、Qt framework deployment 配置与隔离 GUI 启动 smoke、GitHub Release portable assets scope、用户/开发者/Trace/bug report 文档、RC audit runner | WP-605G GitHub Release portable assets；签名/notarization/MSIX 等发布工作 |
 | M7 APNG | 未开始 | 模型预留 frame 维度 | 维持 post-v1 |
 
-截至当前提交，M0～M4、M5 的 WP-500～504、WP-5U0～WP-5U6C、WP-5T0A～WP-5T0B 及 M6 的 WP-600A～WP-600C、WP-602A～WP-602B、WP-603A～WP-603D、WP-604A～WP-604B、WP-605A～WP-605F 已有实现或决策提交。这里的“实现完成”不等于里程碑 Gate 已关闭；Gate 仍要求 coverage-guided runtime、跨平台性能、Qt kit 可用时的真实 GUI package PASS、其余平台原生安装器和人工交互证据。
+截至当前提交，M0～M4、M5 的 WP-500～504、WP-5U0～WP-5U6C、WP-5T0A～WP-5T0B 及 M6 的 WP-600A～WP-600C、WP-602A～WP-602B、WP-603A～WP-603D、WP-604A～WP-604B、WP-605A～WP-605F 已有实现或决策提交，WP-605G 已冻结范围。这里的“实现完成”不等于里程碑 Gate 已关闭；Gate 仍要求 coverage-guided runtime、跨平台性能、Qt kit 可用时的真实 GUI package PASS、Release asset 实际发布验证、其余平台原生安装器和人工交互证据。
 
 ### 2.2 2026-08-22 本地核验
 
@@ -397,6 +397,7 @@ M5 UI Gate 通过后，按以下顺序推进：
 13. `WP-605D Linux Native Package Gate`：已实现 Debian 元数据、隔离 dpkg 安装/卸载 smoke；证据已接入 Ubuntu CI。
 14. `WP-605E macOS/Windows Native Installer Smoke`：已实现 DMG/NSIS CLI 安装器 smoke，并上传原生安装器证据；不覆盖签名与 notarization。
 15. `WP-605F Qt Framework Deployment & GUI Launch Smoke`：已实现可选 `PNGA_ENABLE_QT_DEPLOYMENT`、macdeployqt/windeployqt 安装脚本、offscreen 插件自包含和隔离 package/GUI 启动 runner；当前 hosted CI 无 Qt kit 时明确记录 `NOT_CONFIGURED`，不覆盖签名、notarization、MSIX 或 GUI 功能验收。
+16. `WP-605G GitHub Release Portable Assets`：已冻结最小范围；tag/manual dispatch 仅发布已有 tag 的 Windows ZIP、macOS TGZ 和 Linux TGZ Release assets，不自动创建 tag，不覆盖签名、notarization、MSIX 或 release approval。
 
 ### 6.2 Statistics 独立决策
 
@@ -428,8 +429,8 @@ evidence 已通过，Linux performance threshold 也已接入并通过。Linux D
 原生 CLI 安装器 smoke 已在 CI run `32613347180` 通过，portable ZIP/TGZ 也已作为
 Actions artifacts 上传（Windows artifact 名为 `portable-package-Windows`）；WP-605F
 runner 已接入 macOS/Windows CI，并在无 Qt kit 时记录 `NOT_CONFIGURED`。下一项推荐
-是准备 Qt kit 可用的发布环境，重新运行 `WP-605F` 取得真实 package `PASS`，或冻结
-签名/notarization/MSIX 发布工作。不得改变
+是实施已冻结的 `WP-605G`，让 Windows ZIP 与 macOS/Linux TGZ 进入 GitHub Release
+资产；随后再准备 Qt kit 可用的发布环境或冻结签名/notarization/MSIX 发布工作。不得改变
 `pnga_statistics` 的依赖方向，或把解析/解码逻辑放进该模块。
 
 WP-5U0 已冻结的产品决策继续作为后续实现约束：
