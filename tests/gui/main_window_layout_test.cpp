@@ -105,6 +105,8 @@ void MainWindowLayoutTest::defaultLayoutHasRequiredRegions() {
 
 void MainWindowLayoutTest::docksAreMovableFloatableAndClosable() {
   MainWindow window;
+  QVERIFY(window.isDockNestingEnabled());
+  QVERIFY(window.dockOptions().testFlag(QMainWindow::GroupedDragging));
   const auto check = [&window](const char* object_name) {
     auto* dock = window.findChild<QDockWidget*>(QString::fromLatin1(object_name));
     QVERIFY(dock != nullptr);
@@ -180,13 +182,25 @@ void MainWindowLayoutTest::corruptSettingsFallBackToDefaults() {
 
 void MainWindowLayoutTest::resetLayoutRestoresDefaultsWithoutFileState() {
   MainWindow window;
+  window.show();
+  QCoreApplication::processEvents();
   auto* preview = window.findChild<QTabWidget*>(QStringLiteral("previewTabs"));
   auto* inspector =
       window.findChild<QTabWidget*>(QStringLiteral("inspectorTabs"));
+  auto* chunks = window.findChild<QDockWidget*>(QStringLiteral("chunksDock"));
+  auto* inspector_dock =
+      window.findChild<QDockWidget*>(QStringLiteral("inspectorDock"));
   QVERIFY(preview != nullptr);
   QVERIFY(inspector != nullptr);
+  QVERIFY(chunks != nullptr);
+  QVERIFY(inspector_dock != nullptr);
   preview->setCurrentIndex(4);
   inspector->setCurrentIndex(4);
+  chunks->setFloating(true);
+  inspector_dock->setFloating(true);
+  QCoreApplication::processEvents();
+  QVERIFY(chunks->isFloating());
+  QVERIFY(inspector_dock->isFloating());
 
   QAction* reset = nullptr;
   for (QAction* action : window.menuBar()->actions()) {
@@ -201,8 +215,15 @@ void MainWindowLayoutTest::resetLayoutRestoresDefaultsWithoutFileState() {
   }
   QVERIFY(reset != nullptr);
   reset->trigger();
+  QCoreApplication::processEvents();
   QCOMPARE(preview->currentIndex(), 0);
   QCOMPARE(inspector->currentIndex(), 0);
+  QVERIFY(!chunks->isFloating());
+  QVERIFY(!inspector_dock->isFloating());
+  QCOMPARE(window.dockWidgetArea(chunks), Qt::LeftDockWidgetArea);
+  QCOMPARE(window.dockWidgetArea(inspector_dock), Qt::RightDockWidgetArea);
+  QVERIFY(chunks->isVisible());
+  QVERIFY(inspector_dock->isVisible());
 }
 
 void MainWindowLayoutTest::coordinateInteractionUsesToolbarAndKeyboard() {

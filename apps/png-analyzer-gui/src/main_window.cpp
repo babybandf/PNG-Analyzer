@@ -127,7 +127,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
       "QMainWindow::separator:hover, QMainWindow::separator:pressed { "
       "background: palette(highlight); }"));
   setDockOptions(QMainWindow::AnimatedDocks | QMainWindow::AllowNestedDocks |
-                 QMainWindow::AllowTabbedDocks);
+                 QMainWindow::AllowTabbedDocks |
+                 QMainWindow::GroupedDragging);
+  setDockNestingEnabled(true);
 
   center_splitter_ = new QSplitter(Qt::Vertical, this);
   center_splitter_->setObjectName(QStringLiteral("previewHexSplitter"));
@@ -432,6 +434,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 void MainWindow::applyDefaultWorkspace() {
   const auto preserved_locked = view_state_.locked;
   const auto preserved_hover = view_state_.hover;
+  // Reset Layout must restore the dock topology as well as its dimensions.
+  // addDockWidget() selects the target side, while setFloating(false) is
+  // required for Qt to leave a native floating window on every platform.
+  addDockWidget(Qt::LeftDockWidgetArea, chunks_dock_);
+  chunks_dock_->setFloating(false);
+  addDockWidget(Qt::RightDockWidgetArea, inspector_dock_);
+  inspector_dock_->setFloating(false);
   resize(1200, 760);
   center_splitter_->setSizes({456, 304});
   preview_tabs_->setCurrentIndex(0);

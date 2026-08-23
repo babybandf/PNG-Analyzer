@@ -547,3 +547,12 @@ Average 不使用 `c`，所以该示例中 `c=149` 可以标注位置，但不�
   dock 选项；默认仍保持 Chunk List 在左侧、Inspector 在右侧。
 - 回归测试：`chunkDockStaysResizableAndRedockableAfterOpen` 覆盖加载 PNG 后栏宽
   保持、分隔线尺寸策略和浮动 dock 回停靠路径。
+
+### Dock 拓扑与 Reset Layout 回归修正（2026-08-23）
+
+- 显式启用 `AllowNestedDocks`、`AllowTabbedDocks` 和 `GroupedDragging`，并打开
+  dock nesting，保证 Chunk List/Inspector 的浮动标题栏能被主窗口左右 dock 区感应。
+- `View → Reset Layout` 现在会先把两个 dock 重新加入左/右 dock area，再取消浮动、
+  恢复尺寸和可见性；因此即使用户先把两个面板弹出或关闭，Reset 后也能回到初始拓扑。
+- 中央 Preview/Hex 继续是主窗口 `centralWidget`，不是第三个 `QDockWidget`；停靠感应
+  目标是中央区域两侧的 dock area，不把中央业务内容改造成可被移走的浮动面板。
