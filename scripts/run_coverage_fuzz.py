@@ -38,7 +38,12 @@ def probe(compiler):
     with tempfile.TemporaryDirectory(prefix="pnga-fuzzer-probe-") as directory:
         source = Path(directory) / "probe.cpp"
         binary = Path(directory) / "probe"
-        source.write_text("int main() { return 0; }\n")
+        source.write_text(
+            "#include <cstddef>\n"
+            "#include <cstdint>\n"
+            'extern "C" int LLVMFuzzerTestOneInput('
+            "const std::uint8_t*, std::size_t) { return 0; }\n"
+        )
         result = subprocess.run(
             [compiler, "-fsanitize=fuzzer", str(source), "-o", str(binary)],
             cwd=ROOT,
