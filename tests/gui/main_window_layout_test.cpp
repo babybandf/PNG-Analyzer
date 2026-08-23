@@ -12,12 +12,16 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDockWidget>
+#include <QHeaderView>
 #include <QMenu>
 #include <QMenuBar>
 #include <QSettings>
 #include <QSpinBox>
 #include <QSplitter>
+#include <QStyle>
 #include <QTabWidget>
+#include <QTemporaryFile>
+#include <QTreeView>
 
 class MainWindowLayoutTest : public QObject {
   Q_OBJECT
@@ -30,6 +34,7 @@ class MainWindowLayoutTest : public QObject {
   void resetLayoutRestoresDefaultsWithoutFileState();
   void coordinateInteractionUsesToolbarAndKeyboard();
   void inspectorSwitchesKeepColumnWidths();
+  void chunkDockStaysResizableAndRedockableAfterOpen();
 };
 
 void MainWindowLayoutTest::init() {
@@ -267,6 +272,46 @@ void MainWindowLayoutTest::inspectorSwitchesKeepColumnWidths() {
     QCOMPARE(chunks->width(), chunk_width);
     QCOMPARE(inspector->width(), inspector_width);
   }
+}
+
+void MainWindowLayoutTest::chunkDockStaysResizableAndRedockableAfterOpen() {
+  MainWindow window;
+  window.resize(1200, 760);
+  window.show();
+  QCoreApplication::processEvents();
+
+  auto* chunks = window.findChild<QDockWidget*>(QStringLiteral("chunksDock"));
+  auto* tree = window.findChild<QTreeView*>();
+  QVERIFY(chunks != nullptr);
+  QVERIFY(tree != nullptr);
+  QVERIFY(window.styleSheet().contains(QStringLiteral("width: 8px")));
+  QVERIFY(window.style()->pixelMetric(QStyle::PM_DockWidgetSeparatorExtent,
+                                      nullptr, &window) >= 8);
+  QCOMPARE(tree->sizePolicy().horizontalPolicy(), QSizePolicy::Ignored);
+  QCOMPARE(tree->header()->sectionResizeMode(0), QHeaderView::Interactive);
+
+  window.resizeDocks({chunks}, {190}, Qt::Horizontal);
+  QCoreApplication::processEvents();
+  const int adjusted_width = chunks->width();
+  QVERIFY(adjusted_width >= chunks->minimumWidth());
+
+  QTemporaryFile png;
+  QVERIFY(png.open());
+  const QByteArray bytes = QByteArray::fromBase64(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+  QCOMPARE(png.write(bytes), bytes.size());
+  png.flush();
+  QVERIFY(window.openFile(png.fileName()));
+  QCoreApplication::processEvents();
+  QCOMPARE(chunks->width(), adjusted_width);
+
+  chunks->setFloating(true);
+  QCoreApplication::processEvents();
+  QVERIFY(chunks->isFloating());
+  window.addDockWidget(Qt::LeftDockWidgetArea, chunks);
+  chunks->setFloating(false);
+  QCoreApplication::processEvents();
+  QVERIFY(!chunks->isFloating());
 }
 
 QTEST_MAIN(MainWindowLayoutTest)

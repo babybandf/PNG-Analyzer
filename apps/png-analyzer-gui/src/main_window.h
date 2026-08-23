@@ -172,6 +172,7 @@ class MainWindow final : public QMainWindow {
   void restoreWorkspace();
   void saveWorkspace() const;
   void applyDefaultWorkspace();
+  void configureDockInteraction();
   void publishLockedCoordinate();
   void clearLockedCoordinate();
   void nudgeLockedCoordinate(int dx, int dy);

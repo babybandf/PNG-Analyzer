@@ -534,3 +534,16 @@ Average 不使用 `c`，所以该示例中 `c=149` 可以标注位置，但不�
 - `QT_QPA_PLATFORM=offscreen ctest --preset dev --output-on-failure`：35/35 PASS。
 - `python3 scripts/run_gui_gate.py`：普通、150% 和 200% DPI 门禁 3/3 PASS。
 - `python3 scripts/verify_repository_layout.py`、`git diff --check`：PASS。
+
+### Chunk List 交互回归修正（2026-08-23）
+
+- 复现确认：`QMainWindow` 两侧 dock 的内部拖动分隔线不是
+  `findChildren<QSplitter*>()` 可见的对象；原实现只设置了中央垂直
+  `QSplitter` 的 8px 手柄，因此原生 macOS 样式仍可能留下 1–2px 的窄命中区。
+- 修正：在主窗口集中设置 `QMainWindow::separator` 的 8px 命中尺寸，并为
+  hover/pressed 状态提供主题高亮；Chunk List 的 `QTreeView` 改为可收缩策略，
+  长列值通过水平滚动承载，不再用 `ResizeToContents` 撑大 dock 的最小尺寸。
+- 浮动恢复：允许 dock 通过全部 dock area 返回主窗口，并启用稳定的 nested/tabbed
+  dock 选项；默认仍保持 Chunk List 在左侧、Inspector 在右侧。
+- 回归测试：`chunkDockStaysResizableAndRedockableAfterOpen` 覆盖加载 PNG 后栏宽
+  保持、分隔线尺寸策略和浮动 dock 回停靠路径。

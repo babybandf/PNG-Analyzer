@@ -112,6 +112,16 @@ void ValidationWorker::run() {
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   setWindowTitle(QStringLiteral("PNG Analyzer"));
+  // QMainWindow creates its dock separators lazily when the window is laid
+  // out.  Keep the hit target wide enough for a mouse even when a native
+  // style would otherwise expose only a one-pixel separator.
+  setStyleSheet(QStringLiteral(
+      "QMainWindow::separator { width: 8px; height: 8px; "
+      "background: transparent; }"
+      "QMainWindow::separator:hover, QMainWindow::separator:pressed { "
+      "background: palette(highlight); }"));
+  setDockOptions(QMainWindow::AnimatedDocks | QMainWindow::AllowNestedDocks |
+                 QMainWindow::AllowTabbedDocks);
 
   center_splitter_ = new QSplitter(Qt::Vertical, this);
   center_splitter_->setObjectName(QStringLiteral("previewHexSplitter"));
@@ -146,7 +156,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
   chunks_dock_ = new QDockWidget(QStringLiteral("Chunks"), this);
   chunks_dock_->setObjectName(QStringLiteral("chunksDock"));
-  chunks_dock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+  // A floated dock must be able to re-enter through any visible dock area.
+  // The default placement remains on the left; allowing all areas avoids a
+  // platform-specific failure to recognize the docking target while dragging
+  // the native floating title bar back over the main window.
+  chunks_dock_->setAllowedAreas(Qt::AllDockWidgetAreas);
   chunks_dock_->setFeatures(QDockWidget::DockWidgetMovable |
                             QDockWidget::DockWidgetFloatable |
                             QDockWidget::DockWidgetClosable);
@@ -154,7 +168,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   tree_->setSelectionBehavior(QAbstractItemView::SelectRows);
   tree_->setSelectionMode(QAbstractItemView::SingleSelection);
   tree_->setUniformRowHeights(true);
-  tree_->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
+  // Do not let a newly loaded model turn its largest offset/type cell into a
+  // dock minimum width.  The view is allowed to shrink and uses a horizontal
+  // scrollbar for long values; users can still resize columns interactively.
+  tree_->setMinimumWidth(0);
+  tree_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Expanding);
+  tree_->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  tree_->header()->setSectionResizeMode(QHeaderView::Interactive);
+  tree_->header()->setStretchLastSection(true);
   chunks_dock_->setWidget(tree_);
   addDockWidget(Qt::LeftDockWidgetArea, chunks_dock_);
 
@@ -162,7 +183,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
   inspector_dock_ = new QDockWidget(QStringLiteral("Inspector"), this);
   inspector_dock_->setObjectName(QStringLiteral("inspectorDock"));
-  inspector_dock_->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+  inspector_dock_->setAllowedAreas(Qt::AllDockWidgetAreas);
   inspector_dock_->setFeatures(QDockWidget::DockWidgetMovable |
                                QDockWidget::DockWidgetFloatable |
                                QDockWidget::DockWidgetClosable);
@@ -392,6 +413,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   resize(1200, 760);
   applyDefaultWorkspace();
   restoreWorkspace();
+  configureDockInteraction();
 }
 
 void MainWindow::applyDefaultWorkspace() {
@@ -415,6 +437,7 @@ void MainWindow::applyDefaultWorkspace() {
     splitter->setHandleWidth(8);
     splitter->setChildrenCollapsible(false);
   }
+  configureDockInteraction();
 
   view_state_.hex_source = pnga::ui::qt::HexSource::kFile;
   view_state_.numeric_base = pnga::ui::qt::NumericBase::kDecimal;
@@ -437,6 +460,34 @@ void MainWindow::applyDefaultWorkspace() {
   }
   inspector_->setNumericBase(false);
   updateHexSource();
+}
+
+void MainWindow::configureDockInteraction() {
+  if (chunks_dock_ == nullptr || inspector_dock_ == nullptr) {
+    return;
+  }
+  chunks_dock_->setMinimumWidth(180);
+  inspector_dock_->setMinimumWidth(260);
+  chunks_dock_->setSizePolicy(QSizePolicy::Preferred,
+                              QSizePolicy::Expanding);
+  inspector_dock_->setSizePolicy(QSizePolicy::Preferred,
+                                 QSizePolicy::Expanding);
+  // The internal QMainWindow dock layout is not exposed as QSplitter
+  // children.  Re-polish after the first layout pass so the style-sheet
+  // separator extent is applied to the actual native separators as well.
+  QMetaObject::invokeMethod(
+      this,
+      [this] {
+        if (chunks_dock_ == nullptr || inspector_dock_ == nullptr) {
+          return;
+        }
+        chunks_dock_->updateGeometry();
+        inspector_dock_->updateGeometry();
+        style()->unpolish(this);
+        style()->polish(this);
+        updateGeometry();
+      },
+      Qt::QueuedConnection);
 }
 
 void MainWindow::restoreWorkspace() {
