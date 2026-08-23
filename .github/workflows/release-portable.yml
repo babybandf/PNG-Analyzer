@@ -1,0 +1,146 @@
+name: release-portable
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing v* tag to publish"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: portable package (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+          - os: macos-latest
+          - os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Provide pkg-config (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: sudo apt-get update && sudo apt-get install -y pkg-config
+
+      - name: Provide pkg-config (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: brew install pkg-config
+
+      - name: Set up MSVC environment (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw "Visual Studio C++ tools not found via vswhere" }
+          Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments "-arch=x64 -host_arch=x64"
+          Get-ChildItem env: | ForEach-Object {
+            Add-Content -Path $env:GITHUB_ENV -Value "$($_.Name)=$($_.Value)"
+          }
+
+      - name: Static dependency audit
+        shell: bash
+        run: python scripts/verify_dependencies.py
+
+      - name: Repository layout audit
+        shell: bash
+        run: python scripts/verify_repository_layout.py
+
+      - name: Bootstrap pinned vcpkg
+        shell: bash
+        run: python scripts/bootstrap.py
+
+      - name: Configure release
+        shell: bash
+        run: cmake --preset release
+
+      - name: Build release
+        shell: bash
+        run: cmake --build --preset release --parallel 4
+
+      - name: Create portable package
+        shell: bash
+        run: |
+          rm -rf dist
+          mkdir -p dist
+          cpack --config build/release/CPackConfig.cmake -B dist
+          packages=(dist/png-analyzer-*)
+          if [[ ${#packages[@]} -ne 1 || ! -f "${packages[0]}" ]]; then
+            echo "expected exactly one portable package, found: ${packages[*]}"
+            exit 1
+          fi
+
+      - name: Upload release package
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-portable-${{ matrix.os }}
+          path: dist/png-analyzer-*
+          if-no-files-found: error
+
+  publish:
+    name: publish GitHub Release assets
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          if [[ "$RELEASE_TAG" != v* || "$RELEASE_TAG" == *$'\n'* || "$RELEASE_TAG" == *$'\r'* ]]; then
+            echo "release tag must be an existing v* tag"
+            exit 1
+          fi
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Download platform packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-portable-*
+          path: dist
+          merge-multiple: true
+
+      - name: Verify release assets
+        shell: bash
+        run: |
+          packages=(dist/png-analyzer-*)
+          if [[ ${#packages[@]} -ne 3 ]]; then
+            echo "expected Windows ZIP plus macOS/Linux TGZ assets, found: ${packages[*]}"
+            exit 1
+          fi
+          compgen -G 'dist/*Windows*.zip' >/dev/null || {
+            echo "Windows portable ZIP is missing"
+            exit 1
+          }
+
+      - name: Create or update GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --verify-tag --title "$RELEASE_TAG" --generate-notes
+          fi
+          gh release upload "$RELEASE_TAG" dist/png-analyzer-* --clobber

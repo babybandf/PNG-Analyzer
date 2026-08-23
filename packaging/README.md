@@ -51,3 +51,5 @@ The generated package and extraction directory stay under `build/` or a
 temporary directory and are never added to `tests/corpus`. CI uploads the
 portable package as `portable-package-Windows` (ZIP) and equivalent TGZ
 artifacts for macOS/Linux, so it can be downloaded from the Actions run.
+The `release-portable` workflow publishes those same three CPack archives as
+assets on an existing `v*` GitHub Release; it never creates or pushes a tag.
