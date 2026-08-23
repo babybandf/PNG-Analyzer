@@ -1,5 +1,10 @@
 # PNG Analyzer
 
+<p align="center">
+  <img src="ui/qt/resources/branding/png-analyzer-icon-reference.png"
+       alt="PNG Analyzer icon" width="256">
+</p>
+
 PNG Analyzer is a pre-release desktop and command-line tool for inspecting
 static PNG structure, reconstruction stages and bounded DEFLATE provenance.
 It is designed for untrusted files: parsing uses checked arithmetic, bounded
