@@ -14,7 +14,9 @@ region can be reported without discarding structure already verified.
    bounded ranges and physical IDAT spans.
 4. In Preview, the current stages are **Image**, **Pixels**, **Filtered** and
    **Defiltered**. The three stage pages share a scrollable five-by-three,
-   channel-separated neighborhood and explain the selected stage's bytes.
+   channel-separated table. The selected pixel is highlighted and reference /
+   filter-dependency pixels use a separate semantic color and text marker;
+   each page explains the selected stage's bytes.
    Select a pixel to lock its coordinate; hover remains a lightweight local
    state.
 5. Use the Inspector tabs for **Reconstruction** and **Compression**. The Hex

@@ -1,6 +1,8 @@
 #include "pnga/ui/qt/stage_pixel_process_view.h"
 
 #include <QFontDatabase>
+#include <QColor>
+#include <QPalette>
 #include <QSizePolicy>
 #include <QTextEdit>
 #include <QVBoxLayout>
@@ -105,92 +107,146 @@ QString format_calculation(const StagePixelProcessCalculation& calculation,
   return text;
 }
 
-QString render_text(const ModelStagePixelProcessView& view,
-               const pnga::analysis_engine::StageSet& stages,
-               bool hexadecimal) {
-  QString text = stage_title(view.stage, hexadecimal);
-  text += QStringLiteral("\ncoordinate=(%1, %2)  color type=%3  bit depth=%4  channels=%5")
+QString esc(const QString& value) { return value.toHtmlEscaped(); }
+
+QString cell_style(const QPalette& palette, bool current, bool dependency) {
+  const bool dark = palette.color(QPalette::Base).lightness() < 128;
+  const QColor background = current
+                                ? (dark ? QColor("#5b2630") : QColor("#ffe0e6"))
+                                : dependency
+                                      ? (dark ? QColor("#5a4316") : QColor("#fff1c2"))
+                                      : (dark ? QColor("#173f53") : QColor("#f4f7f9"));
+  const QColor border = current
+                           ? (dark ? QColor("#ff8a9b") : QColor("#c6284a"))
+                           : dependency
+                                 ? (dark ? QColor("#f2c14e") : QColor("#c58a00"))
+                                 : (dark ? QColor("#65c7f3") : QColor("#aab7c2"));
+  const QColor foreground = dark ? QColor("#f5f5f5") : QColor("#202124");
+  return QStringLiteral(
+             "background:%1;color:%2;border:1px solid %3;padding:3px;"
+             "min-width:76px;text-align:center;white-space:nowrap;")
+      .arg(background.name(QColor::HexRgb), foreground.name(QColor::HexRgb),
+           border.name(QColor::HexRgb));
+}
+
+QString dependency_marker(const ModelStagePixelProcessView& view, int row,
+                          int column) {
+  if (view.stage != StagePixelProcessStage::kDefiltered) {
+    return {};
+  }
+  const bool has_a = view.filter == pnga::png_reconstruction::FilterType::kSub ||
+                     view.filter == pnga::png_reconstruction::FilterType::kAverage ||
+                     view.filter == pnga::png_reconstruction::FilterType::kPaeth;
+  const bool has_b = view.filter == pnga::png_reconstruction::FilterType::kUp ||
+                     view.filter == pnga::png_reconstruction::FilterType::kAverage ||
+                     view.filter == pnga::png_reconstruction::FilterType::kPaeth;
+  const bool has_c = view.filter == pnga::png_reconstruction::FilterType::kPaeth;
+  if (row == 1 && column == 1 && has_a) return QStringLiteral("a");
+  if (row == 0 && column == 2 && has_b) return QStringLiteral("b");
+  if (row == 0 && column == 1 && has_c) return QStringLiteral("c");
+  return {};
+}
+
+QString render_html(const ModelStagePixelProcessView& view,
+                    const pnga::analysis_engine::StageSet& stages,
+                    bool hexadecimal, const QPalette& palette) {
+  QString html = QStringLiteral("<div style=\"white-space:pre-wrap;\">");
+  html += QStringLiteral("<h3>%1</h3>")
+              .arg(esc(stage_title(view.stage, hexadecimal)));
+  html += QStringLiteral(
+              "<p>coordinate=(%1, %2)<br>color type=%3, bit depth=%4, "
+              "channels=%5<br>pass=%6, local=(%7, %8), stream row=%9</p>")
               .arg(view.image_x)
               .arg(view.image_y)
               .arg(stages.header.color_type)
               .arg(stages.header.bit_depth)
-              .arg(view.channels.size());
-  text += QStringLiteral("\npass=%1 local=(%2, %3) stream row=%4")
+              .arg(view.channels.size())
               .arg(view.pass_index)
               .arg(view.pass_local_x)
               .arg(view.pass_local_y)
               .arg(view.stream_row);
   if (view.stage != StagePixelProcessStage::kNative) {
-    text += QStringLiteral("  filter=%1 (%2) at byte offset %3")
+    html += QStringLiteral("<p>filter=%1 (%2), filter byte offset=%3</p>")
                 .arg(view.filter_byte)
-                .arg(filter_name(view.filter))
+                .arg(esc(filter_name(view.filter)))
                 .arg(view.filter_byte_offset);
   }
-  text += QLatin1Char('\n');
 
-  constexpr std::array<int, 5> kColumns{-2, -1, 0, 1, 2};
   for (const auto& channel : view.channels) {
-    text += QStringLiteral("\n[%1]\n       ").arg(QString::fromStdString(channel.name));
-    for (const int column : kColumns) {
-      text += QStringLiteral("%1%2 ")
-                  .arg(column == 0 ? QStringLiteral("*") : QStringLiteral(" "))
-                  .arg(column, 3);
+    html += QStringLiteral("<h4>%1</h4><table cellspacing=\"2\"><tr><th></th>")
+                .arg(esc(QString::fromStdString(channel.name)));
+    for (int column = -2; column <= 2; ++column) {
+      const auto coordinate = static_cast<std::int64_t>(view.image_x) + column;
+      html += QStringLiteral("<th>%1</th>")
+                  .arg(coordinate < 0
+                           ? QStringLiteral("—")
+                           : number(static_cast<std::uint64_t>(coordinate),
+                                    hexadecimal));
     }
-    text += QLatin1Char('\n');
+    html += QStringLiteral("</tr>");
     for (int row = 0; row < 3; ++row) {
-      text += QStringLiteral("%1 ").arg(row - 1, 3);
+      const int dy = row - 1;
+      html += QStringLiteral("<tr><th>y%1</th>").arg(
+          dy == 0 ? QStringLiteral(" (current)") : QString::number(dy));
       for (int column = 0; column < 5; ++column) {
         const auto& cell = channel.cells[static_cast<std::size_t>(row * 5 + column)];
-        QString value = cell_value(cell, view.stage, hexadecimal);
+        const QString marker = cell.current
+                                   ? QStringLiteral("current")
+                                   : (cell.in_bounds
+                                          ? dependency_marker(view, row, column)
+                                          : QString());
+        QString value = esc(cell_value(cell, view.stage, hexadecimal));
         if (cell.current) {
           value = QStringLiteral("CURRENT:%1").arg(value);
           if (view.stage == StagePixelProcessStage::kFiltered) {
-            value = QStringLiteral("X/") + value;
-          }
-        } else if (view.stage == StagePixelProcessStage::kDefiltered &&
-                   cell.in_bounds) {
-          const bool has_a = view.filter == pnga::png_reconstruction::FilterType::kSub ||
-                             view.filter == pnga::png_reconstruction::FilterType::kAverage ||
-                             view.filter == pnga::png_reconstruction::FilterType::kPaeth;
-          const bool has_b = view.filter == pnga::png_reconstruction::FilterType::kUp ||
-                             view.filter == pnga::png_reconstruction::FilterType::kAverage ||
-                             view.filter == pnga::png_reconstruction::FilterType::kPaeth;
-          const bool has_c = view.filter == pnga::png_reconstruction::FilterType::kPaeth;
-          if (row == 1 && column == 1 && has_a) {
-            value = QStringLiteral("a/") + value;
-          } else if (row == 0 && column == 2 && has_b) {
-            value = QStringLiteral("b/") + value;
-          } else if (row == 0 && column == 1 && has_c) {
-            value = QStringLiteral("c/") + value;
+            value = QStringLiteral("X/%1").arg(value);
           }
         }
-        text += value.leftJustified(14, QLatin1Char(' '));
+        if (!marker.isEmpty()) {
+          value += QStringLiteral("<br><b>%1</b>").arg(esc(marker));
+        }
+        html += QStringLiteral("<td style=\"%1\">%2</td>")
+                    .arg(cell_style(palette, cell.current,
+                                    !cell.current && !marker.isEmpty()),
+                         value);
       }
-      text += QLatin1Char('\n');
+      html += QStringLiteral("</tr>");
     }
+    html += QStringLiteral("</table>");
   }
 
-  text += QStringLiteral("\nCurrent value calculation\n");
+  html += QStringLiteral("<h4>Current value calculation</h4>");
   switch (view.stage) {
     case StagePixelProcessStage::kNative:
-      text += QStringLiteral("Defiltered packed bytes -> native source sample; ")
-              + (stages.header.interlace ? QStringLiteral("Adam7 pass mapping")
-                                         : QStringLiteral("non-interlaced row mapping"));
+      html += QStringLiteral(
+          "<p>Defiltered packed bytes → native source sample; %1 mapping.</p>")
+                  .arg(stages.header.interlace ? QStringLiteral("Adam7 pass")
+                                                : QStringLiteral("non-interlaced row"));
       break;
     case StagePixelProcessStage::kFiltered:
-      text += QStringLiteral("Inflate output -> filtered X; byte offset is relative to the scanline data after the filter byte.");
+      html += QStringLiteral(
+          "<p>Inflate output → filtered <b>X</b>; byte offset is relative to "
+          "the scanline data after the filter byte.</p>");
       break;
     case StagePixelProcessStage::kDefiltered:
-      text += QStringLiteral("X + predictor (mod 256) -> reconstructed byte; actual dependencies only.\n");
+      html += QStringLiteral(
+          "<p><b>X</b> + predictor (mod 256) → reconstructed byte; actual "
+          "dependencies only.</p><ul>");
       for (const auto& calculation : view.calculations) {
-        text += format_calculation(calculation, hexadecimal) + QLatin1Char('\n');
+        html += QStringLiteral("<li>%1</li>")
+                    .arg(esc(format_calculation(calculation, hexadecimal)));
       }
+      html += QStringLiteral("</ul>");
       break;
   }
   if (view.stage == StagePixelProcessStage::kFiltered) {
-    text += QStringLiteral("\nPacked samples share a filtered byte where bit depth is below 8.");
+    html += QStringLiteral(
+        "<p>Packed samples share a filtered byte where bit depth is below 8.</p>");
   }
-  return text;
+  html += QStringLiteral(
+      "<p>Legend: <b>current</b> is the selected pixel; <b>a/b/c</b> are "
+      "filter dependencies. Other colored cells are reference pixels.</p></div>");
+  return html;
 }
 
 }  // namespace
@@ -213,7 +269,9 @@ StagePixelProcessView::StagePixelProcessView(
   text_ = new QTextEdit(this);
   text_->setObjectName(QStringLiteral("stagePixelProcessText"));
   text_->setReadOnly(true);
-  text_->setAcceptRichText(false);
+  text_->setAcceptRichText(true);
+  text_->setTextInteractionFlags(Qt::TextSelectableByMouse |
+                                 Qt::TextSelectableByKeyboard);
   text_->setLineWrapMode(QTextEdit::WidgetWidth);
   text_->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   text_->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
@@ -254,20 +312,21 @@ void StagePixelProcessView::refresh() {
     return;
   }
   if (stages_ == nullptr || !stages_->success) {
-    text_->setPlainText(stage_title(stage_, hexadecimal_) +
-                        QStringLiteral("\nStage not available"));
+    text_->setHtml(QStringLiteral("<h3>%1</h3><p>Stage not available</p>")
+                       .arg(esc(stage_title(stage_, hexadecimal_))));
     return;
   }
   const auto view = pnga::analysis_engine::build_stage_pixel_process_view(
       *stages_, stage_, x_, y_);
   if (view.status != pnga::analysis_engine::StagePixelProcessStatus::kReady) {
-    text_->setPlainText(stage_title(stage_, hexadecimal_) + QStringLiteral("\n") +
-                        QString::fromLatin1(
-                            pnga::analysis_engine::stage_pixel_process_status_text(
-                                view.status)));
+    text_->setHtml(QStringLiteral("<h3>%1</h3><p>%2</p>")
+                       .arg(esc(stage_title(stage_, hexadecimal_)),
+                            esc(QString::fromLatin1(
+                                pnga::analysis_engine::stage_pixel_process_status_text(
+                                    view.status)))));
     return;
   }
-  text_->setPlainText(render_text(view, *stages_, hexadecimal_));
+  text_->setHtml(render_html(view, *stages_, hexadecimal_, palette()));
 }
 
 }  // namespace pnga::ui::qt

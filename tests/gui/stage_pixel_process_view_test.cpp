@@ -36,6 +36,8 @@ void StagePixelProcessViewTest::rendersEachStageWithSharedNeighborhoodContract()
     auto* text = view->findChild<QTextEdit*>();
     QVERIFY(text != nullptr);
     QVERIFY(text->isReadOnly());
+    QVERIFY(text->acceptRichText());
+    QVERIFY(text->toHtml().contains(QStringLiteral("<table")));
     QVERIFY(text->toPlainText().contains(QStringLiteral("coordinate=(2, 2)")));
     QVERIFY(text->toPlainText().contains(QStringLiteral("CURRENT:")));
     QVERIFY(text->toPlainText().contains(QStringLiteral("Current value calculation")));

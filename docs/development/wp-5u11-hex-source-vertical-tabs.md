@@ -431,6 +431,8 @@ git diff --check
 
 - Added `HexSourceTabBar` with stable `HexSource` item data, West tabs,
   keyboard focus, tooltips and accessible names.
+- Reduced tab padding and constrained the bar to its content-sized width so
+  the four source labels leave maximum space for the shared HexView.
 - MainWindow now owns one shared HexView inside `hexPanel`; the Inspector
   source combo and inactive Hex-follow control were removed while workspace
   source persistence and chunk-to-File navigation remain intact.

@@ -526,8 +526,10 @@ This work package is complete only when:
   packed-byte sharing, 16-bit lanes, pass-local mapping and filter formula
   facts in `libs/analysis-engine/`.
 - Replaced the central `Pixels`, `Filtered` and `Defiltered` placeholders with
-  one shared scrollable/copyable Qt renderer instantiated for each stage.
-  DEC/HEX changes refresh all three views without re-analysis.
+  one shared scrollable/copyable Qt renderer instantiated for each stage. Each
+  source channel is rendered as a five-by-three HTML table using the same
+  current/dependency palette and text markers as Reconstruction. DEC/HEX
+  changes refresh all three views without re-analysis.
 - Added focused Catch2 and Qt GUI tests:
   `pnga_analysis_engine_tests` (77 cases),
   `gui_stage_pixel_process_view_tests`, and the existing MainWindow/Gate suite.

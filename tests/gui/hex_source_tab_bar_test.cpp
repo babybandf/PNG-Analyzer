@@ -18,6 +18,8 @@ void HexSourceTabBarTest::exposesStableSourcesAndMetadata() {
   pnga::ui::qt::HexSourceTabBar bar;
   QCOMPARE(bar.count(), 4);
   QCOMPARE(bar.shape(), QTabBar::RoundedWest);
+  QVERIFY(bar.styleSheet().contains(QStringLiteral("padding-left: 1px")));
+  QVERIFY(bar.styleSheet().contains(QStringLiteral("padding-right: 1px")));
   QCOMPARE(bar.tabText(0), QStringLiteral("File"));
   QCOMPARE(bar.tabText(1), QStringLiteral("IDAT Stream"));
   QCOMPARE(bar.tabText(2), QStringLiteral("Inflated"));
