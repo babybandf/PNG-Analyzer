@@ -39,12 +39,14 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QPainter>
 #include <QSignalBlocker>
 #include <QScrollArea>
 #include <QSpinBox>
 #include <QSplitter>
 #include <QScrollBar>
 #include <QStatusBar>
+#include <QStyle>
 #include <QTabWidget>
 #include <QTreeView>
 #include <QVBoxLayout>
@@ -839,6 +841,56 @@ void MainWindow::nudgeLockedCoordinate(int dx, int dy) {
     ++y;
   }
   onPixelSelected(static_cast<int>(x), static_cast<int>(y));
+}
+
+void MainWindow::paintEvent(QPaintEvent* event) {
+  QMainWindow::paintEvent(event);
+  if (event == nullptr) {
+    return;
+  }
+
+  QPainter painter(this);
+  painter.setClipRegion(event->region());
+  const int extent = style()->pixelMetric(QStyle::PM_DockWidgetSeparatorExtent,
+                                          nullptr, this);
+  if (extent <= 0) {
+    return;
+  }
+
+  const QColor dot_color(160, 160, 160, 145);
+  const auto drawDots = [&](QDockWidget* dock) {
+    if (dock == nullptr || !dock->isVisible() || dock->isFloating()) {
+      return;
+    }
+    const Qt::DockWidgetArea area = dockWidgetArea(dock);
+    if (area != Qt::LeftDockWidgetArea && area != Qt::RightDockWidgetArea) {
+      return;
+    }
+
+    const QRect dock_rect = dock->geometry();
+    const int separator_x = area == Qt::LeftDockWidgetArea
+                                ? dock_rect.right() + 1
+                                : dock_rect.left() - extent;
+    const QRect handle(separator_x, dock_rect.top(), extent, dock_rect.height());
+    if (!handle.intersects(rect())) {
+      return;
+    }
+
+    painter.save();
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(dot_color);
+    const QPointF center(handle.center());
+    constexpr qreal radius = 1.35;
+    constexpr qreal spacing = 4.0;
+    for (int index = -1; index <= 1; ++index) {
+      painter.drawEllipse(center + QPointF(0.0, index * spacing), radius,
+                          radius);
+    }
+    painter.restore();
+  };
+
+  drawDots(chunks_dock_);
+  drawDots(inspector_dock_);
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {

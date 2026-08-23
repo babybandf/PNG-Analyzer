@@ -31,6 +31,7 @@ class QDockWidget;
 class QEvent;
 class QMenu;
 class QModelIndex;
+class QPaintEvent;
 class QSpinBox;
 class QSplitter;
 class QTabWidget;
@@ -185,6 +186,7 @@ class MainWindow final : public QMainWindow {
   void updateHexSource();
 
  protected:
+  void paintEvent(QPaintEvent* event) override;
   void closeEvent(QCloseEvent* event) override;
   bool eventFilter(QObject* watched, QEvent* event) override;
 

@@ -15,6 +15,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHeaderView>
+#include <QImage>
 #include <QMenu>
 #include <QMenuBar>
 #include <QSettings>
@@ -39,6 +40,7 @@ class MainWindowLayoutTest : public QObject {
   void coordinateInteractionUsesToolbarAndKeyboard();
   void coordinateToolbarScrollsLocallyWhenInspectorIsNarrow();
   void inspectorSwitchesKeepColumnWidths();
+  void dockSeparatorsShowThreeDotAffordance();
   void chunkDockStaysResizableAndRedockableAfterOpen();
   void recentFilesMenuPersistsAndCapsHistory();
 };
@@ -330,6 +332,41 @@ void MainWindowLayoutTest::inspectorSwitchesKeepColumnWidths() {
     QCOMPARE(chunks->width(), chunk_width);
     QCOMPARE(inspector->width(), inspector_width);
   }
+}
+
+void MainWindowLayoutTest::dockSeparatorsShowThreeDotAffordance() {
+  MainWindow window;
+  window.resize(1200, 760);
+  window.show();
+  QCoreApplication::processEvents();
+  const QImage screenshot = window.grab().toImage();
+  const int extent = window.style()->pixelMetric(QStyle::PM_DockWidgetSeparatorExtent,
+                                                 nullptr, &window);
+  QVERIFY(extent > 0);
+
+  const auto checkDots = [&](QDockWidget* dock, Qt::DockWidgetArea area) {
+    QVERIFY(dock != nullptr);
+    const QRect dock_rect = dock->geometry();
+    const int separator_x = area == Qt::LeftDockWidgetArea
+                                ? dock_rect.right() + 1
+                                : dock_rect.left() - extent;
+    const QRect handle(separator_x, dock_rect.top(), extent, dock_rect.height());
+    const int center_x = handle.center().x();
+    const int center_y = handle.center().y();
+    for (const int offset : {-4, 0, 4}) {
+      const QColor dot = screenshot.pixelColor(center_x, center_y + offset);
+      const QColor background =
+          screenshot.pixelColor(center_x + 2, center_y + offset);
+      QVERIFY(dot.red() + 5 < background.red());
+      QVERIFY(dot.green() + 5 < background.green());
+      QVERIFY(dot.blue() + 5 < background.blue());
+    }
+  };
+
+  checkDots(window.findChild<QDockWidget*>(QStringLiteral("chunksDock")),
+            Qt::LeftDockWidgetArea);
+  checkDots(window.findChild<QDockWidget*>(QStringLiteral("inspectorDock")),
+            Qt::RightDockWidgetArea);
 }
 
 void MainWindowLayoutTest::chunkDockStaysResizableAndRedockableAfterOpen() {
