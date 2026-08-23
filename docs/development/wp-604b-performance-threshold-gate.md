@@ -1,6 +1,6 @@
 # WP-604B — Performance Threshold Gate
 
-Status: **implemented** (2026-08-23)
+Status: **implemented; Linux CI baseline passing** (2026-08-23)
 
 `tests/performance/thresholds-v1.json` freezes maximum microsecond values for
 the WP-604A generated corpus. The existing runner gains an explicit
@@ -25,3 +25,8 @@ The thresholds have headroom over the local macOS arm64 dev measurements and
 are intended to catch order-of-magnitude regressions. They are not silently
 updated from a slower run; any threshold change requires a reviewed plan/PR
 change.
+
+The Linux ASan build in CI run `32610399902` invokes the same gate after the
+dev build and uploads `build/performance/wp-604a-latest.json` as
+`performance-evidence-linux`. macOS and Windows measurements remain a later
+cross-platform baseline task.

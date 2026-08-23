@@ -1,7 +1,7 @@
 # PNG Analyzer 当前开发进度与后续执行计划（2026-08-22）
 
 > Status: Active execution supplement
-> Baseline commit: `d8608a6` (`main`，WP-603D CI runtime evidence 修复完成)
+> Baseline commit: `b2b2a80` (`main`，WP-604B Linux performance gate 接入完成)
 > Parent plan: [PNG Analyzer Agent 可执行开发计划 v0.1](png-analyzer-agent-development-plan-v0.1.md)
 
 ## 1. 文档作用与范围
@@ -33,7 +33,7 @@
 | M3 可观测重建流水线 | 实现完成 | WP-300～306 | conformance corpus 与 sanitizer Gate 尚未形成完整证据包 |
 | M4 大文件索引与随机访问 | 实现完成 | WP-400～406 | 跨平台机器基线尚未冻结 |
 | M5 Deep Deflate Trace | Block/Huffman/Decode Trace Inspector、bounded Trace Gate、WP-5U6A 状态契约、WP-5U6B 性能 Gate 与 WP-5U6C GUI Gate 已实现 | WP-500～504、WP-5U0～WP-5U5B、WP-5T0A～WP-5T0B、WP-505A～WP-505C、bounded Trace Gate、WP-5U6A～WP-5U6C | 三平台原生 CI、正式 fuzz corpus、发布证据仍未完成 |
-| M6 Validation、Statistics、发布 | WP-600A～WP-600C、WP-602A、WP-602B、WP-603A～WP-603D、WP-604A～WP-604B、WP-605A～WP-605C 已实现/决策 | Structural/integrity/semantic/decode/resource 规则、Qt-free bounded statistics engine、单一 analysis-engine 聚合入口、WP-602B v1 延后决策、CLI JSON 与 GUI worker 状态整合、固定 fuzz replay 的 ASan/UBSan 门禁、可选 libFuzzer harness/runner、Ubuntu CI coverage runtime evidence、生成式性能 corpus/runner、机器记录 schema、固定阈值 gate、portable package smoke、用户/开发者/Trace/bug report 文档、RC audit runner | 跨平台性能基线与原生安装器 |
+| M6 Validation、Statistics、发布 | WP-600A～WP-600C、WP-602A、WP-602B、WP-603A～WP-603D、WP-604A～WP-604B、WP-605A～WP-605C 已实现/决策 | Structural/integrity/semantic/decode/resource 规则、Qt-free bounded statistics engine、单一 analysis-engine 聚合入口、WP-602B v1 延后决策、CLI JSON 与 GUI worker 状态整合、固定 fuzz replay 的 ASan/UBSan 门禁、可选 libFuzzer harness/runner、Ubuntu CI coverage runtime evidence、Linux CI performance threshold gate 与 machine record、生成式性能 corpus/runner、机器记录 schema、固定阈值 gate、portable package smoke、用户/开发者/Trace/bug report 文档、RC audit runner | macOS/Windows 性能基线与原生安装器 |
 | M7 APNG | 未开始 | 模型预留 frame 维度 | 维持 post-v1 |
 
 截至当前提交，M0～M4、M5 的 WP-500～504、WP-5U0～WP-5U6C、WP-5T0A～WP-5T0B 及 M6 的 WP-600A～WP-600C、WP-602A～WP-602B、WP-603A～WP-603D、WP-604A～WP-604B、WP-605A～WP-605C 已有实现或决策提交。这里的“实现完成”不等于里程碑 Gate 已关闭；Gate 仍要求 coverage-guided runtime、跨平台性能、原生安装器和人工交互证据。
@@ -58,9 +58,9 @@ git status --short --branch
 - dev 与 ASan/UBSan 各有 35/35 个 CTest 测试入口通过（GUI 运行使用 `QT_QPA_PLATFORM=offscreen`）；新增的 150%/200% DPI GUI 注册均通过，专门 `scripts/run_gui_gate.py` 生成当前主机和三档 Qt scale evidence。测试覆盖 core、parser、reconstruction、Deflate、differential、CLI、fuzz smoke、性能 corpus runner、Qt-free bounded WP-602A Statistics Engine 与 GUI 测试；并包含 Block/Huffman/Decode Trace Inspector、统一 binding、WP-5U6A 状态机、WP-5U6B 性能回归、WP-5U6C 跨平台 GUI Gate、WP-600A/600B 规则边界测试、WP-600C CLI/GUI 报告整合、WP-603A/603B fuzz smoke、WP-603C sanitizer replay gate、WP-604A performance record 与 WP-604B threshold gate。
 - 仓库布局检查：0 failure、0 warning。
 - 依赖静态检查：0 failure、0 warning。
-- 本次核验覆盖当前 `main` 的 `8287c40`；布局与依赖静态审计均为 0 failure、0 warning。GUI evidence 记录 macOS arm64 / Qt 6.11.1 的默认、150% 和 200% scale 运行；WP-603D runner 已执行并记录当前 Apple toolchain 缺少 libFuzzer runtime（`NOT_CONFIGURED`）。原生 Windows/Linux 窗口系统、屏幕阅读器和原生安装器仍未由本机证据覆盖。
+- 本次核验覆盖当前 `main` 的 `b2b2a80`；布局与依赖静态审计均为 0 failure、0 warning。GUI evidence 记录 macOS arm64 / Qt 6.11.1 的默认、150% 和 200% scale 运行；WP-603D runner 已在 Ubuntu CI 产生 PASS evidence，本机 Apple toolchain 仍记录 `NOT_CONFIGURED`。CI run `32610399902` 的 Linux build 已通过 WP-604B performance threshold gate 并上传 `build/performance/wp-604a-latest.json`。原生 Windows/Linux 窗口系统、屏幕阅读器和原生安装器仍未由本机证据覆盖。
 
-正式 coverage-guided fuzz 已在 Ubuntu CI run `32610155310` 通过；本机 Apple toolchain 仍为 `NOT_CONFIGURED`。跨平台 performance threshold、原生 DMG/MSIX/AppImage/Flatpak 或 Qt framework deployment 仍未声称通过。dev 与 ASan/UBSan 全量、WP-603C 定向 replay、WP-604A runner、WP-604B threshold gate、WP-605A portable archive smoke、WP-605B 文档自检、WP-605C RC audit 与 GUI performance scenario 均已通过；原生安装器和发布证据仍属后续 Gate。
+正式 coverage-guided fuzz 已在 Ubuntu CI run `32610155310` 通过；Linux performance threshold 已在 CI run `32610399902` 通过并保留 machine record；本机 Apple toolchain 仍为 `NOT_CONFIGURED`。macOS/Windows performance baseline、原生 DMG/MSIX/AppImage/Flatpak 或 Qt framework deployment 仍未声称通过。dev 与 ASan/UBSan 全量、WP-603C 定向 replay、WP-604A runner、WP-604B threshold gate、WP-605A portable archive smoke、WP-605B 文档自检、WP-605C RC audit 与 GUI performance scenario 均已通过；原生安装器和发布证据仍属后续 Gate。
 
 ### 2.3 当前 UI 与目标之间的主要差距
 
@@ -389,7 +389,7 @@ M5 UI Gate 通过后，按以下顺序推进：
 5. `WP-603B Decode/Reconstruction Fuzz`：已实现 RGBA/RGB/packed/16-bit/Adam7 trace/filter 变异 smoke；coverage-guided runtime 由 WP-603D CI evidence 覆盖。
 6. `WP-603C Sanitizer Regression Gate`：已实现固定 fuzz regressions 的 ASan/UBSan 定向脚本、CTest 标签和失败重放记录；Ubuntu CI coverage runtime 已通过 WP-603D。
 7. `WP-604A Performance Corpus & Runner`：已实现大文件、随机 row、pixel provenance 与 UI 场景的生成式 corpus、runner 和机器记录格式。
-8. `WP-604B Performance Threshold Gate`：已实现固定微秒上限、记录保留和超限失败；跨平台性能基线仍待发布 Gate。
+8. `WP-604B Performance Threshold Gate`：已实现固定微秒上限、记录保留和超限失败；Linux CI baseline 已接入并通过，macOS/Windows 基线仍待发布 Gate。
 9. `WP-605A Three-platform Packaging`：已实现 macOS、Windows、Linux portable archive 构建/解包/CLI 启动 smoke；原生安装器仍待发布 Gate。
 10. `WP-605B User & Developer Docs`：已补齐 README、使用手册、trace 语义、贡献与 bug report 流程。
 11. `WP-605C Release Candidate Audit`：已实现许可、依赖、全量 Gate、已知限制与推荐 v1 RC tag 的可重复审计；不自动创建 tag。
@@ -420,8 +420,9 @@ WP-5U6A～WP-5U6C、WP-600A～WP-600C、WP-603A～WP-603C、WP-604A～WP-604B、
 当前没有可在不新增架构边界的情况下直接实现的发布工作包；`WP-602A Statistics
 Engine` 的范围、接口、首版 Qt-free 实现和 immutable analysis 适配器已冻结并提交，
 `WP-602B Statistics UI & Export` 已按 v1 范围决策延后，WP-603D 的 Ubuntu CI runtime
-evidence 已通过。下一项推荐是把既有 WP-604A/WP-604B 性能 corpus 与固定阈值 gate
-接入 CI，先冻结 Linux 基线并上传机器记录；随后再扩展到 macOS/Windows。不得改变
+evidence 已通过，Linux performance threshold 也已接入并通过。下一项推荐是完成原生
+安装器与发布 Gate：在现有 portable archive smoke 之上，先为 Linux 产出可安装/卸载的
+发布包，再补 macOS/Windows 原生格式和 Qt framework deployment 证据。不得改变
 `pnga_statistics` 的依赖方向，或把解析/解码逻辑放进该模块。
 
 WP-5U0 已冻结的产品决策继续作为后续实现约束：
