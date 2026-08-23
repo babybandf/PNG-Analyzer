@@ -1,160 +1,386 @@
-// WP-306 stage inspector widget implementation. Thin Qt UI over the
-// StageInspectorModel: stage scrubber, per-pixel value table and formula line.
+// WP-5U7 reconstruction report. Formatting is kept in Qt; all reconstruction
+// facts come from the immutable analysis-engine view model.
 
 #include "pnga/ui/qt/stage_inspector.h"
 
 #include <pnga/analysis-engine/reconstruct_view_model.h>
+#include <pnga/png-reconstruction/reverse_filter.h>
 
-#include <QAbstractItemView>
-#include <QComboBox>
-#include <QHBoxLayout>
-#include <QHeaderView>
-#include <QLabel>
-#include <QModelIndex>
-#include <QTableView>
+#include <QFontDatabase>
+#include <QTextEdit>
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <cstdint>
+#include <limits>
+#include <map>
 
 namespace pnga::ui::qt {
 
+namespace {
+
+QString esc(const QString& value) { return value.toHtmlEscaped(); }
+
+QString number(std::uint64_t value, bool hex) {
+  return hex ? QStringLiteral("0x%1").arg(static_cast<qulonglong>(value), 0, 16)
+             : QString::number(static_cast<qulonglong>(value));
+}
+
+QString value8(std::uint8_t value, bool hex) { return number(value, hex); }
+
+QString section(const QString& title) {
+  return QStringLiteral("<h3 style=\"margin:10px 0 3px 0;\">%1</h3>")
+      .arg(esc(title));
+}
+
+struct SourceKey {
+  std::int64_t x = 0;
+  std::int64_t y = 0;
+  bool operator<(const SourceKey& other) const noexcept {
+    return y != other.y ? y < other.y : x < other.x;
+  }
+};
+
+struct RoleSet {
+  bool a = false;
+  bool b = false;
+  bool c = false;
+};
+
+QString role_text(const RoleSet& roles) {
+  QStringList result;
+  if (roles.a) result.push_back(QStringLiteral("a"));
+  if (roles.b) result.push_back(QStringLiteral("b"));
+  if (roles.c) result.push_back(QStringLiteral("c"));
+  return result.join(QStringLiteral(","));
+}
+
+QString cell_style(const QPalette& palette, bool current) {
+  const bool dark = palette.color(QPalette::Base).lightness() < 128;
+  const QColor background = current
+                                ? (dark ? QColor("#5b2630") : QColor("#ffe0e6"))
+                                : (dark ? QColor("#173f53") : QColor("#d9f0ff"));
+  const QColor border = current
+                           ? (dark ? QColor("#ff8a9b") : QColor("#c6284a"))
+                           : (dark ? QColor("#65c7f3") : QColor("#6aa8c9"));
+  const QColor text = dark ? QColor("#f5f5f5") : QColor("#202124");
+  return QStringLiteral("background:%1;color:%2;border:1px solid %3;padding:3px;min-width:76px;text-align:center;")
+      .arg(background.name(QColor::HexRgb), text.name(QColor::HexRgb),
+           border.name(QColor::HexRgb));
+}
+
+}  // namespace
+
 StageInspector::StageInspector(QWidget* parent) : QWidget(parent) {
   model_ = new StageInspectorModel(this);
-
-  stage_combo_ = new QComboBox(this);
-  // Order matches Stage::kFiltered -> kDelivered; values are the enum ints.
-  stage_combo_->addItem(QStringLiteral("Filtered"),
-                        static_cast<int>(pnga::trace_model::Stage::kFiltered));
-  stage_combo_->addItem(QStringLiteral("Unfiltered"),
-                        static_cast<int>(pnga::trace_model::Stage::kUnfiltered));
-  stage_combo_->addItem(QStringLiteral("Native"),
-                        static_cast<int>(pnga::trace_model::Stage::kNative));
-  stage_combo_->addItem(QStringLiteral("Delivered"),
-                        static_cast<int>(pnga::trace_model::Stage::kDelivered));
-  stage_combo_->setEnabled(false);
-
-  table_ = new QTableView(this);
-  table_->setModel(model_);
-  table_->setSelectionBehavior(QAbstractItemView::SelectRows);
-  table_->setSelectionMode(QAbstractItemView::SingleSelection);
-  table_->horizontalHeader()->setStretchLastSection(true);
-
-  detail_ = new QLabel(QStringLiteral("no data"), this);
-  detail_->setWordWrap(true);
-
-  reconstruct_summary_ = new QLabel(QStringLiteral("reconstruct: no data"), this);
-  reconstruct_summary_->setObjectName(QStringLiteral("reconstructSummary"));
-  reconstruct_summary_->setWordWrap(true);
-
-  query_status_label_ = new QLabel(QStringLiteral("row query: indexed"), this);
-
-  auto* top = new QHBoxLayout;
-  top->addWidget(new QLabel(QStringLiteral("Stage:"), this));
-  top->addWidget(stage_combo_);
-  top->addStretch();
-
+  report_ = new QTextEdit(this);
+  report_->setObjectName(QStringLiteral("reconstructReport"));
+  report_->setAccessibleName(QStringLiteral("Reconstruction report"));
+  report_->setReadOnly(true);
+  report_->setAcceptRichText(true);
+  report_->setTextInteractionFlags(Qt::TextSelectableByMouse |
+                                   Qt::TextSelectableByKeyboard);
+  report_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+  report_->setPlaceholderText(QStringLiteral("Select a pixel to inspect"));
   auto* layout = new QVBoxLayout(this);
-  layout->addLayout(top);
-  layout->addWidget(table_, 1);
-  layout->addWidget(reconstruct_summary_);
-  layout->addWidget(detail_);
-  layout->addWidget(query_status_label_);
-
-  connect(stage_combo_, &QComboBox::currentIndexChanged, this,
-          &StageInspector::onStageChanged);
-  connect(table_->selectionModel(), &QItemSelectionModel::currentChanged,
-          this, &StageInspector::onCurrentCellChanged);
+  layout->setContentsMargins(0, 0, 0, 0);
+  layout->addWidget(report_, 1);
+  refreshReport();
 }
 
 void StageInspector::setStageSet(
     std::shared_ptr<const pnga::analysis_engine::StageSet> set) {
   model_->setStageSet(std::move(set));
-  stage_combo_->setEnabled(model_->hasData());
-  if (model_->hasData()) {
-    stage_combo_->setCurrentIndex(0);  // Filtered
-  }
-  refreshDetail();
+  refreshReport();
 }
 
 void StageInspector::setDeliveredPixels(std::uint32_t width,
                                         std::uint32_t height,
                                         std::vector<std::byte> rgba) {
   model_->setDeliveredPixels(width, height, std::move(rgba));
+  refreshReport();
+}
+
+void StageInspector::setNumericBase(bool hexadecimal) {
+  if (hexadecimal_ == hexadecimal) return;
+  hexadecimal_ = hexadecimal;
+  refreshReport();
 }
 
 void StageInspector::setRowQueryStatus(const QString& status_text) {
-  query_status_label_->setText(
-      QStringLiteral("row query: %1").arg(status_text));
+  query_status_ = status_text;
+  refreshReport();
 }
 
 void StageInspector::clear() {
   model_->clear();
-  stage_combo_->setEnabled(false);
-  detail_->setText(QStringLiteral("no data"));
-  reconstruct_summary_->setText(QStringLiteral("reconstruct: no data"));
-  query_status_label_->setText(QStringLiteral("row query: indexed"));
+  query_status_ = QStringLiteral("not indexed");
+  refreshReport();
 }
 
 void StageInspector::onPixelSelected(std::uint64_t x, std::uint64_t y) {
   x_ = x;
   y_ = y;
   model_->setPixel(x, y);
-  refreshDetail();
+  refreshReport();
 }
 
-void StageInspector::onStageChanged(int index) {
-  const auto stage = static_cast<pnga::trace_model::Stage>(
-      stage_combo_->itemData(index).toInt());
-  model_->setStage(stage);
-  refreshDetail();
-  emit stageChanged(stage);
-}
-
-void StageInspector::onCurrentCellChanged(const QModelIndex& current,
-                                          const QModelIndex& /*previous*/) {
-  if (current.isValid()) {
-    refreshDetail();
-  }
-}
-
-void StageInspector::refreshDetail() {
+void StageInspector::refreshReport() {
+  QString html = QStringLiteral("<div style=\"white-space:pre-wrap;\">");
   if (!model_->hasData()) {
-    reconstruct_summary_->setText(QStringLiteral("reconstruct: no data"));
-    detail_->setText(QStringLiteral("no data"));
+    html += QStringLiteral("<h3>Reconstruction</h3><p>Empty — no image analysis is available.</p></div>");
+    report_->setHtml(html);
     return;
   }
+  const auto& stages = *model_->stageSet();
   const auto reconstruction = pnga::analysis_engine::build_reconstruct_view(
-      *model_->stageSet(), x_, y_);
-  if (reconstruction.status ==
+      stages, x_, y_);
+  const auto format_name = [&]() {
+    const char* name = "Unknown";
+    switch (stages.header.color_type) {
+      case 0: name = "Gray"; break;
+      case 2: name = "RGB"; break;
+      case 3: name = "Indexed"; break;
+      case 4: name = "Gray + Alpha"; break;
+      case 6: name = "RGBA"; break;
+      default: break;
+    }
+    return QStringLiteral("%1 %2-bit, %3")
+        .arg(QLatin1String(name))
+        .arg(stages.header.bit_depth)
+        .arg(stages.interlace ? QStringLiteral("Adam7")
+                              : QStringLiteral("non-interlaced"));
+  };
+
+  html += section(QStringLiteral("Target pixel"));
+  const auto effective_channels =
+      pnga::png_reconstruction::channels_for_color_type(stages.header.color_type);
+  html += QStringLiteral("<p>coordinate: (%1, %2)<br>PNG format: %3<br>effective source channels: %4</p>")
+      .arg(number(x_, hexadecimal_), number(y_, hexadecimal_),
+           esc(format_name()), number(effective_channels, hexadecimal_));
+  if (reconstruction.status !=
       pnga::analysis_engine::ReconstructStatus::kReady) {
-    const auto& step = reconstruction.steps[
-        std::min<std::size_t>(
-            reconstruction.steps.size() - 1,
-            static_cast<std::size_t>(reconstruction.selected_byte))];
-    reconstruct_summary_->setText(
-        QStringLiteral("Reconstruct: pass %1 row %2 sample %3 | byte %4 | "
-                       "X=%5 a=%6 b=%7 c=%8 pred=%9 recon=%10")
-            .arg(static_cast<qulonglong>(reconstruction.pass))
-            .arg(static_cast<qulonglong>(reconstruction.stream_row))
-            .arg(static_cast<qulonglong>(reconstruction.sample_index))
-            .arg(static_cast<qulonglong>(reconstruction.selected_byte))
-            .arg(step.raw)
-            .arg(step.a)
-            .arg(step.b)
-            .arg(step.c)
-            .arg(step.predictor)
-            .arg(step.recon));
-  } else {
-    reconstruct_summary_->setText(
-        QStringLiteral("reconstruct: %1")
-            .arg(QString::fromStdString(reconstruction.error)));
+    const bool out_of_bounds = reconstruction.status ==
+                               pnga::analysis_engine::ReconstructStatus::kOutOfRange;
+    html += QStringLiteral("<p><b>%1</b>: %2</p><p>Scanline materialization: %3</p></div>")
+        .arg(out_of_bounds ? QStringLiteral("Out of bounds")
+                           : QStringLiteral("Unsupported reconstruction"),
+             esc(QString::fromStdString(reconstruction.error)), esc(query_status_));
+    report_->setHtml(html);
+    return;
   }
-  // Show the formula for the pixel's first byte at the current stage (byte 0).
-  const auto text = model_->formulaText(0);
-  detail_->setText(text.value_or(
-      QStringLiteral("pixel (%1, %2) — token provenance not indexed yet")
-          .arg(static_cast<qulonglong>(x_))
-          .arg(static_cast<qulonglong>(y_))));
+
+  html += QStringLiteral("<p>pass: %1 (%2, %3)</p>")
+      .arg(number(reconstruction.pass, hexadecimal_),
+           number(reconstruction.pass_x, hexadecimal_),
+           number(reconstruction.pass_y, hexadecimal_));
+  html += section(QStringLiteral("Scanline location"));
+  html += QStringLiteral("<p>stream row: %1, sample index: %2<br>filtered byte offset: %3<br>unfiltered byte offset: %4</p>")
+      .arg(number(reconstruction.stream_row, hexadecimal_),
+           number(reconstruction.sample_index, hexadecimal_),
+           number(reconstruction.filtered_byte_offset, hexadecimal_),
+           number(reconstruction.unfiltered_byte_offset, hexadecimal_));
+
+  const auto formula = pnga::analysis_engine::filter_formula(
+      stages, reconstruction.stream_row);
+  if (!formula.success || reconstruction.selected_byte >= formula.events.size()) {
+    html += QStringLiteral("<p><b>Unsupported reconstruction</b>: filter trace unavailable.</p></div>");
+    report_->setHtml(html);
+    return;
+  }
+  const auto filter = formula.filter;
+  const auto selected = formula.events[reconstruction.selected_byte];
+  const auto channels = effective_channels;
+  html += section(QStringLiteral("Filtered data"));
+  html += QStringLiteral("<p>filter: %1 (%2), selected source byte: %3<br>raw filtered X: %4</p>")
+      .arg(QLatin1String(pnga::png_reconstruction::filter_type_text(filter)))
+      .arg(static_cast<int>(filter))
+      .arg(number(reconstruction.selected_byte, hexadecimal_))
+      .arg(value8(selected.raw, hexadecimal_));
+
+  // For byte-addressable non-interlaced images map a/b/c back to logical
+  // pixels. Packed, indexed, 16-bit and Adam7 data stays source-byte-only.
+  const bool logical_highlight = !stages.interlace && stages.header.bit_depth == 8 &&
+                                 stages.header.color_type != 3 && channels > 0;
+  std::map<SourceKey, RoleSet> dependencies;
+  if (logical_highlight) {
+    const auto bpp = *pnga::png_reconstruction::filter_bpp(
+        stages.header.bit_depth, stages.header.color_type);
+    const auto source_for = [&](std::uint8_t role, std::uint64_t byte)
+        -> std::optional<SourceKey> {
+      if (role == 0 && reconstruction.selected_byte < bpp) return std::nullopt;
+      const std::int64_t byte_delta = static_cast<std::int64_t>(byte) -
+                                      static_cast<std::int64_t>(reconstruction.selected_byte);
+      const std::int64_t pixel_delta = byte_delta / static_cast<std::int64_t>(channels);
+      const std::int64_t sx = static_cast<std::int64_t>(x_) + pixel_delta;
+      const std::int64_t sy = static_cast<std::int64_t>(y_) +
+                              (role == 1 || role == 2 ? -1 : 0);
+      if (sx < 0 || sy < 0 || sx >= stages.header.width || sy >= stages.header.height)
+        return std::nullopt;
+      return SourceKey{sx, sy};
+    };
+    const auto add = [&](std::uint8_t role, std::uint64_t byte) {
+      const auto key = source_for(role, byte);
+      if (!key.has_value()) return;
+      if (role == 0) dependencies[*key].a = true;
+      if (role == 1) dependencies[*key].b = true;
+      if (role == 2) dependencies[*key].c = true;
+    };
+    const auto previous_byte = reconstruction.selected_byte >= bpp
+                                   ? reconstruction.selected_byte - bpp
+                                   : reconstruction.selected_byte;
+    switch (filter) {
+      case pnga::png_reconstruction::FilterType::kSub:
+        add(0, previous_byte);
+        break;
+      case pnga::png_reconstruction::FilterType::kUp:
+        add(1, reconstruction.selected_byte);
+        break;
+      case pnga::png_reconstruction::FilterType::kAverage:
+        add(0, previous_byte);
+        add(1, reconstruction.selected_byte);
+        break;
+      case pnga::png_reconstruction::FilterType::kPaeth:
+        add(0, previous_byte);
+        add(1, reconstruction.selected_byte);
+        add(2, previous_byte);
+        break;
+      case pnga::png_reconstruction::FilterType::kNone:
+        break;
+    }
+  }
+
+  html += section(QStringLiteral("Pixel neighborhood"));
+  const auto channel_name = [&](std::uint8_t channel) {
+    if (stages.header.color_type == 0) return QStringLiteral("Gray");
+    if (stages.header.color_type == 3) return QStringLiteral("Index");
+    if (stages.header.color_type == 4)
+      return channel == 0 ? QStringLiteral("Gray") : QStringLiteral("Alpha");
+    const QStringList names{QStringLiteral("R"), QStringLiteral("G"),
+                            QStringLiteral("B"), QStringLiteral("A")};
+    return names.at(channel);
+  };
+  for (std::uint8_t channel = 0; channel < channels; ++channel) {
+    html += QStringLiteral("<h4>%1</h4><table cellspacing=\"2\"><tr><th></th>")
+        .arg(channel_name(channel));
+    for (int dx = -2; dx <= 2; ++dx) {
+      const std::int64_t column = static_cast<std::int64_t>(x_) + dx;
+      html += QStringLiteral("<th>%1</th>").arg(
+          column < 0 ? QStringLiteral("—")
+                     : number(static_cast<std::uint64_t>(column), hexadecimal_));
+    }
+    html += QStringLiteral("</tr>");
+    for (int dy = -1; dy <= 1; ++dy) {
+      html += QStringLiteral("<tr><th>y%1</th>")
+          .arg(dy == 0 ? QStringLiteral(" (current)") : QString::number(dy));
+      for (int dx = -2; dx <= 2; ++dx) {
+        const std::int64_t sx = static_cast<std::int64_t>(x_) + dx;
+        const std::int64_t sy = static_cast<std::int64_t>(y_) + dy;
+        const bool current = dx == 0 && dy == 0;
+        QString sample = QStringLiteral("—");
+        if (sx >= 0 && sy >= 0 && sx < stages.header.width &&
+            sy < stages.header.height) {
+          const auto sy64 = static_cast<std::uint64_t>(sy);
+          const auto sx64 = static_cast<std::uint64_t>(sx);
+          if (stages.header.width != 0 &&
+              sy64 <= std::numeric_limits<std::uint64_t>::max() /
+                             stages.header.width) {
+            const auto row_base = sy64 * stages.header.width;
+            if (sx64 <= std::numeric_limits<std::uint64_t>::max() - row_base) {
+              const auto pixel = row_base + sx64;
+              if (channels != 0 &&
+                  pixel <= std::numeric_limits<std::uint64_t>::max() /
+                                 channels) {
+                const auto base = pixel * channels;
+                if (base <= std::numeric_limits<std::uint64_t>::max() - channel &&
+                    base + channel < stages.native.samples.size()) {
+                  sample = number(stages.native.samples[base + channel], hexadecimal_);
+                }
+              }
+            }
+          }
+        }
+        const auto found = dependencies.find(SourceKey{sx, sy});
+        const QString role = found == dependencies.end() ? QString() : role_text(found->second);
+        html += QStringLiteral("<td style=\"%1\">%2<br><small>%3</small></td>")
+            .arg(cell_style(palette(), current), esc(sample),
+                 esc(current ? QStringLiteral("current") : role));
+      }
+      html += QStringLiteral("</tr>");
+    }
+    html += QStringLiteral("</table>");
+  }
+  html += QStringLiteral("<p>Legend: current; a/b/c = filter dependencies.");
+  if (!logical_highlight) {
+    html += QStringLiteral("<br>Source-byte dependence is shown; logical-pixel highlighting is unavailable for packed, indexed, 16-bit, or Adam7 data.");
+  }
+  html += QStringLiteral("</p>");
+
+  html += section(QStringLiteral("Filter / predictor / bounds"));
+  html += QStringLiteral("<p>filter: %1; a=%2, b=%3, c=%4; boundary neighbors are zero.<br>scanline materialization: %5</p>")
+      .arg(QLatin1String(pnga::png_reconstruction::filter_type_text(filter)),
+           value8(selected.a, hexadecimal_), value8(selected.b, hexadecimal_),
+           value8(selected.c, hexadecimal_), esc(query_status_));
+  html += section(QStringLiteral("Per-channel reconstruction"));
+  if (stages.header.bit_depth == 8 && stages.header.color_type != 3) {
+    for (std::uint8_t channel = 0; channel < channels; ++channel) {
+      const auto offset = reconstruction.selected_byte + channel;
+      if (offset >= formula.events.size()) break;
+      const auto& event = formula.events[offset];
+      html += QStringLiteral("<div>channel %1: X=%2, a=%3, b=%4, c=%5, predictor=%6; recon=(X + predictor) mod 256 = %7</div>")
+          .arg(number(channel, hexadecimal_), value8(event.raw, hexadecimal_),
+               value8(event.a, hexadecimal_), value8(event.b, hexadecimal_),
+               value8(event.c, hexadecimal_), value8(event.predictor, hexadecimal_),
+               value8(event.recon, hexadecimal_));
+    }
+  } else {
+    html += QStringLiteral("<p>Source-byte reconstruction is available for this sample; logical per-channel mapping is unsupported for packed, indexed, 16-bit, or Adam7 data.</p>");
+  }
+  html += section(QStringLiteral("Final RGBA"));
+  QStringList rgba;
+  for (std::uint8_t channel = 0; channel < 4; ++channel) {
+    const auto value = model_->deliveredChannel(x_, y_, channel);
+    if (value.has_value()) {
+      rgba.push_back(value8(*value, hexadecimal_));
+      continue;
+    }
+    std::uint64_t native_index = 0;
+    const bool native_index_ok =
+        y_ <= std::numeric_limits<std::uint64_t>::max() /
+                         static_cast<std::uint64_t>(stages.header.width) &&
+        (native_index = y_ * stages.header.width,
+         x_ <= std::numeric_limits<std::uint64_t>::max() - native_index) &&
+        (native_index += x_,
+         channels == 0 || native_index <=
+                              std::numeric_limits<std::uint64_t>::max() /
+                                  static_cast<std::uint64_t>(channels)) &&
+        (channels == 0 || (native_index *= channels, true));
+    std::optional<std::uint16_t> native;
+    if (native_index_ok && native_index < stages.native.samples.size()) {
+      if (stages.header.color_type == 6 && channel < 4) {
+        if (native_index + channel < stages.native.samples.size())
+          native = stages.native.samples[native_index + channel];
+      } else if (stages.header.color_type == 2) {
+        native = channel < 3 && native_index + channel < stages.native.samples.size()
+                     ? std::optional<std::uint16_t>(stages.native.samples[native_index + channel])
+                     : std::optional<std::uint16_t>(channel < 3 ? 0 : 255);
+      } else if (stages.header.color_type == 0) {
+        native = channel < 3 ? stages.native.samples[native_index]
+                             : std::optional<std::uint16_t>(255);
+      } else if (stages.header.color_type == 4) {
+        native = channel < 3 && native_index < stages.native.samples.size()
+                     ? stages.native.samples[native_index]
+                     : native_index + 1 < stages.native.samples.size()
+                           ? std::optional<std::uint16_t>(stages.native.samples[native_index + 1])
+                           : std::optional<std::uint16_t>(0);
+      }
+    }
+    rgba.push_back(native.has_value() ? number(*native, hexadecimal_)
+                                      : QStringLiteral("n/a"));
+  }
+  html += QStringLiteral("<p>RGBA(%1, %2, %3, %4)</p></div>")
+      .arg(rgba.at(0), rgba.at(1), rgba.at(2), rgba.at(3));
+  report_->setHtml(html);
 }
 
 }  // namespace pnga::ui::qt

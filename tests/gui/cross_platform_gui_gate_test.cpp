@@ -106,7 +106,10 @@ void CrossPlatformGuiGateTest::layoutSurvivesReferenceSizesAndDpi() {
   QVERIFY(splitter != nullptr);
   QVERIFY(inspector != nullptr);
   QVERIFY(preview != nullptr);
-  QCOMPARE(inspector->count(), 8);
+  QCOMPARE(inspector->count(), 3);
+  QCOMPARE(inspector->tabText(0), QStringLiteral("Image"));
+  QCOMPARE(inspector->tabText(1), QStringLiteral("Scanline"));
+  QCOMPARE(inspector->tabText(2), QStringLiteral("Compression"));
 
   for (const QSize size : {QSize(900, 600), QSize(1600, 1000)}) {
     window.resize(size);
@@ -218,6 +221,9 @@ void CrossPlatformGuiGateTest::accessibilityNamesCoverControlsAndInspectors() {
   check("hexSource");
   check("hexFollowPixel");
   check("inspectorTabs");
+  check("imageInspectorPages");
+  check("scanlineInspectorPages");
+  check("compressionInspectorPages");
   check("reconstructInspector");
   check("pixelInspector");
   check("scanlineInspector");

@@ -10,12 +10,25 @@
 #include <QVariant>
 
 #include <cstdint>
+#include <limits>
 
 namespace pnga::ui::qt {
 
 namespace {
 
 std::uint8_t u8(std::byte b) { return static_cast<std::uint8_t>(b); }
+
+bool checked_mul(std::uint64_t a, std::uint64_t b, std::uint64_t& out) {
+  if (b != 0 && a > std::numeric_limits<std::uint64_t>::max() / b) return false;
+  out = a * b;
+  return true;
+}
+
+bool checked_add(std::uint64_t a, std::uint64_t b, std::uint64_t& out) {
+  if (a > std::numeric_limits<std::uint64_t>::max() - b) return false;
+  out = a + b;
+  return true;
+}
 
 // Big-endian bit read for sub-byte samples (same order as the pipeline).
 std::uint8_t read_bits(const std::byte* data, std::uint64_t bit_pos,
@@ -32,7 +45,7 @@ std::uint8_t read_bits(const std::byte* data, std::uint64_t bit_pos,
 
 QString hex_bytes(const std::vector<std::byte>& data, std::uint64_t offset,
                   std::size_t count) {
-  if (offset + count > data.size()) {
+  if (offset > data.size() || count > data.size() - offset) {
     return QStringLiteral("—");
   }
   QString out;
@@ -99,6 +112,20 @@ void StageInspectorModel::setDeliveredPixels(std::uint32_t width,
   endResetModel();
 }
 
+std::optional<std::uint8_t> StageInspectorModel::deliveredChannel(
+    std::uint64_t x, std::uint64_t y, std::uint8_t channel) const {
+  if (delivered_rgba_.empty() || x >= delivered_width_ ||
+      y >= delivered_height_ || channel >= 4) {
+    return std::nullopt;
+  }
+  const std::uint64_t pixel = y * delivered_width_ + x;
+  const std::uint64_t offset = pixel * 4 + channel;
+  if (offset >= delivered_rgba_.size()) {
+    return std::nullopt;
+  }
+  return u8(delivered_rgba_[offset]);
+}
+
 std::optional<std::uint64_t> StageInspectorModel::streamRowForPixel(
     std::uint64_t x, std::uint64_t y, std::uint64_t* pass_x) const {
   if (!hasData()) {
@@ -120,9 +147,13 @@ std::optional<std::uint64_t> StageInspectorModel::streamRowForPixel(
       if (pass_x != nullptr) {
         *pass_x = (x - pass.x_start) / pass.x_step;
       }
-      return cursor + (y - pass.y_start) / pass.y_step;
+      std::uint64_t row = 0;
+      if (!checked_add(cursor, (y - pass.y_start) / pass.y_step, row)) {
+        return std::nullopt;
+      }
+      return row;
     }
-    cursor += pass.height;
+      if (!checked_add(cursor, pass.height, cursor)) return std::nullopt;
   }
   return std::nullopt;
 }
@@ -145,7 +176,13 @@ QString StageInspectorModel::valueAt(std::uint64_t channel) const {
 
   switch (stage_) {
     case pnga::trace_model::Stage::kNative: {
-      const std::uint64_t idx = (y_ * w + x_) * channels + channel;
+      std::uint64_t idx = 0;
+      std::uint64_t row = 0;
+      if (!checked_mul(y_, w, row) || !checked_add(row, x_, row) ||
+          !checked_mul(row, channels, idx) ||
+          !checked_add(idx, channel, idx)) {
+        return QStringLiteral("—");
+      }
       if (idx >= set.native.samples.size()) {
         return QStringLiteral("—");
       }
@@ -161,8 +198,16 @@ QString StageInspectorModel::valueAt(std::uint64_t channel) const {
       if (bd >= 8) {
         const unsigned bps = bd / 8;
         if (stage_ == pnga::trace_model::Stage::kUnfiltered) {
-          const std::uint64_t off =
-              y_ * *row_bytes + (x_ * channels + channel) * bps;
+          std::uint64_t off = 0;
+          std::uint64_t row_off = 0;
+          std::uint64_t sample = 0;
+          if (!checked_mul(y_, *row_bytes, row_off) ||
+              !checked_mul(x_, channels, sample) ||
+              !checked_add(sample, channel, sample) ||
+              !checked_mul(sample, bps, sample) ||
+              !checked_add(row_off, sample, off)) {
+            return QStringLiteral("—");
+          }
           return hex_bytes(set.unfiltered, off, bps);
         }
         std::uint64_t pass_x = 0;
@@ -176,8 +221,17 @@ QString StageInspectorModel::valueAt(std::uint64_t channel) const {
         return hex_bytes(set.filtered, off, bps);
       }
       if (stage_ == pnga::trace_model::Stage::kUnfiltered) {
-        const std::uint64_t bit =
-            (y_ * w * channels + x_ * channels + channel) * bd;
+        std::uint64_t bit = 0;
+        std::uint64_t row_samples = 0;
+        std::uint64_t pixel_samples = 0;
+        if (!checked_mul(y_, w, row_samples) ||
+            !checked_mul(row_samples, channels, row_samples) ||
+            !checked_mul(x_, channels, pixel_samples) ||
+            !checked_add(row_samples, pixel_samples, row_samples) ||
+            !checked_add(row_samples, channel, row_samples) ||
+            !checked_mul(row_samples, bd, bit)) {
+          return QStringLiteral("—");
+        }
         return QStringLiteral("0x%1").arg(
             read_bits(set.unfiltered.data(), bit, bd), 1, 16, QLatin1Char('0'));
       }

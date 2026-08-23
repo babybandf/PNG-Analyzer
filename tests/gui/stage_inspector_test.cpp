@@ -11,7 +11,7 @@
 
 #include <QtTest/QtTest>
 
-#include <QLabel>
+#include <QTextEdit>
 
 #include <cstdint>
 #include <memory>
@@ -48,7 +48,8 @@ class StageInspectorModelTest : public QObject {
   void formulaTextCarriesNeighbors();
   void deliveredUsesProvidedPixels();
   void outOfBoundsIsEmpty();
-  void reconstructSummaryUsesViewModel();
+  void reconstructReportUsesViewModel();
+  void filterReportUsesActualDependencyRoles();
 };
 
 void StageInspectorModelTest::stageSwitchKeepsRows() {
@@ -154,17 +155,43 @@ void StageInspectorModelTest::outOfBoundsIsEmpty() {
   QCOMPARE(text, QStringLiteral("—"));
 }
 
-void StageInspectorModelTest::reconstructSummaryUsesViewModel() {
+void StageInspectorModelTest::reconstructReportUsesViewModel() {
   const EncodedPng e = encode_png(8, 8, 8, 6, false, false);
   pnga::ui::qt::StageInspector inspector;
   inspector.setStageSet(stages_of(e));
   inspector.onPixelSelected(1, 4);
-  auto* summary =
-      inspector.findChild<QLabel*>(QStringLiteral("reconstructSummary"));
-  QVERIFY(summary != nullptr);
-  QVERIFY(summary->text().contains(QStringLiteral("Reconstruct")));
-  QVERIFY(summary->text().contains(QStringLiteral("pass 0")));
-  QVERIFY(summary->text().contains(QStringLiteral("pred=")));
+  auto* report =
+      inspector.findChild<QTextEdit*>(QStringLiteral("reconstructReport"));
+  QVERIFY(report != nullptr);
+  const QString text = report->toPlainText();
+  QVERIFY(text.contains(QStringLiteral("Target pixel")));
+  QVERIFY(text.contains(QStringLiteral("Scanline location")));
+  QVERIFY(text.contains(QStringLiteral("Filtered data")));
+  QVERIFY(text.contains(QStringLiteral("Pixel neighborhood")));
+  QVERIFY(text.contains(QStringLiteral("Filter / predictor / bounds")));
+  QVERIFY(text.contains(QStringLiteral("Per-channel reconstruction")));
+  QVERIFY(text.contains(QStringLiteral("Final RGBA")));
+  QVERIFY(!text.contains(QStringLiteral("row query:")));
+  inspector.setNumericBase(true);
+  QVERIFY(report->toPlainText().contains(QStringLiteral("0x")));
+}
+
+void StageInspectorModelTest::filterReportUsesActualDependencyRoles() {
+  const EncodedPng e = encode_png(8, 8, 8, 6, false, false);
+  pnga::ui::qt::StageInspector inspector;
+  inspector.setStageSet(stages_of(e));
+  auto* report = inspector.findChild<QTextEdit*>(QStringLiteral("reconstructReport"));
+  QVERIFY(report != nullptr);
+  const QStringList filters{QStringLiteral("none"), QStringLiteral("sub"),
+                            QStringLiteral("up"), QStringLiteral("average"),
+                            QStringLiteral("paeth")};
+  for (int row = 0; row < filters.size(); ++row) {
+    inspector.onPixelSelected(1, static_cast<std::uint64_t>(row));
+    const QString text = report->toPlainText();
+    QVERIFY2(text.contains(QStringLiteral("filter: %1").arg(filters.at(row))),
+             qPrintable(text));
+    QVERIFY(text.contains(QStringLiteral("current")));
+  }
 }
 
 QTEST_MAIN(StageInspectorModelTest)

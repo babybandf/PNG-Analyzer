@@ -212,50 +212,72 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   coordinate_layout->addStretch(1);
   inspector_layout->addWidget(coordinate_bar);
 
+  // Inspector uses stable primary groups with contextual secondary pages.
+  // Pages are created once and only the selected group/page changes, so
+  // switching context never changes the dock width.
   inspector_tabs_ = new QTabWidget(inspector_container);
   inspector_tabs_->setObjectName(QStringLiteral("inspectorTabs"));
-  inspector_tabs_->setAccessibleName(QStringLiteral("Inspector tabs"));
+  inspector_tabs_->setAccessibleName(QStringLiteral("Inspector groups"));
   inspector_tabs_->setUsesScrollButtons(true);
-  inspector_ = new pnga::ui::qt::StageInspector(inspector_tabs_);
+
+  const auto makePageTabs = [inspector_container](const QString& name,
+                                                   const QString& accessible) {
+    auto* tabs = new QTabWidget(inspector_container);
+    tabs->setObjectName(name);
+    tabs->setAccessibleName(accessible);
+    tabs->setUsesScrollButtons(true);
+    return tabs;
+  };
+  image_inspector_tabs_ = makePageTabs(QStringLiteral("imageInspectorPages"),
+                                       QStringLiteral("Image inspector pages"));
+  scanline_inspector_tabs_ = makePageTabs(
+      QStringLiteral("scanlineInspectorPages"),
+      QStringLiteral("Scanline inspector pages"));
+  compression_inspector_tabs_ = makePageTabs(
+      QStringLiteral("compressionInspectorPages"),
+      QStringLiteral("Compression inspector pages"));
+
+  inspector_ = new pnga::ui::qt::StageInspector(image_inspector_tabs_);
   inspector_->setObjectName(QStringLiteral("reconstructInspector"));
   inspector_->setAccessibleName(QStringLiteral("Reconstruct inspector"));
-  inspector_tabs_->addTab(inspector_, QStringLiteral("Reconstruct"));
-  const auto addInspectorPlaceholder = [this](const QString& title,
-                                               const QString& object_name,
-                                               const QString& accessible_name) {
+  image_inspector_tabs_->addTab(inspector_, QStringLiteral("Reconstruction"));
+  const auto addInspectorPlaceholder = [](QTabWidget* tabs,
+                                           const QString& title,
+                                           const QString& object_name,
+                                           const QString& accessible_name) {
     auto* label = new QLabel(QStringLiteral("Not available for current selection"),
-                             inspector_tabs_);
+                             tabs);
     label->setObjectName(object_name);
     label->setAccessibleName(accessible_name);
     label->setAlignment(Qt::AlignCenter);
-    inspector_tabs_->addTab(label, title);
+    tabs->addTab(label, title);
   };
-  addInspectorPlaceholder(QStringLiteral("Pixel"), QStringLiteral("pixelInspector"),
-                          QStringLiteral("Pixel inspector"));
-  addInspectorPlaceholder(QStringLiteral("Scanline"), QStringLiteral("scanlineInspector"),
-                          QStringLiteral("Scanline inspector"));
-  addInspectorPlaceholder(QStringLiteral("Source"), QStringLiteral("sourceInspector"),
-                          QStringLiteral("Source inspector"));
-  addInspectorPlaceholder(QStringLiteral("Format Context"),
-                          QStringLiteral("formatContextInspector"),
-                          QStringLiteral("Format context inspector"));
-  block_inspector_ = new pnga::ui::qt::BlockInspector(inspector_tabs_);
+  addInspectorPlaceholder(image_inspector_tabs_, QStringLiteral("Pixel"),
+                          QStringLiteral("pixelInspector"), QStringLiteral("Pixel inspector"));
+  addInspectorPlaceholder(image_inspector_tabs_, QStringLiteral("Format Context"),
+                          QStringLiteral("formatContextInspector"), QStringLiteral("Format context inspector"));
+  addInspectorPlaceholder(scanline_inspector_tabs_, QStringLiteral("Scanline"),
+                          QStringLiteral("scanlineInspector"), QStringLiteral("Scanline inspector"));
+  addInspectorPlaceholder(scanline_inspector_tabs_, QStringLiteral("Source"),
+                          QStringLiteral("sourceInspector"), QStringLiteral("Source inspector"));
+  block_inspector_ = new pnga::ui::qt::BlockInspector(compression_inspector_tabs_);
   block_inspector_->setObjectName(QStringLiteral("blockInspector"));
   block_inspector_->setAccessibleName(QStringLiteral("DEFLATE block inspector"));
-  inspector_tabs_->addTab(block_inspector_, QStringLiteral("DEFLATE / Block"));
-  huffman_inspector_ = new pnga::ui::qt::HuffmanInspector(inspector_tabs_);
+  compression_inspector_tabs_->addTab(block_inspector_, QStringLiteral("DEFLATE Blocks"));
+  huffman_inspector_ = new pnga::ui::qt::HuffmanInspector(compression_inspector_tabs_);
   huffman_inspector_->setObjectName(QStringLiteral("huffmanInspector"));
   huffman_inspector_->setAccessibleName(
       QStringLiteral("DEFLATE Huffman table inspector"));
-  inspector_tabs_->addTab(huffman_inspector_,
-                          QStringLiteral("DEFLATE / Huffman Tables"));
+  compression_inspector_tabs_->addTab(huffman_inspector_, QStringLiteral("Huffman"));
   decode_trace_inspector_ =
-      new pnga::ui::qt::DecodeTraceInspector(inspector_tabs_);
+      new pnga::ui::qt::DecodeTraceInspector(compression_inspector_tabs_);
   decode_trace_inspector_->setObjectName(QStringLiteral("decodeTraceInspector"));
   decode_trace_inspector_->setAccessibleName(
       QStringLiteral("DEFLATE decode trace inspector"));
-  inspector_tabs_->addTab(decode_trace_inspector_,
-                          QStringLiteral("DEFLATE / Decode Trace"));
+  compression_inspector_tabs_->addTab(decode_trace_inspector_, QStringLiteral("Decode Trace"));
+  inspector_tabs_->addTab(image_inspector_tabs_, QStringLiteral("Image"));
+  inspector_tabs_->addTab(scanline_inspector_tabs_, QStringLiteral("Scanline"));
+  inspector_tabs_->addTab(compression_inspector_tabs_, QStringLiteral("Compression"));
   inspector_layout->addWidget(inspector_tabs_, 1);
   QWidget::setTabOrder(x_spin_, y_spin_);
   QWidget::setTabOrder(y_spin_, lock_check_);
@@ -350,6 +372,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
             view_state_.numeric_base = index == 1
                                            ? pnga::ui::qt::NumericBase::kHexadecimal
                                            : pnga::ui::qt::NumericBase::kDecimal;
+            inspector_->setNumericBase(index == 1);
           });
   connect(hex_follow_check_, &QCheckBox::toggled, this,
           [this](bool checked) { view_state_.hex_follow_pixel = checked; });
@@ -378,10 +401,20 @@ void MainWindow::applyDefaultWorkspace() {
   center_splitter_->setSizes({456, 304});
   preview_tabs_->setCurrentIndex(0);
   inspector_tabs_->setCurrentIndex(0);
+  image_inspector_tabs_->setCurrentIndex(0);
+  scanline_inspector_tabs_->setCurrentIndex(0);
+  compression_inspector_tabs_->setCurrentIndex(0);
   chunks_dock_->show();
   inspector_dock_->show();
-  resizeDocks({chunks_dock_, inspector_dock_}, {260, 360},
+  chunks_dock_->setMinimumWidth(180);
+  inspector_dock_->setMinimumWidth(260);
+  resizeDocks({chunks_dock_, inspector_dock_}, {240, 420},
               Qt::Horizontal);
+  setMinimumSize(840, 520);
+  for (auto* splitter : findChildren<QSplitter*>()) {
+    splitter->setHandleWidth(8);
+    splitter->setChildrenCollapsible(false);
+  }
 
   view_state_.hex_source = pnga::ui::qt::HexSource::kFile;
   view_state_.numeric_base = pnga::ui::qt::NumericBase::kDecimal;
@@ -402,6 +435,7 @@ void MainWindow::applyDefaultWorkspace() {
       y_spin_->setValue(static_cast<int>(preserved_locked->y));
     }
   }
+  inspector_->setNumericBase(false);
   updateHexSource();
 }
 
@@ -435,6 +469,18 @@ void MainWindow::restoreWorkspace() {
   }
   preview_tabs_->setCurrentIndex(preview_index);
   inspector_tabs_->setCurrentIndex(inspector_index);
+  const int image_page = settings.value(QStringLiteral("workspace/imagePage"), 0).toInt();
+  const int scanline_page = settings.value(QStringLiteral("workspace/scanlinePage"), 0).toInt();
+  const int compression_page = settings.value(QStringLiteral("workspace/compressionPage"), 0).toInt();
+  if (image_page < 0 || image_page >= image_inspector_tabs_->count() ||
+      scanline_page < 0 || scanline_page >= scanline_inspector_tabs_->count() ||
+      compression_page < 0 || compression_page >= compression_inspector_tabs_->count()) {
+    applyDefaultWorkspace();
+    return;
+  }
+  image_inspector_tabs_->setCurrentIndex(image_page);
+  scanline_inspector_tabs_->setCurrentIndex(scanline_page);
+  compression_inspector_tabs_->setCurrentIndex(compression_page);
 
   const int base = settings.value(QStringLiteral("view/numericBase"), 0).toInt();
   const int source = settings.value(QStringLiteral("view/hexSource"), 0).toInt();
@@ -456,6 +502,7 @@ void MainWindow::restoreWorkspace() {
     hex_source_combo_->setCurrentIndex(source);
     hex_follow_check_->setChecked(view_state_.hex_follow_pixel);
   }
+  inspector_->setNumericBase(base == 1);
   updateHexSource();
 }
 
@@ -470,6 +517,12 @@ void MainWindow::saveWorkspace() const {
                     preview_tabs_->currentIndex());
   settings.setValue(QStringLiteral("workspace/inspectorTab"),
                     inspector_tabs_->currentIndex());
+  settings.setValue(QStringLiteral("workspace/imagePage"),
+                    image_inspector_tabs_->currentIndex());
+  settings.setValue(QStringLiteral("workspace/scanlinePage"),
+                    scanline_inspector_tabs_->currentIndex());
+  settings.setValue(QStringLiteral("workspace/compressionPage"),
+                    compression_inspector_tabs_->currentIndex());
   settings.setValue(QStringLiteral("view/numericBase"),
                     static_cast<int>(view_state_.numeric_base));
   settings.setValue(QStringLiteral("view/hexSource"),
@@ -522,6 +575,7 @@ void MainWindow::publishLockedCoordinate() {
   filter_map_view_->setCoordinate(coordinate.x, coordinate.y);
   filtered_view_->setCoordinate(coordinate.x, coordinate.y);
   defiltered_view_->setCoordinate(coordinate.x, coordinate.y);
+  inspector_->onPixelSelected(coordinate.x, coordinate.y);
   pnga::trace_model::Selection update;
   update.image = coordinate;
   update.stage = pnga::trace_model::Stage::kDelivered;

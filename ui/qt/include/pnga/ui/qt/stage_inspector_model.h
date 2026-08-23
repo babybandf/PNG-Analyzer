@@ -39,6 +39,13 @@ class StageInspectorModel final : public QAbstractTableModel {
   void setDeliveredPixels(std::uint32_t width, std::uint32_t height,
                           std::vector<std::byte> rgba);
 
+  // Returns a delivered RGBA8 channel when the application supplied a
+  // decoded image. This is presentation data only; reconstruction facts still
+  // come from StageSet.
+  std::optional<std::uint8_t> deliveredChannel(std::uint64_t x,
+                                                std::uint64_t y,
+                                                std::uint8_t channel) const;
+
   bool hasData() const noexcept {
     return set_ != nullptr && set_->success;
   }

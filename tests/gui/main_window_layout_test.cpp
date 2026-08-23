@@ -29,6 +29,7 @@ class MainWindowLayoutTest : public QObject {
   void corruptSettingsFallBackToDefaults();
   void resetLayoutRestoresDefaultsWithoutFileState();
   void coordinateInteractionUsesToolbarAndKeyboard();
+  void inspectorSwitchesKeepColumnWidths();
 };
 
 void MainWindowLayoutTest::init() {
@@ -57,15 +58,24 @@ void MainWindowLayoutTest::defaultLayoutHasRequiredRegions() {
   auto* inspector =
       window.findChild<QTabWidget*>(QStringLiteral("inspectorTabs"));
   QVERIFY(inspector != nullptr);
-  QCOMPARE(inspector->count(), 8);
-  QCOMPARE(inspector->tabText(0), QStringLiteral("Reconstruct"));
-  QCOMPARE(inspector->tabText(1), QStringLiteral("Pixel"));
-  QCOMPARE(inspector->tabText(2), QStringLiteral("Scanline"));
-  QCOMPARE(inspector->tabText(3), QStringLiteral("Source"));
-  QCOMPARE(inspector->tabText(4), QStringLiteral("Format Context"));
-  QCOMPARE(inspector->tabText(5), QStringLiteral("DEFLATE / Block"));
-  QCOMPARE(inspector->tabText(6), QStringLiteral("DEFLATE / Huffman Tables"));
-  QCOMPARE(inspector->tabText(7), QStringLiteral("DEFLATE / Decode Trace"));
+  QCOMPARE(inspector->count(), 3);
+  QCOMPARE(inspector->tabText(0), QStringLiteral("Image"));
+  QCOMPARE(inspector->tabText(1), QStringLiteral("Scanline"));
+  QCOMPARE(inspector->tabText(2), QStringLiteral("Compression"));
+  auto* image_pages = window.findChild<QTabWidget*>(QStringLiteral("imageInspectorPages"));
+  auto* scanline_pages = window.findChild<QTabWidget*>(QStringLiteral("scanlineInspectorPages"));
+  auto* compression_pages = window.findChild<QTabWidget*>(QStringLiteral("compressionInspectorPages"));
+  QVERIFY(image_pages != nullptr);
+  QVERIFY(scanline_pages != nullptr);
+  QVERIFY(compression_pages != nullptr);
+  QCOMPARE(image_pages->tabText(0), QStringLiteral("Reconstruction"));
+  QCOMPARE(image_pages->tabText(1), QStringLiteral("Pixel"));
+  QCOMPARE(image_pages->tabText(2), QStringLiteral("Format Context"));
+  QCOMPARE(scanline_pages->tabText(0), QStringLiteral("Scanline"));
+  QCOMPARE(scanline_pages->tabText(1), QStringLiteral("Source"));
+  QCOMPARE(compression_pages->tabText(0), QStringLiteral("DEFLATE Blocks"));
+  QCOMPARE(compression_pages->tabText(1), QStringLiteral("Huffman"));
+  QCOMPARE(compression_pages->tabText(2), QStringLiteral("Decode Trace"));
 
   QVERIFY(window.findChild<QDockWidget*>(QStringLiteral("chunksDock")) != nullptr);
   QVERIFY(window.findChild<QDockWidget*>(QStringLiteral("inspectorDock")) != nullptr);
@@ -113,7 +123,7 @@ void MainWindowLayoutTest::workspaceSettingsRoundTrip() {
     QVERIFY(source != nullptr);
     QVERIFY(follow != nullptr);
     preview->setCurrentIndex(3);
-    inspector->setCurrentIndex(2);
+    inspector->setCurrentIndex(1);
     base->setCurrentIndex(1);
     source->setCurrentIndex(1);
     follow->setChecked(false);
@@ -126,7 +136,7 @@ void MainWindowLayoutTest::workspaceSettingsRoundTrip() {
            3);
   QCOMPARE(restored.findChild<QTabWidget*>(QStringLiteral("inspectorTabs"))
                ->currentIndex(),
-           2);
+           1);
   QCOMPARE(restored.findChild<QComboBox*>(QStringLiteral("numericBase"))
                ->currentIndex(),
            1);
@@ -222,6 +232,41 @@ void MainWindowLayoutTest::coordinateInteractionUsesToolbarAndKeyboard() {
   QTest::keyClick(image, Qt::Key_Escape);
   QVERIFY(!lock->isChecked());
   QVERIFY(!bus->current().image.has_value());
+}
+
+void MainWindowLayoutTest::inspectorSwitchesKeepColumnWidths() {
+  MainWindow window;
+  window.resize(1200, 760);
+  window.show();
+  QCoreApplication::processEvents();
+  auto* groups = window.findChild<QTabWidget*>(QStringLiteral("inspectorTabs"));
+  auto* image = window.findChild<QTabWidget*>(QStringLiteral("imageInspectorPages"));
+  auto* scanline = window.findChild<QTabWidget*>(QStringLiteral("scanlineInspectorPages"));
+  auto* compression = window.findChild<QTabWidget*>(QStringLiteral("compressionInspectorPages"));
+  auto* chunks = window.findChild<QDockWidget*>(QStringLiteral("chunksDock"));
+  auto* inspector = window.findChild<QDockWidget*>(QStringLiteral("inspectorDock"));
+  QVERIFY(groups != nullptr);
+  QVERIFY(image != nullptr);
+  QVERIFY(scanline != nullptr);
+  QVERIFY(compression != nullptr);
+  QVERIFY(chunks != nullptr);
+  QVERIFY(inspector != nullptr);
+  QVERIFY(chunks->width() >= chunks->minimumWidth());
+  QVERIFY(inspector->width() >= inspector->minimumWidth());
+  for (auto* splitter : window.findChildren<QSplitter*>()) {
+    QCOMPARE(splitter->handleWidth(), 8);
+  }
+  const int chunk_width = chunks->width();
+  const int inspector_width = inspector->width();
+  for (int i = 0; i < 10; ++i) {
+    groups->setCurrentIndex(i % groups->count());
+    image->setCurrentIndex(i % image->count());
+    scanline->setCurrentIndex(i % scanline->count());
+    compression->setCurrentIndex(i % compression->count());
+    QCoreApplication::processEvents();
+    QCOMPARE(chunks->width(), chunk_width);
+    QCOMPARE(inspector->width(), inspector_width);
+  }
 }
 
 QTEST_MAIN(MainWindowLayoutTest)

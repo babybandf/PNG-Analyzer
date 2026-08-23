@@ -202,6 +202,9 @@ class MainWindow final : public QMainWindow {
   QDockWidget* inspector_dock_ = nullptr;
   QTabWidget* preview_tabs_ = nullptr;
   QTabWidget* inspector_tabs_ = nullptr;
+  QTabWidget* image_inspector_tabs_ = nullptr;
+  QTabWidget* scanline_inspector_tabs_ = nullptr;
+  QTabWidget* compression_inspector_tabs_ = nullptr;
   QSplitter* center_splitter_ = nullptr;
   QSpinBox* x_spin_ = nullptr;
   QSpinBox* y_spin_ = nullptr;

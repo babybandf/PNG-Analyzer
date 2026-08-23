@@ -1,10 +1,10 @@
 #ifndef PNGA_UI_QT_STAGE_INSPECTOR_H
 #define PNGA_UI_QT_STAGE_INSPECTOR_H
 
-// WP-306: stage inspector widget — a scrubber (Filtered / Unfiltered / Native /
-// Delivered) over a StageInspectorModel, a value table for the selected pixel
-// and a detail line with the per-byte filter formula. Pure Qt UI; all data
-// comes from the analysis engine.
+// WP-5U7: coordinate-driven reconstruction report. The widget consumes the
+// immutable analysis-engine view model and renders a selectable, copyable
+// report plus a small dependency-aware neighborhood. It does not parse PNG
+// bytes or run reconstruction.
 
 #include "pnga/ui/qt/stage_inspector_model.h"
 
@@ -15,10 +15,8 @@
 #include <cstdint>
 #include <memory>
 
-class QComboBox;
 class QLabel;
-class QTableView;
-class QVBoxLayout;
+class QTextEdit;
 
 namespace pnga::ui::qt {
 
@@ -32,12 +30,15 @@ class StageInspector final : public QWidget {
                           std::vector<std::byte> rgba);
   void clear();
 
+  // Keeps the report aligned with the global DEC/HEX presentation setting.
+  void setNumericBase(bool hexadecimal);
+
   StageInspectorModel* model() const noexcept { return model_; }
 
  public slots:
   void onPixelSelected(std::uint64_t x, std::uint64_t y);
-  // WP-406: shows the large-file query status (indexed/replaying/ready/error)
-  // for the row under inspection.
+  // Shows the large-file query status in the report without exposing an
+  // implementation/debug "row query" line.
   void setRowQueryStatus(const QString& status_text);
 
  signals:
@@ -45,19 +46,14 @@ class StageInspector final : public QWidget {
   void stageChanged(pnga::trace_model::Stage stage);
 
  private:
-  void onStageChanged(int index);
-  void onCurrentCellChanged(const QModelIndex& current,
-                            const QModelIndex& previous);
-  void refreshDetail();
+  void refreshReport();
 
   StageInspectorModel* model_ = nullptr;
-  QComboBox* stage_combo_ = nullptr;
-  QTableView* table_ = nullptr;
-  QLabel* detail_ = nullptr;
-  QLabel* reconstruct_summary_ = nullptr;
-  QLabel* query_status_label_ = nullptr;
+  QTextEdit* report_ = nullptr;
   std::uint64_t x_ = 0;
   std::uint64_t y_ = 0;
+  bool hexadecimal_ = false;
+  QString query_status_ = QStringLiteral("not indexed");
 };
 
 }  // namespace pnga::ui::qt
