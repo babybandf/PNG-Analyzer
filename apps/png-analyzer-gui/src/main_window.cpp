@@ -5,6 +5,7 @@
 
 #include <pnga/ui/qt/about_dialog.h>
 #include <pnga/ui/qt/block_inspector.h>
+#include <pnga/ui/qt/chunk_detail_panel.h>
 #include <pnga/ui/qt/chunk_model.h>
 #include <pnga/ui/qt/delivered_image_view.h>
 #include <pnga/ui/qt/decode_trace_inspector.h>
@@ -116,6 +117,21 @@ void ValidationWorker::run() {
   emit validationDone(generation_);
 }
 
+ChunkDetailWorker::ChunkDetailWorker(
+    std::uint64_t generation, std::uint64_t selection_serial,
+    std::shared_ptr<pnga::io::IByteSource> source,
+    pnga::png_format::ChunkNode node, QObject* parent)
+    : QThread(parent),
+      generation_(generation),
+      selection_serial_(selection_serial),
+      source_(std::move(source)),
+      node_(node) {}
+
+void ChunkDetailWorker::run() {
+  result_ = pnga::png_format::describe_chunk(*source_, node_);
+  emit detailDone(generation_, selection_serial_);
+}
+
 // ---------------------------------------------------------------------------
 // MainWindow
 // ---------------------------------------------------------------------------
@@ -184,7 +200,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   chunks_dock_->setFeatures(QDockWidget::DockWidgetMovable |
                             QDockWidget::DockWidgetFloatable |
                             QDockWidget::DockWidgetClosable);
-  tree_ = new QTreeView(chunks_dock_);
+  chunks_splitter_ = new QSplitter(Qt::Vertical, chunks_dock_);
+  chunks_splitter_->setObjectName(QStringLiteral("chunksDetailSplitter"));
+  chunks_splitter_->setChildrenCollapsible(false);
+  chunks_splitter_->setHandleWidth(8);
+  tree_ = new QTreeView(chunks_splitter_);
   tree_->setSelectionBehavior(QAbstractItemView::SelectRows);
   tree_->setSelectionMode(QAbstractItemView::SingleSelection);
   tree_->setUniformRowHeights(true);
@@ -196,7 +216,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   tree_->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   tree_->header()->setSectionResizeMode(QHeaderView::Interactive);
   tree_->header()->setStretchLastSection(true);
-  chunks_dock_->setWidget(tree_);
+  tree_->setMinimumHeight(80);
+  chunks_splitter_->addWidget(tree_);
+  chunk_detail_ = new pnga::ui::qt::ChunkDetailPanel(chunks_splitter_);
+  chunk_detail_->setMinimumHeight(80);
+  chunks_splitter_->addWidget(chunk_detail_);
+  chunks_splitter_->setStretchFactor(0, 3);
+  chunks_splitter_->setStretchFactor(1, 2);
+  chunks_splitter_->setSizes({360, 180});
+  chunks_dock_->setWidget(chunks_splitter_);
   addDockWidget(Qt::LeftDockWidgetArea, chunks_dock_);
 
   bus_ = new pnga::ui::qt::SelectionBus(this);
@@ -473,6 +501,7 @@ void MainWindow::applyDefaultWorkspace() {
   inspector_dock_->setFloating(false);
   resize(1200, 760);
   center_splitter_->setSizes({456, 304});
+  chunks_splitter_->setSizes({360, 180});
   preview_tabs_->setCurrentIndex(0);
   inspector_tabs_->setCurrentIndex(0);
   image_inspector_tabs_->setCurrentIndex(0);
@@ -560,6 +589,11 @@ void MainWindow::restoreWorkspace() {
     applyDefaultWorkspace();
     return;
   }
+  if (settings.contains(QStringLiteral("workspace/chunkDetailSplitterState"))) {
+    chunks_splitter_->restoreState(
+        settings.value(QStringLiteral("workspace/chunkDetailSplitterState"))
+            .toByteArray());
+  }
 
   const int preview_index =
       settings.value(QStringLiteral("workspace/previewTab"), 0).toInt();
@@ -616,6 +650,8 @@ void MainWindow::saveWorkspace() const {
   settings.setValue(QStringLiteral("workspace/mainState"), saveState());
   settings.setValue(QStringLiteral("workspace/splitterState"),
                     center_splitter_->saveState());
+  settings.setValue(QStringLiteral("workspace/chunkDetailSplitterState"),
+                    chunks_splitter_->saveState());
   settings.setValue(QStringLiteral("workspace/previewTab"),
                     preview_tabs_->currentIndex());
   settings.setValue(QStringLiteral("workspace/inspectorTab"),
@@ -1075,6 +1111,10 @@ void MainWindow::onOpenTriggered() {
 }
 
 void MainWindow::resetDocument() {
+  ++chunk_selection_serial_;
+  if (chunk_detail_ != nullptr) {
+    chunk_detail_->clear();
+  }
   if (model_ != nullptr) {
     delete model_;
   }
@@ -1134,11 +1174,33 @@ void MainWindow::onDecodeDone(std::uint64_t generation) {
 
 void MainWindow::onChunkSelectionChanged(const QModelIndex& current,
                                          const QModelIndex& /*previous*/) {
+  const std::uint64_t selection_serial = ++chunk_selection_serial_;
   if (!current.isValid()) {
     hex_->clearHighlight();
+    if (chunk_detail_ != nullptr) {
+      chunk_detail_->clear();
+    }
     return;
   }
   const auto& node = model_->chunkAt(current.row());
+
+  if (chunk_detail_ != nullptr && source_ != nullptr) {
+    chunk_detail_->setLoading();
+    auto* detail_worker = new ChunkDetailWorker(
+        generation_, selection_serial, source_, node, this);
+    chunk_detail_worker_ = detail_worker;
+    connect(detail_worker, &ChunkDetailWorker::detailDone, this,
+            &MainWindow::onChunkDetailDone);
+    connect(detail_worker, &QThread::finished, detail_worker,
+            &QObject::deleteLater);
+    connect(detail_worker, &QThread::finished, this,
+            [this, detail_worker] {
+              if (chunk_detail_worker_ == detail_worker) {
+                chunk_detail_worker_ = nullptr;
+              }
+            });
+    detail_worker->start();
+  }
 
   std::vector<pnga::ui::qt::HexHighlightSpan> spans;
   spans.push_back({node.header_offset, kHeaderSpanLength,
@@ -1160,6 +1222,16 @@ void MainWindow::onChunkSelectionChanged(const QModelIndex& current,
       pnga::trace_model::BitSpan{node.crc_offset, kCrcSpanLength}};
   sel.stage = pnga::trace_model::Stage::kChunk;
   bus_->publishMerged(kChunkPanelOrigin, generation_, sel);
+}
+
+void MainWindow::onChunkDetailDone(std::uint64_t generation,
+                                   std::uint64_t selection_serial) {
+  if (generation != generation_ ||
+      selection_serial != chunk_selection_serial_ ||
+      chunk_detail_worker_ == nullptr || chunk_detail_ == nullptr) {
+    return;
+  }
+  chunk_detail_->setDetail(chunk_detail_worker_->result());
 }
 
 void MainWindow::onPixelSelected(int x, int y) {

@@ -3,6 +3,7 @@
 
 add_library(pnga_png_format
   src/checksum.cpp
+  src/chunk_detail.cpp
   src/chunk_index.cpp
   src/virtual_idat_stream.cpp
 )

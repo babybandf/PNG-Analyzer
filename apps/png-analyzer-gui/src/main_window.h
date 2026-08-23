@@ -11,6 +11,7 @@
 #include <pnga/analysis-engine/stage_analysis.h>
 #include <pnga/analysis-engine/validation.h>
 #include <pnga/io/byte_source.h>
+#include <pnga/png-format/chunk_detail.h>
 #include <pnga/png-format/chunk_index.h>
 #include <pnga/trace-model/selection.h>
 #include <pnga/ui/qt/selection_view_state.h>
@@ -39,6 +40,7 @@ class QTreeView;
 
 namespace pnga::ui::qt {
 class ChunkModel;
+class ChunkDetailPanel;
 class BlockInspector;
 class DeliveredImageView;
 class DecodeTraceInspector;
@@ -135,6 +137,32 @@ class ValidationWorker final : public QThread {
   pnga::analysis_engine::DocumentValidationReport result_;
 };
 
+class ChunkDetailWorker final : public QThread {
+  Q_OBJECT
+ public:
+  ChunkDetailWorker(std::uint64_t generation, std::uint64_t selection_serial,
+                    std::shared_ptr<pnga::io::IByteSource> source,
+                    pnga::png_format::ChunkNode node,
+                    QObject* parent = nullptr);
+
+  std::uint64_t generation() const noexcept { return generation_; }
+  std::uint64_t selectionSerial() const noexcept { return selection_serial_; }
+  const pnga::png_format::ChunkDetail& result() const noexcept { return result_; }
+
+ signals:
+  void detailDone(std::uint64_t generation, std::uint64_t selection_serial);
+
+ protected:
+  void run() override;
+
+ private:
+  std::uint64_t generation_;
+  std::uint64_t selection_serial_;
+  std::shared_ptr<pnga::io::IByteSource> source_;
+  pnga::png_format::ChunkNode node_;
+  pnga::png_format::ChunkDetail result_;
+};
+
 // Bridges the Qt-free QueryCoordinator's worker-thread status callback onto the
 // GUI thread via a queued signal.
 class QueryStatusBridge final : public QObject {
@@ -161,6 +189,8 @@ class MainWindow final : public QMainWindow {
   void onDecodeDone(std::uint64_t generation);
   void onStageDone(std::uint64_t generation);
   void onValidationDone(std::uint64_t generation);
+  void onChunkDetailDone(std::uint64_t generation,
+                         std::uint64_t selection_serial);
   void onPixelSelected(int x, int y);
   void onRowQueryStatus(std::uint64_t row, int status);
   void resetLayout();
@@ -209,6 +239,8 @@ class MainWindow final : public QMainWindow {
   pnga::ui::qt::SelectionViewState view_state_;
   QDockWidget* chunks_dock_ = nullptr;
   QDockWidget* inspector_dock_ = nullptr;
+  QSplitter* chunks_splitter_ = nullptr;
+  pnga::ui::qt::ChunkDetailPanel* chunk_detail_ = nullptr;
   QTabWidget* preview_tabs_ = nullptr;
   QTabWidget* inspector_tabs_ = nullptr;
   QTabWidget* image_inspector_tabs_ = nullptr;
@@ -226,9 +258,11 @@ class MainWindow final : public QMainWindow {
   DecodeWorker* decode_worker_ = nullptr;
   StageWorker* stage_worker_ = nullptr;
   ValidationWorker* validation_worker_ = nullptr;
+  ChunkDetailWorker* chunk_detail_worker_ = nullptr;
   std::unique_ptr<pnga::analysis_engine::QueryCoordinator> query_;
   QueryStatusBridge* query_bridge_ = nullptr;
   std::uint64_t generation_ = 0;
+  std::uint64_t chunk_selection_serial_ = 0;
   QLabel* pixel_label_ = nullptr;
   QLabel* validation_label_ = nullptr;
   pnga::analysis_engine::DocumentValidationReport validation_report_;

@@ -1,6 +1,7 @@
 # Unit tests for libs/png-format. Catch2 is test-only (layout contract §8.4).
 
 add_executable(pnga_png_format_tests
+  chunk_detail_test.cpp
   chunk_index_test.cpp
   virtual_idat_stream_test.cpp
 )

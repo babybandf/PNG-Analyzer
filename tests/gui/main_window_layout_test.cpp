@@ -16,6 +16,7 @@
 #include <QFileInfo>
 #include <QHeaderView>
 #include <QImage>
+#include <QLabel>
 #include <QMenu>
 #include <QMenuBar>
 #include <QSettings>
@@ -24,6 +25,7 @@
 #include <QSplitter>
 #include <QStyle>
 #include <QTabWidget>
+#include <QTableWidget>
 #include <QTemporaryFile>
 #include <QTemporaryDir>
 #include <QTreeView>
@@ -377,8 +379,22 @@ void MainWindowLayoutTest::chunkDockStaysResizableAndRedockableAfterOpen() {
 
   auto* chunks = window.findChild<QDockWidget*>(QStringLiteral("chunksDock"));
   auto* tree = window.findChild<QTreeView*>();
+  auto* chunk_splitter =
+      window.findChild<QSplitter*>(QStringLiteral("chunksDetailSplitter"));
+  auto* detail_table =
+      window.findChild<QTableWidget*>(QStringLiteral("chunkDetailTable"));
+  auto* detail_summary =
+      window.findChild<QLabel*>(QStringLiteral("chunkDetailSummary"));
   QVERIFY(chunks != nullptr);
   QVERIFY(tree != nullptr);
+  QVERIFY(chunk_splitter != nullptr);
+  QVERIFY(detail_table != nullptr);
+  QVERIFY(detail_summary != nullptr);
+  QCOMPARE(chunk_splitter->orientation(), Qt::Vertical);
+  QCOMPARE(detail_table->horizontalScrollBarPolicy(), Qt::ScrollBarAsNeeded);
+  QCOMPARE(detail_table->verticalScrollBarPolicy(), Qt::ScrollBarAsNeeded);
+  QVERIFY(chunk_splitter->sizes().at(0) > 0);
+  QVERIFY(chunk_splitter->sizes().at(1) > 0);
   QVERIFY(window.styleSheet().contains(QStringLiteral("width: 8px")));
   QVERIFY(window.style()->pixelMetric(QStyle::PM_DockWidgetSeparatorExtent,
                                       nullptr, &window) >= 8);
@@ -398,6 +414,19 @@ void MainWindowLayoutTest::chunkDockStaysResizableAndRedockableAfterOpen() {
   png.flush();
   QVERIFY(window.openFile(png.fileName()));
   QCoreApplication::processEvents();
+  QTRY_VERIFY_WITH_TIMEOUT(detail_summary->text().contains(QStringLiteral("IHDR")),
+                           1000);
+  QVERIFY(detail_table->rowCount() >= 7);
+  chunk_splitter->setSizes({120, 260});
+  QCoreApplication::processEvents();
+  QVERIFY(chunk_splitter->sizes().at(0) >= 80);
+  QVERIFY(chunk_splitter->sizes().at(1) >= 80);
+  tree->selectionModel()->setCurrentIndex(
+      tree->model()->index(1, 0),
+      QItemSelectionModel::SelectCurrent | QItemSelectionModel::Rows);
+  QTRY_VERIFY_WITH_TIMEOUT(detail_summary->text().contains(QStringLiteral("IDAT")),
+                           1000);
+  QVERIFY(detail_table->rowCount() >= 4);
   QCOMPARE(chunks->width(), adjusted_width);
 
   chunks->setFloating(true);
