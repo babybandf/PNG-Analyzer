@@ -168,3 +168,70 @@ jobs:
             build/dev/Testing/Temporary/LastTest.log
             build/asan/Testing/Temporary/LastTest.log
           if-no-files-found: ignore
+
+  # WP-603D: exercise the optional libFuzzer harness on a hosted toolchain
+  # that provides the LLVM fuzzer runtime.  Keeping this separate from the
+  # product matrix prevents the coverage preset from changing the normal
+  # compiler/ABI contract while making runtime evidence a required CI gate.
+  coverage-fuzz:
+    name: coverage-fuzz (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Provide LLVM fuzzer toolchain
+        shell: bash
+        run: sudo apt-get update && sudo apt-get install -y clang pkg-config
+
+      - name: Cache vcpkg tool checkout
+        uses: actions/cache@v4
+        with:
+          path: .deps/vcpkg
+          key: vcpkg-tool-${{ runner.os }}-${{ hashFiles('scripts/bootstrap.py') }}
+          restore-keys: |
+            vcpkg-tool-${{ runner.os }}-
+
+      - name: Cache vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-cache
+          key: vcpkg-bin-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'cmake/dependencies.lock.json') }}
+          restore-keys: |
+            vcpkg-bin-${{ runner.os }}-
+
+      - name: Static dependency audit
+        shell: bash
+        run: python scripts/verify_dependencies.py
+
+      - name: Bootstrap pinned vcpkg
+        shell: bash
+        run: python scripts/bootstrap.py
+
+      - name: Run coverage-guided fuzz evidence
+        shell: bash
+        env:
+          CC: clang
+          CXX: clang++
+          VCPKG_BINARY_SOURCES: "clear;files,${{ runner.temp }}/vcpkg-cache,readwrite"
+        run: |
+          python scripts/run_coverage_fuzz.py --seconds 10
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("build/coverage-fuzz/evidence.json").read_text())
+          if report.get("status") != "PASS":
+              raise SystemExit(f"coverage fuzz did not produce PASS evidence: {report}")
+          PY
+
+      - name: Upload coverage evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-fuzz-evidence
+          path: build/coverage-fuzz/evidence.json
+          if-no-files-found: ignore
