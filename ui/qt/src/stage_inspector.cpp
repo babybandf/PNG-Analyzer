@@ -313,11 +313,14 @@ void StageInspector::refreshReport() {
         }
         const auto found = dependencies.find(SourceKey{sx, sy});
         const QString role = found == dependencies.end() ? QString() : role_text(found->second);
-        html += QStringLiteral("<td style=\"%1\">%2<br><small>%3</small></td>")
+        const QString marker = current ? QStringLiteral("current") : role;
+        const QString cell_text = marker.isEmpty()
+                                      ? sample
+                                      : QStringLiteral("%1: %2").arg(marker, sample);
+        html += QStringLiteral("<td style=\"%1\">%2</td>")
             .arg(cell_style(palette(), current,
                             found == dependencies.end() ? RoleSet{} : found->second),
-                 esc(sample),
-                 esc(current ? QStringLiteral("current") : role));
+                 esc(cell_text));
       }
       html += QStringLiteral("</tr>");
     }
