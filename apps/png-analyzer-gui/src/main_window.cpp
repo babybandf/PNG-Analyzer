@@ -41,6 +41,7 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QPainter>
+#include <QPushButton>
 #include <QSignalBlocker>
 #include <QScrollArea>
 #include <QSpinBox>
@@ -262,12 +263,17 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   lock_check_->setObjectName(QStringLiteral("lockCoordinate"));
   lock_check_->setAccessibleName(QStringLiteral("Lock coordinate"));
   coordinate_layout->addWidget(lock_check_);
-  base_combo_ = new QComboBox(coordinate_bar);
-  base_combo_->setObjectName(QStringLiteral("numericBase"));
-  base_combo_->setAccessibleName(QStringLiteral("Numeric base"));
-  base_combo_->addItem(QStringLiteral("DEC"));
-  base_combo_->addItem(QStringLiteral("HEX"));
-  coordinate_layout->addWidget(base_combo_);
+  base_button_ = new QPushButton(QStringLiteral("HEX"), coordinate_bar);
+  base_button_->setObjectName(QStringLiteral("numericBase"));
+  base_button_->setAccessibleName(QStringLiteral("Numeric base toggle"));
+  base_button_->setFlat(true);
+  base_button_->setAutoDefault(false);
+  base_button_->setCursor(Qt::PointingHandCursor);
+  base_button_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+  base_button_->setFixedWidth(
+      base_button_->fontMetrics().horizontalAdvance(QStringLiteral("DEC")) +
+      8);
+  coordinate_layout->addWidget(base_button_);
   hex_source_combo_ = new QComboBox(coordinate_bar);
   hex_source_combo_->setObjectName(QStringLiteral("hexSource"));
   hex_source_combo_->setAccessibleName(QStringLiteral("Hex source"));
@@ -371,8 +377,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   inspector_layout->addWidget(inspector_tabs_, 1);
   QWidget::setTabOrder(x_spin_, y_spin_);
   QWidget::setTabOrder(y_spin_, lock_check_);
-  QWidget::setTabOrder(lock_check_, base_combo_);
-  QWidget::setTabOrder(base_combo_, hex_source_combo_);
+  QWidget::setTabOrder(lock_check_, base_button_);
+  QWidget::setTabOrder(base_button_, hex_source_combo_);
   QWidget::setTabOrder(hex_source_combo_, hex_follow_check_);
   QWidget::setTabOrder(hex_follow_check_, inspector_tabs_);
   inspector_dock_->setWidget(inspector_container);
@@ -441,7 +447,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   x_spin_->installEventFilter(this);
   y_spin_->installEventFilter(this);
   lock_check_->installEventFilter(this);
-  base_combo_->installEventFilter(this);
+  base_button_->installEventFilter(this);
   hex_follow_check_->installEventFilter(this);
   preview_tabs_->installEventFilter(this);
   inspector_tabs_->installEventFilter(this);
@@ -469,13 +475,15 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
       clearLockedCoordinate();
     }
   });
-  connect(base_combo_, qOverload<int>(&QComboBox::currentIndexChanged), this,
-          [this](int index) {
-            view_state_.numeric_base = index == 1
-                                           ? pnga::ui::qt::NumericBase::kHexadecimal
-                                           : pnga::ui::qt::NumericBase::kDecimal;
-            inspector_->setNumericBase(index == 1);
-          });
+  connect(base_button_, &QPushButton::clicked, this, [this](bool) {
+    const bool hexadecimal =
+        view_state_.numeric_base != pnga::ui::qt::NumericBase::kHexadecimal;
+    view_state_.numeric_base =
+        hexadecimal ? pnga::ui::qt::NumericBase::kHexadecimal
+                    : pnga::ui::qt::NumericBase::kDecimal;
+    inspector_->setNumericBase(hexadecimal);
+    updateNumericBaseButton();
+  });
   connect(hex_follow_check_, &QCheckBox::toggled, this,
           [this](bool checked) { view_state_.hex_follow_pixel = checked; });
   connect(hex_source_combo_,
@@ -534,11 +542,11 @@ void MainWindow::applyDefaultWorkspace() {
   view_state_.locked = preserved_locked;
   view_state_.hover = preserved_hover;
   {
-    const QSignalBlocker base_blocker(base_combo_);
+    const QSignalBlocker base_blocker(base_button_);
     const QSignalBlocker source_blocker(hex_source_combo_);
     const QSignalBlocker follow_blocker(hex_follow_check_);
     const QSignalBlocker lock_blocker(lock_check_);
-    base_combo_->setCurrentIndex(0);
+    updateNumericBaseButton();
     hex_source_combo_->setCurrentIndex(0);
     hex_follow_check_->setChecked(true);
     lock_check_->setChecked(preserved_locked.has_value());
@@ -640,10 +648,10 @@ void MainWindow::restoreWorkspace() {
   view_state_.hex_follow_pixel =
       settings.value(QStringLiteral("view/hexFollowPixel"), true).toBool();
   {
-    const QSignalBlocker base_blocker(base_combo_);
+    const QSignalBlocker base_blocker(base_button_);
     const QSignalBlocker source_blocker(hex_source_combo_);
     const QSignalBlocker follow_blocker(hex_follow_check_);
-    base_combo_->setCurrentIndex(base);
+    updateNumericBaseButton();
     hex_source_combo_->setCurrentIndex(source);
     hex_follow_check_->setChecked(view_state_.hex_follow_pixel);
   }
@@ -820,6 +828,18 @@ void MainWindow::resetLayout() {
   applyDefaultWorkspace();
 }
 
+void MainWindow::updateNumericBaseButton() {
+  if (base_button_ == nullptr) {
+    return;
+  }
+  const bool hexadecimal =
+      view_state_.numeric_base == pnga::ui::qt::NumericBase::kHexadecimal;
+  const QString target = hexadecimal ? QStringLiteral("DEC")
+                                     : QStringLiteral("HEX");
+  base_button_->setText(target);
+  base_button_->setToolTip(QStringLiteral("Switch to %1").arg(target));
+}
+
 void MainWindow::publishLockedCoordinate() {
   const pnga::trace_model::ImageCoordinate coordinate{
       0, 0, 0, static_cast<std::uint64_t>(x_spin_->value()),
@@ -945,7 +965,7 @@ void MainWindow::paintEvent(QPaintEvent* event) {
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
   if ((watched == x_spin_ || watched == y_spin_ || watched == lock_check_ ||
-       watched == base_combo_ || watched == hex_follow_check_ ||
+       watched == base_button_ || watched == hex_follow_check_ ||
        watched == preview_tabs_ || watched == inspector_tabs_) &&
       event->type() == QEvent::KeyPress) {
     auto* key_event = static_cast<QKeyEvent*>(event);

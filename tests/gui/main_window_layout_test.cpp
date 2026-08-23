@@ -19,6 +19,7 @@
 #include <QLabel>
 #include <QMenu>
 #include <QMenuBar>
+#include <QPushButton>
 #include <QSettings>
 #include <QScrollArea>
 #include <QSpinBox>
@@ -99,7 +100,14 @@ void MainWindowLayoutTest::defaultLayoutHasRequiredRegions() {
   QVERIFY(window.findChild<QSpinBox*>(QStringLiteral("xCoordinate")) != nullptr);
   QVERIFY(window.findChild<QSpinBox*>(QStringLiteral("yCoordinate")) != nullptr);
   QVERIFY(window.findChild<QCheckBox*>(QStringLiteral("lockCoordinate")) != nullptr);
-  QVERIFY(window.findChild<QComboBox*>(QStringLiteral("numericBase")) != nullptr);
+  auto* base = window.findChild<QPushButton*>(QStringLiteral("numericBase"));
+  QVERIFY(base != nullptr);
+  QVERIFY(base->isFlat());
+  QCOMPARE(base->text(), QStringLiteral("HEX"));
+  base->click();
+  QCOMPARE(base->text(), QStringLiteral("DEC"));
+  base->click();
+  QCOMPARE(base->text(), QStringLiteral("HEX"));
   auto* hex_source =
       window.findChild<QComboBox*>(QStringLiteral("hexSource"));
   QVERIFY(hex_source != nullptr);
@@ -143,7 +151,7 @@ void MainWindowLayoutTest::workspaceSettingsRoundTrip() {
     auto* preview = window.findChild<QTabWidget*>(QStringLiteral("previewTabs"));
     auto* inspector =
         window.findChild<QTabWidget*>(QStringLiteral("inspectorTabs"));
-    auto* base = window.findChild<QComboBox*>(QStringLiteral("numericBase"));
+    auto* base = window.findChild<QPushButton*>(QStringLiteral("numericBase"));
     auto* source = window.findChild<QComboBox*>(QStringLiteral("hexSource"));
     auto* follow =
         window.findChild<QCheckBox*>(QStringLiteral("hexFollowPixel"));
@@ -154,7 +162,7 @@ void MainWindowLayoutTest::workspaceSettingsRoundTrip() {
     QVERIFY(follow != nullptr);
     preview->setCurrentIndex(3);
     inspector->setCurrentIndex(1);
-    base->setCurrentIndex(1);
+    base->click();
     source->setCurrentIndex(1);
     follow->setChecked(false);
     QVERIFY(window.close());
@@ -167,9 +175,9 @@ void MainWindowLayoutTest::workspaceSettingsRoundTrip() {
   QCOMPARE(restored.findChild<QTabWidget*>(QStringLiteral("inspectorTabs"))
                ->currentIndex(),
            1);
-  QCOMPARE(restored.findChild<QComboBox*>(QStringLiteral("numericBase"))
-               ->currentIndex(),
-           1);
+  QCOMPARE(restored.findChild<QPushButton*>(QStringLiteral("numericBase"))
+               ->text(),
+           QStringLiteral("DEC"));
   QCOMPARE(restored.findChild<QComboBox*>(QStringLiteral("hexSource"))
                ->currentIndex(),
            1);
@@ -192,9 +200,9 @@ void MainWindowLayoutTest::corruptSettingsFallBackToDefaults() {
   QCOMPARE(window.findChild<QTabWidget*>(QStringLiteral("inspectorTabs"))
                ->currentIndex(),
            0);
-  QCOMPARE(window.findChild<QComboBox*>(QStringLiteral("numericBase"))
-               ->currentIndex(),
-           0);
+  QCOMPARE(window.findChild<QPushButton*>(QStringLiteral("numericBase"))
+               ->text(),
+           QStringLiteral("HEX"));
   QVERIFY(window.findChild<QCheckBox*>(QStringLiteral("hexFollowPixel"))
               ->isChecked());
 }

@@ -33,6 +33,7 @@ class QEvent;
 class QMenu;
 class QModelIndex;
 class QPaintEvent;
+class QPushButton;
 class QSpinBox;
 class QSplitter;
 class QTabWidget;
@@ -213,6 +214,7 @@ class MainWindow final : public QMainWindow {
   void publishLockedCoordinate();
   void clearLockedCoordinate();
   void nudgeLockedCoordinate(int dx, int dy);
+  void updateNumericBaseButton();
   void setPixelStatus(int x, int y);
   void restorePixelStatus();
   void updateHexSource();
@@ -253,7 +255,7 @@ class MainWindow final : public QMainWindow {
   QSpinBox* y_spin_ = nullptr;
   QCheckBox* lock_check_ = nullptr;
   QCheckBox* hex_follow_check_ = nullptr;
-  QComboBox* base_combo_ = nullptr;
+  QPushButton* base_button_ = nullptr;
   QComboBox* hex_source_combo_ = nullptr;
   QTreeView* tree_ = nullptr;
   QMenu* recent_files_menu_ = nullptr;
