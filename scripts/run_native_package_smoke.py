@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 
@@ -134,6 +135,14 @@ def main():
             if not uninstaller.is_file():
                 raise SystemExit(f"NSIS uninstaller missing: {uninstaller}")
             run([str(uninstaller), "/S"], environment)
+            # NSIS self-deletion can finish asynchronously after the
+            # uninstaller process returns. Give its delete helper a bounded
+            # window before treating a remaining binary as an uninstall
+            # failure.
+            for _ in range(50):
+                if not binaries[0].exists():
+                    break
+                time.sleep(0.1)
             if binaries[0].exists():
                 raise SystemExit(f"uninstall left CLI behind: {binaries[0]}")
 
