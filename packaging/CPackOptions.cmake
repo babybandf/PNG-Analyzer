@@ -17,3 +17,21 @@ if(WIN32)
 else()
   set(CPACK_GENERATOR "TGZ")
 endif()
+
+# WP-605D: keep the relocatable archive as the default generator while
+# publishing Debian metadata for the Linux-only native package gate.  The
+# smoke runner selects DEB explicitly, so existing portable-package checks
+# continue to produce exactly one archive.
+if(UNIX AND NOT APPLE)
+  set(CPACK_DEBIAN_PACKAGE_NAME "png-analyzer")
+  set(CPACK_DEBIAN_PACKAGE_VERSION "${PROJECT_VERSION}")
+  set(CPACK_DEBIAN_PACKAGE_RELEASE "1")
+  set(CPACK_DEBIAN_PACKAGE_MAINTAINER "PNG Analyzer maintainers")
+  set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
+  set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+  set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/babybandf/PNG-Analyzer")
+  set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "PNG structure and Deflate analyzer")
+  set(CPACK_DEBIAN_FILE_NAME
+      "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}.deb")
+  set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS OFF)
+endif()

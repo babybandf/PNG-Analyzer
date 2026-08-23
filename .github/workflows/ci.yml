@@ -132,6 +132,22 @@ jobs:
         shell: bash
         run: python scripts/run_package_smoke.py
 
+      # WP-605D: exercise the Linux-native Debian package in an isolated dpkg
+      # root. This verifies install/uninstall semantics without mutating the
+      # hosted runner's package database or filesystem.
+      - name: Linux native package smoke
+        if: matrix.sanitize
+        shell: bash
+        run: python scripts/run_linux_package_smoke.py
+
+      - name: Upload Linux native package evidence
+        if: always() && matrix.sanitize
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-native-package
+          path: build/linux-packages/png-analyzer-*.deb
+          if-no-files-found: ignore
+
       # WP-604B: enforce the deterministic performance thresholds on the
       # Linux baseline and retain the machine-shaped WP-604A record. The
       # existing dev build is reused; no extra production configuration is

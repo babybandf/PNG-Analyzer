@@ -9,12 +9,20 @@ relocatable archive:
 
 This is the first cross-platform install/start smoke boundary. Native DMG,
 MSIX, AppImage/Flatpak and Qt framework deployment remain release follow-up
-work; the archive must not claim those installer formats.
+work; the archive must not claim those installer formats. On Linux, the
+WP-605D gate additionally builds a Debian package and verifies isolated
+install/uninstall without touching the host package database.
 
 Run the package smoke from the repository root:
 
 ```text
 python3 scripts/run_package_smoke.py
+```
+
+Linux native package gate:
+
+```text
+python3 scripts/run_linux_package_smoke.py
 ```
 
 The generated package and extraction directory stay under `build/` or a
