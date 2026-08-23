@@ -22,6 +22,8 @@ void HexSourceTabBarTest::exposesStableSourcesAndMetadata() {
   QVERIFY(bar.styleSheet().contains(QStringLiteral("padding-right: 8px")));
   QVERIFY(bar.styleSheet().contains(QStringLiteral("background-color: #d0d0d0")));
   QVERIFY(bar.styleSheet().contains(QStringLiteral("font-weight: bold")));
+  QVERIFY(bar.styleSheet().contains(QStringLiteral("QTabBar::tab:first")));
+  QVERIFY(bar.styleSheet().contains(QStringLiteral("margin-top: 6px")));
   QCOMPARE(bar.tabText(0), QStringLiteral("File"));
   QCOMPARE(bar.tabText(1), QStringLiteral("IDAT"));
   QCOMPARE(bar.tabText(2), QStringLiteral("Inflated"));

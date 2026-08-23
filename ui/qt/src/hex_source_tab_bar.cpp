@@ -50,7 +50,8 @@ HexSourceTabBar::HexSourceTabBar(QWidget* parent) : QTabBar(parent) {
       "background-color: #d0d0d0; color: #202124; }"
       "QTabBar::tab:selected { background-color: #d0d0d0; "
       "color: #202124; font-weight: bold; }"
-      "QTabBar::tab:hover { background-color: #d0d0d0; }"));
+      "QTabBar::tab:hover { background-color: #d0d0d0; }"
+      "QTabBar::tab:first { margin-top: 6px; }"));
 
   for (const auto& presentation : kSources) {
     const int index = addTab(QString::fromLatin1(presentation.label));
