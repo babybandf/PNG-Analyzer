@@ -24,6 +24,7 @@
 #include <QComboBox>
 #include <QDir>
 #include <QFileInfo>
+#include <QFrame>
 #include <QMetaObject>
 #include <QDockWidget>
 #include <QEvent>
@@ -39,6 +40,7 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QSignalBlocker>
+#include <QScrollArea>
 #include <QSpinBox>
 #include <QSplitter>
 #include <QScrollBar>
@@ -130,6 +132,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                  QMainWindow::AllowTabbedDocks |
                  QMainWindow::GroupedDragging);
   setDockNestingEnabled(true);
+  // Keep the side areas as the primary drop targets for the two inspector
+  // docks.  Without explicit corner ownership, a native floating dock can
+  // cross the main-window edge without the right-side drop indicator being
+  // activated on some platform styles.
+  setCorner(Qt::TopLeftCorner, Qt::LeftDockWidgetArea);
+  setCorner(Qt::BottomLeftCorner, Qt::LeftDockWidgetArea);
+  setCorner(Qt::TopRightCorner, Qt::RightDockWidgetArea);
+  setCorner(Qt::BottomRightCorner, Qt::RightDockWidgetArea);
 
   center_splitter_ = new QSplitter(Qt::Vertical, this);
   center_splitter_->setObjectName(QStringLiteral("previewHexSplitter"));
@@ -239,7 +249,25 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   hex_follow_check_->setAccessibleName(QStringLiteral("Hex follows pixel"));
   coordinate_layout->addWidget(hex_follow_check_);
   coordinate_layout->addStretch(1);
-  inspector_layout->addWidget(coordinate_bar);
+  // Keep the toolbar controls on one stable row without allowing their
+  // combined size hint to become the Inspector's minimum width.  The toolbar
+  // itself scrolls horizontally when the dock is narrower than its controls;
+  // the report and page tabs remain independently scrollable below it.
+  coordinate_bar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+  auto* coordinate_scroll = new QScrollArea(inspector_container);
+  coordinate_scroll->setObjectName(QStringLiteral("coordinateToolbarScroll"));
+  coordinate_scroll->setAccessibleName(QStringLiteral("Coordinate toolbar scroll area"));
+  coordinate_scroll->setFrameShape(QFrame::NoFrame);
+  coordinate_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  coordinate_scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  coordinate_scroll->setWidgetResizable(false);
+  coordinate_scroll->setMinimumWidth(0);
+  coordinate_scroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  coordinate_scroll->setWidget(coordinate_bar);
+  coordinate_scroll->setFixedHeight(
+      coordinate_bar->sizeHint().height() +
+      coordinate_scroll->horizontalScrollBar()->sizeHint().height());
+  inspector_layout->addWidget(coordinate_scroll);
 
   // Inspector uses stable primary groups with contextual secondary pages.
   // Pages are created once and only the selected group/page changes, so

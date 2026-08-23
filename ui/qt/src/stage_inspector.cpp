@@ -55,14 +55,20 @@ QString role_text(const RoleSet& roles) {
   return result.join(QStringLiteral(","));
 }
 
-QString cell_style(const QPalette& palette, bool current) {
+QString cell_style(const QPalette& palette, bool current,
+                   const RoleSet& roles) {
   const bool dark = palette.color(QPalette::Base).lightness() < 128;
+  const bool dependency = !current && (roles.a || roles.b || roles.c);
   const QColor background = current
                                 ? (dark ? QColor("#5b2630") : QColor("#ffe0e6"))
-                                : (dark ? QColor("#173f53") : QColor("#d9f0ff"));
+                                : dependency
+                                      ? (dark ? QColor("#5a4316") : QColor("#fff1c2"))
+                                      : (dark ? QColor("#173f53") : QColor("#f4f7f9"));
   const QColor border = current
                            ? (dark ? QColor("#ff8a9b") : QColor("#c6284a"))
-                           : (dark ? QColor("#65c7f3") : QColor("#6aa8c9"));
+                           : dependency
+                                 ? (dark ? QColor("#f2c14e") : QColor("#c58a00"))
+                                 : (dark ? QColor("#65c7f3") : QColor("#aab7c2"));
   const QColor text = dark ? QColor("#f5f5f5") : QColor("#202124");
   return QStringLiteral("background:%1;color:%2;border:1px solid %3;padding:3px;min-width:76px;text-align:center;")
       .arg(background.name(QColor::HexRgb), text.name(QColor::HexRgb),
@@ -208,7 +214,12 @@ void StageInspector::refreshReport() {
         stages.header.bit_depth, stages.header.color_type);
     const auto source_for = [&](std::uint8_t role, std::uint64_t byte)
         -> std::optional<SourceKey> {
-      if (role == 0 && reconstruction.selected_byte < bpp) return std::nullopt;
+      if ((role == 0 || role == 2) && reconstruction.selected_byte < bpp) {
+        return std::nullopt;
+      }
+      if ((role == 1 || role == 2) && reconstruction.pass_y == 0) {
+        return std::nullopt;
+      }
       const std::int64_t byte_delta = static_cast<std::int64_t>(byte) -
                                       static_cast<std::int64_t>(reconstruction.selected_byte);
       const std::int64_t pixel_delta = byte_delta / static_cast<std::int64_t>(channels);
@@ -303,7 +314,9 @@ void StageInspector::refreshReport() {
         const auto found = dependencies.find(SourceKey{sx, sy});
         const QString role = found == dependencies.end() ? QString() : role_text(found->second);
         html += QStringLiteral("<td style=\"%1\">%2<br><small>%3</small></td>")
-            .arg(cell_style(palette(), current), esc(sample),
+            .arg(cell_style(palette(), current,
+                            found == dependencies.end() ? RoleSet{} : found->second),
+                 esc(sample),
                  esc(current ? QStringLiteral("current") : role));
       }
       html += QStringLiteral("</tr>");

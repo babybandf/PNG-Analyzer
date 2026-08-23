@@ -18,6 +18,7 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QSettings>
+#include <QScrollArea>
 #include <QSpinBox>
 #include <QSplitter>
 #include <QStyle>
@@ -36,6 +37,7 @@ class MainWindowLayoutTest : public QObject {
   void corruptSettingsFallBackToDefaults();
   void resetLayoutRestoresDefaultsWithoutFileState();
   void coordinateInteractionUsesToolbarAndKeyboard();
+  void coordinateToolbarScrollsLocallyWhenInspectorIsNarrow();
   void inspectorSwitchesKeepColumnWidths();
   void chunkDockStaysResizableAndRedockableAfterOpen();
   void recentFilesMenuPersistsAndCapsHistory();
@@ -88,6 +90,8 @@ void MainWindowLayoutTest::defaultLayoutHasRequiredRegions() {
 
   QVERIFY(window.findChild<QDockWidget*>(QStringLiteral("chunksDock")) != nullptr);
   QVERIFY(window.findChild<QDockWidget*>(QStringLiteral("inspectorDock")) != nullptr);
+  QCOMPARE(window.corner(Qt::TopRightCorner), Qt::RightDockWidgetArea);
+  QCOMPARE(window.corner(Qt::BottomRightCorner), Qt::RightDockWidgetArea);
   QVERIFY(window.findChild<QSpinBox*>(QStringLiteral("xCoordinate")) != nullptr);
   QVERIFY(window.findChild<QSpinBox*>(QStringLiteral("yCoordinate")) != nullptr);
   QVERIFY(window.findChild<QCheckBox*>(QStringLiteral("lockCoordinate")) != nullptr);
@@ -113,9 +117,20 @@ void MainWindowLayoutTest::docksAreMovableFloatableAndClosable() {
     QVERIFY(dock->features().testFlag(QDockWidget::DockWidgetMovable));
     QVERIFY(dock->features().testFlag(QDockWidget::DockWidgetFloatable));
     QVERIFY(dock->features().testFlag(QDockWidget::DockWidgetClosable));
+    QVERIFY(dock->allowedAreas().testFlag(Qt::RightDockWidgetArea));
   };
   check("chunksDock");
   check("inspectorDock");
+
+  auto* inspector = window.findChild<QDockWidget*>(QStringLiteral("inspectorDock"));
+  QVERIFY(inspector != nullptr);
+  inspector->setFloating(true);
+  QCoreApplication::processEvents();
+  QVERIFY(inspector->isFloating());
+  window.addDockWidget(Qt::RightDockWidgetArea, inspector);
+  inspector->setFloating(false);
+  QCoreApplication::processEvents();
+  QCOMPARE(window.dockWidgetArea(inspector), Qt::RightDockWidgetArea);
 }
 
 void MainWindowLayoutTest::workspaceSettingsRoundTrip() {
@@ -262,6 +277,24 @@ void MainWindowLayoutTest::coordinateInteractionUsesToolbarAndKeyboard() {
   QTest::keyClick(image, Qt::Key_Escape);
   QVERIFY(!lock->isChecked());
   QVERIFY(!bus->current().image.has_value());
+}
+
+void MainWindowLayoutTest::coordinateToolbarScrollsLocallyWhenInspectorIsNarrow() {
+  MainWindow window;
+  window.resize(900, 600);
+  window.show();
+  QCoreApplication::processEvents();
+  auto* inspector = window.findChild<QDockWidget*>(QStringLiteral("inspectorDock"));
+  auto* toolbar = window.findChild<QWidget*>(QStringLiteral("coordinateToolbar"));
+  auto* scroll = window.findChild<QScrollArea*>(QStringLiteral("coordinateToolbarScroll"));
+  QVERIFY(inspector != nullptr);
+  QVERIFY(toolbar != nullptr);
+  QVERIFY(scroll != nullptr);
+  QCOMPARE(scroll->widget(), toolbar);
+  QCOMPARE(scroll->verticalScrollBarPolicy(), Qt::ScrollBarAlwaysOff);
+  QCOMPARE(scroll->horizontalScrollBarPolicy(), Qt::ScrollBarAsNeeded);
+  QVERIFY(inspector->minimumWidth() <= 300);
+  QVERIFY(toolbar->width() >= scroll->viewport()->width());
 }
 
 void MainWindowLayoutTest::inspectorSwitchesKeepColumnWidths() {

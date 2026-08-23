@@ -49,6 +49,7 @@ class StageInspectorModelTest : public QObject {
   void deliveredUsesProvidedPixels();
   void outOfBoundsIsEmpty();
   void reconstructReportUsesViewModel();
+  void pixelNeighborhoodShowsPaethCDependency();
   void filterReportUsesActualDependencyRoles();
 };
 
@@ -174,6 +175,22 @@ void StageInspectorModelTest::reconstructReportUsesViewModel() {
   QVERIFY(!text.contains(QStringLiteral("row query:")));
   inspector.setNumericBase(true);
   QVERIFY(report->toPlainText().contains(QStringLiteral("0x")));
+}
+
+void StageInspectorModelTest::pixelNeighborhoodShowsPaethCDependency() {
+  // Row 4 is Paeth in the rotating-filter fixture.  For pixel (1, 4), c is
+  // the up-left pixel (0, 3) and must remain a visible, labeled grid cell.
+  const EncodedPng e = encode_png(8, 8, 8, 6, false, false);
+  pnga::ui::qt::StageInspector inspector;
+  inspector.setStageSet(stages_of(e));
+  inspector.onPixelSelected(1, 4);
+  auto* report = inspector.findChild<QTextEdit*>(QStringLiteral("reconstructReport"));
+  QVERIFY(report != nullptr);
+  const QString text = report->toPlainText();
+  const QString neighborhood =
+      text.section(QStringLiteral("Pixel neighborhood"), 1, 1)
+          .section(QStringLiteral("Legend:"), 0, 0);
+  QVERIFY(neighborhood.contains(QStringLiteral("23\nc\n26\nb")));
 }
 
 void StageInspectorModelTest::filterReportUsesActualDependencyRoles() {
