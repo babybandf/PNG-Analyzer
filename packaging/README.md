@@ -25,5 +25,16 @@ Linux native package gate:
 python3 scripts/run_linux_package_smoke.py
 ```
 
+macOS/Windows native installer gate:
+
+```text
+python3 scripts/run_native_package_smoke.py
+```
+
+The native gate currently validates the CLI DMG/NSIS package only. It does
+not claim Qt framework deployment, GUI launch, signing or notarization.
+
 The generated package and extraction directory stay under `build/` or a
-temporary directory and are never added to `tests/corpus`.
+temporary directory and are never added to `tests/corpus`. CI uploads the
+portable package as `portable-package-Windows` (ZIP) and equivalent TGZ
+artifacts for macOS/Linux, so it can be downloaded from the Actions run.

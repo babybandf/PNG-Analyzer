@@ -132,6 +132,17 @@ jobs:
         shell: bash
         run: python scripts/run_package_smoke.py
 
+      # Keep the portable package available from the Actions run page. On
+      # Windows this is the directly downloadable portable ZIP requested by
+      # the release workflow; macOS/Linux retain their TGZ archives.
+      - name: Upload portable package
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: portable-package-${{ runner.os }}
+          path: build/packages/png-analyzer-*
+          if-no-files-found: ignore
+
       # WP-605D: exercise the Linux-native Debian package in an isolated dpkg
       # root. This verifies install/uninstall semantics without mutating the
       # hosted runner's package database or filesystem.
@@ -146,6 +157,20 @@ jobs:
         with:
           name: linux-native-package
           path: build/linux-packages/png-analyzer-*.deb
+          if-no-files-found: ignore
+
+      # WP-605E: validate native CLI installers without touching the host.
+      - name: Native installer smoke (macOS/Windows)
+        if: runner.os == 'macOS' || runner.os == 'Windows'
+        shell: bash
+        run: python scripts/run_native_package_smoke.py
+
+      - name: Upload native installer evidence
+        if: always() && (runner.os == 'macOS' || runner.os == 'Windows')
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-installer-${{ runner.os }}
+          path: build/native-packages/png-analyzer-*
           if-no-files-found: ignore
 
       # WP-604B: enforce the deterministic performance thresholds on the

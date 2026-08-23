@@ -35,3 +35,16 @@ if(UNIX AND NOT APPLE)
       "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}-${CMAKE_SYSTEM_NAME}-${CMAKE_SYSTEM_PROCESSOR}.deb")
   set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS OFF)
 endif()
+
+# WP-605E: native installer metadata.  The smoke runner selects DragNDrop or
+# NSIS explicitly; TGZ/ZIP remain the default portable generators.
+if(APPLE)
+  set(CPACK_DMG_VOLUME_NAME "PNG Analyzer")
+  set(CPACK_DMG_FORMAT "UDZO")
+endif()
+if(WIN32)
+  set(CPACK_NSIS_DISPLAY_NAME "PNG Analyzer")
+  set(CPACK_NSIS_PACKAGE_NAME "PNG Analyzer")
+  set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
+  set(CPACK_NSIS_MODIFY_PATH OFF)
+endif()
