@@ -270,9 +270,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   base_button_->setAutoDefault(false);
   base_button_->setCursor(Qt::PointingHandCursor);
   base_button_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
-  base_button_->setFixedWidth(
-      base_button_->fontMetrics().horizontalAdvance(QStringLiteral("DEC")) +
-      8);
+  base_button_->setFixedWidth(base_button_->sizeHint().width());
   coordinate_layout->addWidget(base_button_);
   hex_source_combo_ = new QComboBox(coordinate_bar);
   hex_source_combo_->setObjectName(QStringLiteral("hexSource"));
