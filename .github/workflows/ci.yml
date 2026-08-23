@@ -84,6 +84,20 @@ jobs:
             Add-Content -Path $env:GITHUB_ENV -Value "$($_.Name)=$($_.Value)"
           }
 
+      # CPack's NSIS generator requires makensis. Keep the packaging tool
+      # version explicit so native-installer evidence is reproducible on the
+      # hosted Windows image rather than depending on image contents.
+      - name: Provide NSIS (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install nsis --version=3.11 --no-progress --yes
+          $nsis = "${env:ProgramFiles(x86)}\NSIS"
+          if (-not (Test-Path "$nsis\makensis.exe")) {
+            throw "NSIS 3.11 installation did not provide makensis.exe"
+          }
+          Add-Content -Path $env:GITHUB_PATH -Value $nsis
+
       # Download-only caches. Keys cover OS and dependency-lock content so a
       # cache hit can never serve wrong-version or cross-platform artifacts.
       - name: Cache vcpkg tool checkout
