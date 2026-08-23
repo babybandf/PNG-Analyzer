@@ -59,6 +59,16 @@ install(TARGETS pnga_cli
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
   BUNDLE DESTINATION .
 )
+# vcpkg uses a shared zlib build on Windows.  Include the runtime DLLs that
+# the CLI actually depends on so the extracted archive can run without the
+# build tree or a developer toolchain on PATH.  The generator expression is
+# empty for static-link configurations and is therefore harmless elsewhere.
+if(WIN32)
+  install(FILES $<TARGET_RUNTIME_DLLS:pnga_cli>
+    DESTINATION ${CMAKE_INSTALL_BINDIR}
+    OPTIONAL
+  )
+endif()
 if(PNGA_HAVE_QT)
   install(TARGETS pnga_analyzer_gui
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
