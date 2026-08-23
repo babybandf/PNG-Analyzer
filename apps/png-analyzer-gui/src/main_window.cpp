@@ -376,6 +376,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   addDockWidget(Qt::RightDockWidgetArea, inspector_dock_);
 
   pixel_label_ = new QLabel(QStringLiteral("No image"), this);
+  pixel_label_->setObjectName(QStringLiteral("pixelStatus"));
   statusBar()->addWidget(pixel_label_);
   validation_label_ = new QLabel(QStringLiteral("Validation: not loaded"), this);
   validation_label_->setObjectName(QStringLiteral("validationStatus"));
@@ -421,9 +422,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
                 0, 0, 0, static_cast<std::uint64_t>(x),
                 static_cast<std::uint64_t>(y)};
             view_state_.set_hover(coordinate);
+            setPixelStatus(x, y);
           });
   connect(image_view_, &pnga::ui::qt::DeliveredImageView::pixelHoverLeft,
-          this, [this] { view_state_.clear_hover(); });
+          this, [this] {
+            view_state_.clear_hover();
+            restorePixelStatus();
+          });
   connect(image_view_,
           &pnga::ui::qt::DeliveredImageView::pixelNudgeRequested, this,
           &MainWindow::nudgeLockedCoordinate);
@@ -839,6 +844,12 @@ void MainWindow::clearLockedCoordinate() {
     const QSignalBlocker lock_blocker(lock_check_);
     lock_check_->setChecked(false);
   }
+  if (view_state_.hover.has_value()) {
+    setPixelStatus(static_cast<int>(view_state_.hover->x),
+                   static_cast<int>(view_state_.hover->y));
+  } else {
+    restorePixelStatus();
+  }
   pnga::trace_model::Selection current = bus_->current();
   current.image.reset();
   if (current.stage == pnga::trace_model::Stage::kDelivered) {
@@ -1072,6 +1083,8 @@ bool MainWindow::openFile(const QString& path) {
   }
   setWindowTitle(QStringLiteral("%1 — %2").arg(windowTitle(), absolute_path));
   current_file_path_ = absolute_path;
+  default_pixel_status_ = QStringLiteral("Loading image…");
+  pixel_label_->setText(default_pixel_status_);
   source_ = source;
   index_ = pnga::png_format::index_chunks(*source_);
   ++generation_;
@@ -1163,8 +1176,9 @@ void MainWindow::onDecodeDone(std::uint64_t generation) {
   const auto& result = decode_worker_->result();
   if (!result.success) {
     image_view_->setImage(QImage());
-    pixel_label_->setText(QStringLiteral("decode failed: %1")
-                              .arg(QString::fromStdString(result.error)));
+    default_pixel_status_ = QStringLiteral("decode failed: %1")
+                                .arg(QString::fromStdString(result.error));
+    pixel_label_->setText(default_pixel_status_);
     decode_worker_ = nullptr;
     return;
   }
@@ -1175,11 +1189,13 @@ void MainWindow::onDecodeDone(std::uint64_t generation) {
   image_view_->setImage(qimage);
   // Feed the delivered RGBA to the stage inspector's Delivered stage.
   inspector_->setDeliveredPixels(img.width, img.height, img.rgba);
-  pixel_label_->setText(QStringLiteral("%1 x %2  (bit depth %3, color type %4)")
-                            .arg(img.width)
-                            .arg(img.height)
-                            .arg(img.source_bit_depth)
-                            .arg(img.source_color_type));
+  default_pixel_status_ =
+      QStringLiteral("%1 x %2  (bit depth %3, color type %4)")
+          .arg(img.width)
+          .arg(img.height)
+          .arg(img.source_bit_depth)
+          .arg(img.source_color_type);
+  pixel_label_->setText(default_pixel_status_);
   decode_worker_ = nullptr;
 }
 
@@ -1245,6 +1261,31 @@ void MainWindow::onChunkDetailDone(std::uint64_t generation,
   chunk_detail_->setDetail(chunk_detail_worker_->result());
 }
 
+void MainWindow::setPixelStatus(int x, int y) {
+  const auto rgba = image_view_->rgbaAt(x, y);
+  if (!rgba.has_value()) {
+    restorePixelStatus();
+    return;
+  }
+  pixel_label_->setText(
+      QStringLiteral("pixel (%1, %2) RGBA(%3, %4, %5, %6)")
+          .arg(x)
+          .arg(y)
+          .arg((*rgba)[0])
+          .arg((*rgba)[1])
+          .arg((*rgba)[2])
+          .arg((*rgba)[3]));
+}
+
+void MainWindow::restorePixelStatus() {
+  if (view_state_.locked.has_value()) {
+    setPixelStatus(static_cast<int>(view_state_.locked->x),
+                   static_cast<int>(view_state_.locked->y));
+    return;
+  }
+  pixel_label_->setText(default_pixel_status_);
+}
+
 void MainWindow::onPixelSelected(int x, int y) {
   {
     const QSignalBlocker x_blocker(x_spin_);
@@ -1285,15 +1326,5 @@ void MainWindow::onPixelSelected(int x, int y) {
   defiltered_view_->setCoordinate(static_cast<std::uint64_t>(x),
                                   static_cast<std::uint64_t>(y));
   bus_->publishMerged(kImagePanelOrigin, generation_, sel);
-  const auto rgba = image_view_->rgbaAt(x, y);
-  if (rgba.has_value()) {
-    pixel_label_->setText(
-        QStringLiteral("pixel (%1, %2) RGBA(%3, %4, %5, %6)")
-            .arg(x)
-            .arg(y)
-            .arg((*rgba)[0])
-            .arg((*rgba)[1])
-            .arg((*rgba)[2])
-            .arg((*rgba)[3]));
-  }
+  setPixelStatus(x, y);
 }

@@ -254,24 +254,59 @@ void MainWindowLayoutTest::coordinateInteractionUsesToolbarAndKeyboard() {
   auto* x = window.findChild<QSpinBox*>(QStringLiteral("xCoordinate"));
   auto* y = window.findChild<QSpinBox*>(QStringLiteral("yCoordinate"));
   auto* lock = window.findChild<QCheckBox*>(QStringLiteral("lockCoordinate"));
+  auto* status = window.findChild<QLabel*>(QStringLiteral("pixelStatus"));
   QVERIFY(image != nullptr);
   QVERIFY(bus != nullptr);
   QVERIFY(x != nullptr);
   QVERIFY(y != nullptr);
   QVERIFY(lock != nullptr);
+  QVERIFY(status != nullptr);
 
   QImage delivered(2, 2, QImage::Format_RGBA8888);
   delivered.fill(qRgba(1, 2, 3, 255));
   image->setImage(delivered);
   QCoreApplication::processEvents();
+  const auto status_for = [&image](const QPoint& point) {
+    const auto rgba = image->rgbaAt(point.x(), point.y());
+    return QStringLiteral("pixel (%1, %2) RGBA(%3, %4, %5, %6)")
+        .arg(point.x())
+        .arg(point.y())
+        .arg((*rgba)[0])
+        .arg((*rgba)[1])
+        .arg((*rgba)[2])
+        .arg((*rgba)[3]);
+  };
+  const QPoint hover_point = image->rect().center();
+  const auto hovered_pixel = image->imagePixelAt(hover_point);
+  QVERIFY(hovered_pixel.has_value());
+  QTest::mouseMove(image, hover_point);
+  QCOMPARE(status->text(), status_for(*hovered_pixel));
   QTest::mouseClick(image, Qt::LeftButton, Qt::NoModifier,
-                    image->rect().center());
+                    hover_point);
   QVERIFY(lock->isChecked());
   QVERIFY(x->value() >= 0 && x->value() < 2);
   QVERIFY(y->value() >= 0 && y->value() < 2);
   QVERIFY(bus->current().image.has_value());
   QCOMPARE(bus->current().image->x, static_cast<std::uint64_t>(x->value()));
   QCOMPARE(bus->current().image->y, static_cast<std::uint64_t>(y->value()));
+
+  QPoint outside_point;
+  bool found_outside = false;
+  for (int row = 0; row < image->height() && !found_outside; ++row) {
+    for (int column = 0; column < image->width(); ++column) {
+      const QPoint candidate(column, row);
+      if (!image->imagePixelAt(candidate).has_value()) {
+        outside_point = candidate;
+        found_outside = true;
+        break;
+      }
+    }
+  }
+  QVERIFY(found_outside);
+  QTest::mouseMove(image, outside_point);
+  QCOMPARE(status->text(), status_for(QPoint(x->value(), y->value())));
+  QVERIFY(QMetaObject::invokeMethod(image, "pixelHoverLeft",
+                                    Qt::DirectConnection));
 
   const int old_x = x->value();
   const int old_y = y->value();
@@ -281,6 +316,7 @@ void MainWindowLayoutTest::coordinateInteractionUsesToolbarAndKeyboard() {
   QTest::keyClick(image, Qt::Key_Escape);
   QVERIFY(!lock->isChecked());
   QVERIFY(!bus->current().image.has_value());
+  QCOMPARE(status->text(), QStringLiteral("No image"));
 }
 
 void MainWindowLayoutTest::coordinateToolbarScrollsLocallyWhenInspectorIsNarrow() {
