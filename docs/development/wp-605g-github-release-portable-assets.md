@@ -1,6 +1,6 @@
 # WP-605G — GitHub Release Portable Assets
 
-Status: **planned; scope frozen** (2026-08-23)
+Status: **implemented; workflow validated** (2026-08-23)
 
 ## Goal
 
@@ -35,3 +35,10 @@ git diff --check
 
 The workflow definition must pass repository/layout audits and its publish job
 must fail closed when the requested tag does not exist.
+
+Implementation is in commit `b3759b7`. The workflow is recognized by GitHub and
+the repository CI/dependency gates passed in runs `32613977759` and
+`32613977743`. A real Release publication is intentionally not created during
+development because the project does not create or push tags automatically;
+the first existing `v*` tag or an explicit manual dispatch will exercise the
+publish job.
