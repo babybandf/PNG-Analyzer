@@ -1,6 +1,6 @@
 # WP-605F — Qt Framework Deployment & GUI Launch Smoke
 
-Status: **planned; scope frozen** (2026-08-23)
+Status: **implemented; CI gate verified** (2026-08-23)
 
 ## Goal
 
@@ -35,3 +35,10 @@ python3 scripts/run_qt_package_smoke.py
 The runner must report `PASS` only after deployment and a bounded installed GUI
 launch; otherwise it reports `NOT_CONFIGURED` for a missing platform/tool kit or
 fails with actionable evidence.
+
+Implementation is in commit `03665dd`. The macOS and Windows CI jobs execute the
+runner and upload `qt-deployment-<OS>` evidence; the current hosted runners do
+not provide a Qt kit, so both jobs record `NOT_CONFIGURED` without weakening the
+build gate. A local macOS Qt 6.11.1 staging install deployed the frameworks and
+offscreen plugin and launched the GUI successfully; local DMG creation is
+limited by the sandboxed host's unavailable `hdiutil` device service.
