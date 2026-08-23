@@ -8,7 +8,14 @@ add_executable(pnga_analyzer_gui
   src/main.cpp
   src/main_window.cpp
 )
-set_target_properties(pnga_analyzer_gui PROPERTIES AUTOMOC ON)
+set_target_properties(pnga_analyzer_gui PROPERTIES
+  AUTOMOC ON
+  # WP-605F: give macdeployqt a native application bundle to deploy. The
+  # Windows target remains a normal GUI executable and is handled by
+  # windeployqt in the packaging smoke runner.
+  MACOSX_BUNDLE ON
+  WIN32_EXECUTABLE ON
+)
 target_link_libraries(pnga_analyzer_gui PRIVATE
   pnga::ui_qt
   pnga::analysis_engine

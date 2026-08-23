@@ -1,0 +1,61 @@
+# WP-605F: deploy the Qt runtime into the install staging tree. CPack runs
+# install scripts against its isolated staging prefix, so this never mutates
+# the source/build tree or a developer installation.
+if(APPLE)
+  set(_pnga_qt_deploy_target "${CMAKE_INSTALL_PREFIX}/pnga_analyzer_gui.app")
+  execute_process(
+    COMMAND "@PNGA_QT_DEPLOY_TOOL@" "${_pnga_qt_deploy_target}"
+            -always-overwrite
+    RESULT_VARIABLE _pnga_qt_deploy_result
+  )
+elseif(WIN32)
+  set(_pnga_qt_deploy_target
+      "${CMAKE_INSTALL_PREFIX}/@CMAKE_INSTALL_BINDIR@/pnga_analyzer_gui.exe")
+  execute_process(
+    COMMAND "@PNGA_QT_DEPLOY_TOOL@" --release --no-translations
+            "${_pnga_qt_deploy_target}"
+    RESULT_VARIABLE _pnga_qt_deploy_result
+  )
+else()
+  set(_pnga_qt_deploy_result 0)
+endif()
+
+if(NOT _pnga_qt_deploy_result EQUAL 0)
+  message(FATAL_ERROR "Qt framework deployment failed: ${_pnga_qt_deploy_result}")
+endif()
+
+# The bounded package smoke uses the offscreen QPA plugin so it can launch
+# without a desktop session. macdeployqt/windeployqt deploy only plugins
+# inferred from the application, so copy this test/runtime plugin explicitly
+# from the same Qt kit. It is harmless for normal GUI launches and keeps the
+# package self-contained for headless verification.
+execute_process(
+  COMMAND "@PNGA_QT_PATHS_TOOL@" --plugin-dir
+  RESULT_VARIABLE _pnga_qt_paths_result
+  OUTPUT_VARIABLE _pnga_qt_plugin_dir
+  ERROR_VARIABLE _pnga_qt_paths_error
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+if(NOT _pnga_qt_paths_result EQUAL 0 OR NOT IS_DIRECTORY "${_pnga_qt_plugin_dir}")
+  message(FATAL_ERROR
+    "Qt plugin directory lookup failed: ${_pnga_qt_paths_error}")
+endif()
+if(APPLE)
+  set(_pnga_qt_offscreen_plugin
+      "${_pnga_qt_plugin_dir}/platforms/libqoffscreen.dylib")
+  set(_pnga_qt_platform_destination
+      "${_pnga_qt_deploy_target}/Contents/PlugIns/platforms")
+elseif(WIN32)
+  set(_pnga_qt_offscreen_plugin
+      "${_pnga_qt_plugin_dir}/platforms/qoffscreen.dll")
+  set(_pnga_qt_platform_destination
+      "${CMAKE_INSTALL_PREFIX}/@CMAKE_INSTALL_BINDIR@/platforms")
+endif()
+if(NOT EXISTS "${_pnga_qt_offscreen_plugin}")
+  message(FATAL_ERROR
+    "Qt offscreen platform plugin is missing: ${_pnga_qt_offscreen_plugin}")
+endif()
+file(MAKE_DIRECTORY "${_pnga_qt_platform_destination}")
+file(COPY "${_pnga_qt_offscreen_plugin}"
+     DESTINATION "${_pnga_qt_platform_destination}"
+     FOLLOW_SYMLINK_CHAIN)

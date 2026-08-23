@@ -28,6 +28,34 @@ option(PNGA_BUILD_TESTS "Build PNG Analyzer tests" ON)
 option(PNGA_BUILD_COVERAGE_FUZZ
        "Build the optional LLVM libFuzzer harness (requires a fuzzer runtime)"
        OFF)
+option(PNGA_ENABLE_QT_DEPLOYMENT
+       "Deploy Qt frameworks/plugins during install (requires macdeployqt or windeployqt)"
+       OFF)
+
+if(PNGA_ENABLE_QT_DEPLOYMENT)
+  if(NOT PNGA_HAVE_QT)
+    message(FATAL_ERROR "PNGA_ENABLE_QT_DEPLOYMENT requires a Qt 6 GUI target")
+  endif()
+  if(APPLE)
+    find_program(PNGA_QT_DEPLOY_TOOL macdeployqt)
+  elseif(WIN32)
+    find_program(PNGA_QT_DEPLOY_TOOL windeployqt)
+  endif()
+  if(NOT PNGA_QT_DEPLOY_TOOL)
+    message(FATAL_ERROR
+      "PNGA_ENABLE_QT_DEPLOYMENT requires the platform Qt deployment tool")
+  endif()
+  find_program(PNGA_QT_PATHS_TOOL NAMES qtpaths qtpaths6)
+  if(NOT PNGA_QT_PATHS_TOOL)
+    message(FATAL_ERROR
+      "PNGA_ENABLE_QT_DEPLOYMENT requires the Qt paths tool")
+  endif()
+  configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/qt-deploy.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/pnga-qt-deploy.cmake"
+    @ONLY
+  )
+endif()
 
 add_subdirectory(libs/core)
 add_subdirectory(libs/io)
@@ -78,6 +106,9 @@ if(PNGA_HAVE_QT)
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     BUNDLE DESTINATION .
   )
+  if(PNGA_ENABLE_QT_DEPLOYMENT)
+    install(SCRIPT "${CMAKE_CURRENT_BINARY_DIR}/pnga-qt-deploy.cmake")
+  endif()
 endif()
 install(FILES README.md LICENSE
   DESTINATION ${CMAKE_INSTALL_DATADIR}/png-analyzer
