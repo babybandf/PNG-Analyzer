@@ -1,6 +1,6 @@
 # WP-605E — macOS/Windows Native Installer Smoke
 
-Status: **implemented; CI verification in progress** (2026-08-23)
+Status: **implemented; CI verified** (2026-08-23, CI run `32612432216`)
 
 The CPack configuration now carries native metadata while preserving TGZ/ZIP
 as the default portable generators. `scripts/run_native_package_smoke.py`
