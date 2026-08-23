@@ -34,4 +34,11 @@ if(PNGA_BUILD_COVERAGE_FUZZ)
     pnga::io
   )
   target_compile_features(pnga_coverage_fuzz PRIVATE cxx_std_20)
+  target_compile_options(pnga_coverage_fuzz PRIVATE
+    -fsanitize=fuzzer,address,undefined
+    -fno-omit-frame-pointer
+  )
+  target_link_options(pnga_coverage_fuzz PRIVATE
+    -fsanitize=fuzzer,address,undefined
+  )
 endif()
