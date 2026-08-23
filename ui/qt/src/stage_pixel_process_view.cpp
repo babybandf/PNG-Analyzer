@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <limits>
 
 namespace pnga::ui::qt {
 
@@ -147,6 +148,21 @@ QString dependency_marker(const ModelStagePixelProcessView& view, int row,
   return {};
 }
 
+QString row_coordinate(const ModelStagePixelProcessView& view, int delta,
+                       bool hexadecimal) {
+  const auto magnitude = static_cast<std::uint64_t>(delta < 0 ? -delta : delta);
+  if (delta < 0) {
+    if (view.image_y < magnitude) {
+      return QStringLiteral("—");
+    }
+    return number(view.image_y - magnitude, hexadecimal);
+  }
+  if (view.image_y > std::numeric_limits<std::uint64_t>::max() - magnitude) {
+    return QStringLiteral("—");
+  }
+  return number(view.image_y + magnitude, hexadecimal);
+}
+
 QString render_html(const ModelStagePixelProcessView& view,
                     const pnga::analysis_engine::StageSet& stages,
                     bool hexadecimal, const QPalette& palette) {
@@ -186,8 +202,8 @@ QString render_html(const ModelStagePixelProcessView& view,
     html += QStringLiteral("</tr>");
     for (int row = 0; row < 3; ++row) {
       const int dy = row - 1;
-      html += QStringLiteral("<tr><th>y%1</th>").arg(
-          dy == 0 ? QStringLiteral(" (current)") : QString::number(dy));
+      html += QStringLiteral("<tr><th>%1</th>")
+                  .arg(row_coordinate(view, dy, hexadecimal));
       for (int column = 0; column < 5; ++column) {
         const auto& cell = channel.cells[static_cast<std::size_t>(row * 5 + column)];
         const QString marker = cell.current

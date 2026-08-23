@@ -39,6 +39,10 @@ void StagePixelProcessViewTest::rendersEachStageWithSharedNeighborhoodContract()
     QVERIFY(text->acceptRichText());
     QVERIFY(text->toHtml().contains(QStringLiteral("<table")));
     QVERIFY(text->toPlainText().contains(QStringLiteral("coordinate=(2, 2)")));
+    QVERIFY(text->toPlainText().contains(
+        QStringLiteral("R\n\n0\n1\n2\n3\n4\n1\n")));
+    QVERIFY(!text->toPlainText().contains(QStringLiteral("y-1")));
+    QVERIFY(!text->toPlainText().contains(QStringLiteral("y (current)")));
     QVERIFY(text->toPlainText().contains(QStringLiteral("current")));
     QVERIFY(!text->toPlainText().contains(QStringLiteral("CURRENT:")));
     QVERIFY(text->toPlainText().contains(QStringLiteral("Current value calculation")));
