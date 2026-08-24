@@ -59,6 +59,7 @@ void DecodeTraceInspectorTest::rendersMatchArithmeticAndNavigation() {
   QVERIFY(details_title->text().contains(QStringLiteral("match")));
   bool found_length = false;
   bool found_source = false;
+  bool found_input = false;
   const auto labels = widget.findChildren<QLabel*>();
   for (const auto* label : labels) {
     if (label->text().contains(QStringLiteral("12 = base 11 + extra 1"))) {
@@ -67,9 +68,13 @@ void DecodeTraceInspectorTest::rendersMatchArithmeticAndNavigation() {
     if (label->text().contains(QStringLiteral("[0..7)"))) {
       found_source = true;
     }
+    if (label->text().contains(QStringLiteral("Deflate bits [17, 31)"))) {
+      found_input = true;
+    }
   }
   QVERIFY(found_length);
   QVERIFY(found_source);
+  QVERIFY(found_input);
 
   QSignalSpy hex_spy(&widget,
                      &pnga::ui::qt::DecodeTraceInspector::showInHexRequested);

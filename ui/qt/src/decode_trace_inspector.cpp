@@ -46,8 +46,8 @@ DecodeTraceInspector::DecodeTraceInspector(QWidget* parent)
   table->setAccessibleName(QStringLiteral("Decode trace tokens"));
   table->setColumnCount(5);
   table->setHorizontalHeaderLabels(
-      {QStringLiteral("Current"), QStringLiteral("Token"),
-       QStringLiteral("Path"), QStringLiteral("Input bits"),
+       {QStringLiteral("Current"), QStringLiteral("Token"),
+       QStringLiteral("Path"), QStringLiteral("Deflate bits"),
        QStringLiteral("Output bytes")});
 
   hex_button_ = new QPushButton(QStringLiteral("Show in Hex"), this);
@@ -226,6 +226,10 @@ void DecodeTraceInspector::updateDetails() {
               .arg(step.distance_base)
               .arg(step.distance_extra_value)
               .arg(step.distance_extra_bits));
+      details.emplace_back(QStringLiteral("Input"),
+                           QStringLiteral("Deflate bits %1")
+                               .arg(range_text(step.input_bit_begin,
+                                               step.input_bit_end)));
       details.emplace_back(QStringLiteral("Source"),
                            sources_text(step.match_source_ranges));
       details.emplace_back(QStringLiteral("Output"),
