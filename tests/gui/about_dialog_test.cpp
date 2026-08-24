@@ -33,15 +33,22 @@ void AboutDialogTest::contentMatchesConfirmedValues() {
   const AboutContent c = default_about_content();
   QCOMPARE(c.project_name, QStringLiteral("PNG Analyzer"));
   QCOMPARE(c.github_url, QStringLiteral("https://github.com/babybandf/PNG-Analyzer"));
+  QCOMPARE(c.handbook_url,
+           QStringLiteral("https://babybandf.github.io/PNG-Handbook/"));
+  QCOMPARE(c.author_name, QStringLiteral("River"));
   QCOMPARE(c.contact_email, QStringLiteral("babybandf@163.com"));
 }
 
 void AboutDialogTest::dialogRendersContent() {
   AboutDialog dlg(default_about_content());
   QCOMPARE(dlg.projectNameText(), QStringLiteral("PNG Analyzer"));
+  QCOMPARE(dlg.authorText(), QStringLiteral("Author: River"));
   QCOMPARE(dlg.githubLinkText(),
            QStringLiteral("<a href=\"https://github.com/babybandf/PNG-Analyzer\">"
                           "https://github.com/babybandf/PNG-Analyzer</a>"));
+  QCOMPARE(dlg.handbookLinkText(),
+           QStringLiteral("<a href=\"https://babybandf.github.io/PNG-Handbook/\">"
+                          "https://babybandf.github.io/PNG-Handbook/</a>"));
   QCOMPARE(dlg.emailLinkText(),
            QStringLiteral("<a href=\"mailto:babybandf@163.com\">"
                           "babybandf@163.com</a>"));
@@ -50,6 +57,9 @@ void AboutDialogTest::dialogRendersContent() {
 void AboutDialogTest::linkSchemesAreHttpsAndMailto() {
   AboutDialog dlg(default_about_content());
   QVERIFY(dlg.githubHref().startsWith(QStringLiteral("https://")));
+  QVERIFY(dlg.handbookHref().startsWith(QStringLiteral("https://")));
+  QCOMPARE(dlg.handbookHref(),
+           QStringLiteral("https://babybandf.github.io/PNG-Handbook/"));
   QVERIFY(dlg.emailHref().startsWith(QStringLiteral("mailto:")));
   QCOMPARE(dlg.emailHref(), QStringLiteral("mailto:babybandf@163.com"));
 }
@@ -90,10 +100,13 @@ void AboutDialogTest::outputIsDeterministic() {
   AboutDialog b(c);
   QCOMPARE(a.projectNameText(), b.projectNameText());
   QCOMPARE(a.versionText(), b.versionText());
+  QCOMPARE(a.authorText(), b.authorText());
   QCOMPARE(a.githubLinkText(), b.githubLinkText());
+  QCOMPARE(a.handbookLinkText(), b.handbookLinkText());
   QCOMPARE(a.emailLinkText(), b.emailLinkText());
-  const QString all = a.projectNameText() + a.versionText() +
-                      a.githubLinkText() + a.emailLinkText();
+  const QString all = a.projectNameText() + a.versionText() + a.authorText() +
+                      a.githubLinkText() + a.handbookLinkText() +
+                      a.emailLinkText();
   QVERIFY(!all.contains(QStringLiteral("/Users/")));
   QVERIFY(!all.contains(QStringLiteral("2026")));  // no timestamp
 }
@@ -110,6 +123,8 @@ void AboutDialogTest::helpMenuActionOpensDialog() {
   QVERIFY(dlg != nullptr);  // the menu action opened the dialog
   QVERIFY(dlg->isVisible());
   QCOMPARE(dlg->githubHref(), QStringLiteral("https://github.com/babybandf/PNG-Analyzer"));
+  QCOMPARE(dlg->handbookHref(),
+           QStringLiteral("https://babybandf.github.io/PNG-Handbook/"));
   delete dlg;
 }
 

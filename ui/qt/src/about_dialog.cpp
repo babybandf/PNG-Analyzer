@@ -76,8 +76,13 @@ AboutDialog::AboutDialog(const AboutContent& content, QWidget* parent)
   version_label_ =
       new QLabel(QStringLiteral("Version %1").arg(content_.version), this);
   version_label_->setTextInteractionFlags(Qt::TextSelectableByMouse);
+  author_label_ =
+      new QLabel(QStringLiteral("Author: %1").arg(content_.author_name), this);
+  author_label_->setTextInteractionFlags(Qt::TextSelectableByMouse);
 
   github_label_ = make_link_label(content_.github_url, content_.github_url);
+  handbook_label_ =
+      make_link_label(content_.handbook_url, content_.handbook_url);
   email_label_ =
       make_link_label(QStringLiteral("mailto:%1").arg(content_.contact_email),
                       content_.contact_email);
@@ -86,6 +91,7 @@ AboutDialog::AboutDialog(const AboutContent& content, QWidget* parent)
     QDesktopServices::openUrl(QUrl(href));  // system default app; text stays
   };                                        // selectable if this fails
   connect(github_label_, &QLabel::linkActivated, this, open_link);
+  connect(handbook_label_, &QLabel::linkActivated, this, open_link);
   connect(email_label_, &QLabel::linkActivated, this, open_link);
 
   auto* layout = new QVBoxLayout(this);
@@ -93,8 +99,10 @@ AboutDialog::AboutDialog(const AboutContent& content, QWidget* parent)
   layout->addSpacing(4);
   layout->addWidget(name_label_);
   layout->addWidget(version_label_);
+  layout->addWidget(author_label_);
   layout->addSpacing(8);
   layout->addWidget(github_label_);
+  layout->addWidget(handbook_label_);
   layout->addWidget(email_label_);
 }
 
@@ -106,8 +114,16 @@ QString AboutDialog::versionText() const {
   return version_label_ != nullptr ? version_label_->text() : QString();
 }
 
+QString AboutDialog::authorText() const {
+  return author_label_ != nullptr ? author_label_->text() : QString();
+}
+
 QString AboutDialog::githubLinkText() const {
   return github_label_ != nullptr ? github_label_->text() : QString();
+}
+
+QString AboutDialog::handbookLinkText() const {
+  return handbook_label_ != nullptr ? handbook_label_->text() : QString();
 }
 
 QString AboutDialog::emailLinkText() const {
@@ -116,18 +132,23 @@ QString AboutDialog::emailLinkText() const {
 
 QString AboutDialog::githubHref() const { return content_.github_url; }
 
+QString AboutDialog::handbookHref() const { return content_.handbook_url; }
+
 QString AboutDialog::emailHref() const {
   return QStringLiteral("mailto:%1").arg(content_.contact_email);
 }
 
 bool AboutDialog::textSelectable() const {
-  if (github_label_ == nullptr || email_label_ == nullptr ||
-      version_label_ == nullptr) {
+  if (github_label_ == nullptr || handbook_label_ == nullptr ||
+      email_label_ == nullptr || version_label_ == nullptr ||
+      author_label_ == nullptr) {
     return false;
   }
   const auto flags = github_label_->textInteractionFlags() &
+                     handbook_label_->textInteractionFlags() &
                      email_label_->textInteractionFlags() &
-                     version_label_->textInteractionFlags();
+                     version_label_->textInteractionFlags() &
+                     author_label_->textInteractionFlags();
   return (flags & Qt::TextSelectableByMouse) != 0;
 }
 
