@@ -62,7 +62,7 @@ bool TraceOrchestrator::open(
   VirtualIdatSource logical(*stream, *source);
   auto block_index = pnga::deflate_index::index_blocks(
       logical, max_index_output_bytes);
-  if (!block_index.success) {
+  if (!block_index.success && block_index.blocks.empty()) {
     std::lock_guard<std::mutex> lock(mutex_);
     last_error_ = block_index.error.empty() ? "trace block index failed"
                                             : block_index.error;
@@ -127,8 +127,12 @@ TraceTaskHandle TraceOrchestrator::submit(
       last_error_ = out.error;
       return out;
     }
+    const std::uint64_t indexed_output_end =
+        block_index_.success || block_index_.blocks.empty()
+            ? block_index_.total_output_bytes
+            : block_index_.blocks.back().output_end;
     if (request.inflated_end < request.inflated_begin ||
-        request.inflated_end > block_index_.total_output_bytes) {
+        request.inflated_end > indexed_output_end) {
       out.status = TraceSubmitStatus::kRejected;
       out.error = "trace request range is out of bounds";
       last_error_ = out.error;
