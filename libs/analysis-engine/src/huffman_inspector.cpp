@@ -4,6 +4,7 @@
 
 #include <pnga/deflate-index/block_index.h>
 
+#include <limits>
 #include <sstream>
 
 namespace pnga::analysis_engine {
@@ -56,6 +57,36 @@ bool overlaps(std::uint64_t begin, std::uint64_t end,
               std::uint64_t wanted_begin,
               std::uint64_t wanted_end) noexcept {
   return begin < wanted_end && wanted_begin < end;
+}
+
+struct DeflateBitWindow {
+  std::uint64_t begin = 0;
+  std::uint64_t end = 0;
+};
+
+std::optional<DeflateBitWindow> block_deflate_window(
+    const TraceQueryResult& trace, const TraceBlockSummary& block) {
+  if (trace.deflate_data_begin >
+      std::numeric_limits<std::uint64_t>::max() / 8) {
+    return std::nullopt;
+  }
+  const std::uint64_t wrapper_bits = trace.deflate_data_begin * 8;
+  if (block.input_bit_begin < wrapper_bits ||
+      block.input_bit_end < wrapper_bits) {
+    return std::nullopt;
+  }
+  return DeflateBitWindow{block.input_bit_begin - wrapper_bits,
+                          block.input_bit_end - wrapper_bits};
+}
+
+std::uint16_t read_order_code(std::uint16_t canonical,
+                             std::uint8_t bit_length) noexcept {
+  std::uint16_t result = 0;
+  for (std::uint8_t i = 0; i < bit_length; ++i) {
+    result = static_cast<std::uint16_t>(
+        (result << 1) | ((canonical >> i) & static_cast<std::uint16_t>(1)));
+  }
+  return result;
 }
 
 }  // namespace
@@ -139,12 +170,14 @@ HuffmanInspectorView build_huffman_inspector(
     // The decoder emits dynamic tables in RFC build order. A query normally
     // covers one dynamic block; if more are present, provenance bits identify
     // the owning block and a deterministic fallback keeps all tables visible.
+    const auto block_window = block_deflate_window(trace, block);
     for (std::size_t i = dynamic_cursor; i < trace.huffman_tables.size(); ++i) {
       const auto& source = trace.huffman_tables[i];
       bool belongs = false;
       for (const auto& entry : source.entries) {
-        if (overlaps(entry.provenance_bit_begin, entry.provenance_bit_end,
-                     block.input_bit_begin, block.input_bit_end)) {
+        if (block_window.has_value() &&
+            overlaps(entry.provenance_bit_begin, entry.provenance_bit_end,
+                     block_window->begin, block_window->end)) {
           belongs = true;
           break;
         }
@@ -164,6 +197,8 @@ HuffmanInspectorView build_huffman_inspector(
         projected.symbol = entry.symbol;
         projected.bit_length = entry.bit_length;
         projected.canonical_code = entry.canonical_code;
+        projected.read_order_code =
+            read_order_code(entry.canonical_code, entry.bit_length);
         projected.provenance_bit_begin = entry.provenance_bit_begin;
         projected.provenance_bit_end = entry.provenance_bit_end;
         if (selected != nullptr && source.kind ==
@@ -195,9 +230,15 @@ HuffmanInspectorView build_huffman_inspector(
     table.declared_entry_count = source.entries.size();
     table.entries.reserve(source.entries.size());
     for (const auto& entry : source.entries) {
-      table.entries.push_back(HuffmanInspectorEntry{
-          entry.symbol, entry.bit_length, entry.canonical_code,
-          entry.provenance_bit_begin, entry.provenance_bit_end, false});
+      HuffmanInspectorEntry projected;
+      projected.symbol = entry.symbol;
+      projected.bit_length = entry.bit_length;
+      projected.canonical_code = entry.canonical_code;
+      projected.read_order_code =
+          read_order_code(entry.canonical_code, entry.bit_length);
+      projected.provenance_bit_begin = entry.provenance_bit_begin;
+      projected.provenance_bit_end = entry.provenance_bit_end;
+      table.entries.push_back(projected);
     }
     view.tables.push_back(std::move(table));
     ++dynamic_cursor;
@@ -229,7 +270,8 @@ std::string serialize_huffman_inspector(const HuffmanInspectorView& view) {
         << table.declared_entry_count << ",entries=" << table.entries.size();
     for (const auto& entry : table.entries) {
       out << ',' << entry.symbol << ':' << static_cast<unsigned>(entry.bit_length)
-          << ':' << entry.canonical_code << ':' << entry.provenance_bit_begin
+          << ':' << entry.canonical_code << ':' << entry.read_order_code << ':'
+          << entry.provenance_bit_begin
           << ':' << entry.provenance_bit_end << ':' << (entry.selected ? 1 : 0);
     }
   }

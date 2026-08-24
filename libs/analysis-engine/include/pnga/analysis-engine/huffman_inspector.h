@@ -35,6 +35,9 @@ struct HuffmanInspectorEntry {
   std::uint64_t provenance_bit_begin = 0;
   std::uint64_t provenance_bit_end = 0;
   bool selected = false;
+  // DEFLATE transmits the canonical code least-significant bit first. This is
+  // the wire/read-order value, kept separate from the canonical code domain.
+  std::uint16_t read_order_code = 0;
 
   bool operator==(const HuffmanInspectorEntry&) const = default;
 };

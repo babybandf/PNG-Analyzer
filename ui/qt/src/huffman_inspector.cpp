@@ -174,6 +174,9 @@ void HuffmanInspector::rebuildTable() {
       continue;
     }
     for (const auto& entry : candidate->entries) {
+      if (entry.bit_length == 0) {
+        continue;  // hide unused symbols; declared count remains in details.
+      }
       if (rendered++ >= static_cast<std::size_t>(kMaxVisibleRows)) {
         truncated = true;
         break;
@@ -245,6 +248,9 @@ void HuffmanInspector::updateDetails() {
       continue;
     }
     for (std::size_t i = 0; i < candidate.entries.size(); ++i) {
+      if (candidate.entries[i].bit_length == 0) {
+        continue;
+      }
       if (entry_cursor == static_cast<std::size_t>(table_row)) {
         const auto& entry = candidate.entries[i];
         std::vector<std::pair<QString, QString>> details;
@@ -255,6 +261,10 @@ void HuffmanInspector::updateDetails() {
             QStringLiteral("%1 · %2 bits")
                 .arg(entry.canonical_code)
                 .arg(entry.bit_length));
+        details.emplace_back(
+            QStringLiteral("Read order"),
+            QStringLiteral("%1 · wire LSB-first")
+                .arg(entry.read_order_code));
         details.emplace_back(
             QStringLiteral("Provenance"),
             QStringLiteral("DEFLATE bits [%1, %2)")
