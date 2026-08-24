@@ -116,17 +116,17 @@ jobs:
       - name: Verify GUI in portable package
         shell: bash
         run: |
+          # Capture the archive listing first: `tar | grep -q` under `set -o
+          # pipefail` fails with SIGPIPE once grep exits on the first match.
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            if ! unzip -l dist/png-analyzer-*.zip | grep -qi "pnga_analyzer_gui"; then
-              echo "GUI executable is missing from the Windows ZIP"
-              exit 1
-            fi
+            listing=$(unzip -l dist/png-analyzer-*.zip)
           else
             # CPack's TGZ generator emits .tar.gz archives.
-            if ! tar tzf dist/png-analyzer-*.tar.gz | grep -qi "pnga_analyzer_gui"; then
-              echo "GUI executable is missing from the TGZ"
-              exit 1
-            fi
+            listing=$(tar tzf dist/png-analyzer-*.tar.gz)
+          fi
+          if ! grep -qi "pnga_analyzer_gui" <<<"$listing"; then
+            echo "GUI executable is missing from the portable package"
+            exit 1
           fi
 
       - name: Upload release package
