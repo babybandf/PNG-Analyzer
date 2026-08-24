@@ -25,6 +25,13 @@ Compare, First Difference, Statistics UI and APNG are intentionally deferred.
 Native DMG/MSIX/AppImage/Flatpak installers and Qt framework deployment are
 also outside the current portable archive smoke.
 
+## GUI preview
+
+<p align="center">
+  <img src="packaging/pnga_main_screen.png"
+       alt="PNG Analyzer main window" width="1200">
+</p>
+
 ## Build and test
 
 The approved workflow uses the pinned vcpkg manifest and CMake presets:
