@@ -75,6 +75,12 @@ void TracePipelineIntegrationTest::committedPixelPublishesReadyBundleToAllPages(
   QVERIFY(context_status != nullptr);
   QTRY_VERIFY_WITH_TIMEOUT(
       context_status->text().contains(QStringLiteral("ready")), 5000);
+  auto* stream_summary = window.findChild<QLabel*>(
+      QStringLiteral("compressionContextStreamSummary"));
+  QVERIFY(stream_summary != nullptr);
+  QTRY_VERIFY_WITH_TIMEOUT(
+      stream_summary->text().contains(QStringLiteral("zlib stream")), 5000);
+  QVERIFY(stream_summary->text().contains(QStringLiteral("IDAT segments")));
 
   auto* block = window.findChild<pnga::ui::qt::BlockInspector*>(
       QStringLiteral("blockInspector"));

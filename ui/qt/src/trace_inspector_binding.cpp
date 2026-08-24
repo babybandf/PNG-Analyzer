@@ -52,6 +52,26 @@ void TraceInspectorBinding::publishFastIndex(
   if (block_ != nullptr) {
     block_->setFastIndex(view);
   }
+  if (context_ == nullptr) {
+    return;
+  }
+  if (view.status ==
+      pnga::analysis_engine::FastCompressionIndexStatus::kUnavailable) {
+    context_->setStreamSummary(QString());
+    return;
+  }
+  const auto& stream = view.stream;
+  const QString adler = stream.adler_ok ? QStringLiteral("Adler valid")
+                                        : QStringLiteral("Adler not verified");
+  context_->setStreamSummary(
+      QStringLiteral("generation %1 · zlib stream %2 bytes · %3 IDAT segments · "
+                     "%4 blocks · Inflated %5 bytes · %6")
+          .arg(static_cast<qulonglong>(view.generation))
+          .arg(static_cast<qulonglong>(stream.stream_range.end.value))
+          .arg(static_cast<qulonglong>(stream.idat_segment_count))
+          .arg(static_cast<qulonglong>(view.blocks.size()))
+          .arg(static_cast<qulonglong>(stream.total_output_bytes))
+          .arg(adler));
 }
 
 void TraceInspectorBinding::publish(
@@ -129,6 +149,9 @@ void TraceInspectorBinding::clear() {
   if (decode_ != nullptr) {
     decode_->clear();
   }
+  if (context_ != nullptr) {
+    context_->setStreamSummary(QString());
+  }
   updateContext();
 }
 
@@ -173,8 +196,7 @@ void TraceInspectorBinding::updateContext() {
       status = QStringLiteral("Replaying the selected output range…");
       break;
     case pnga::analysis_engine::TraceInspectorLifecycle::kReady: {
-      status = QStringLiteral("Trace ready · generation %1")
-                   .arg(static_cast<qulonglong>(last_state_.generation));
+      status = QStringLiteral("Trace ready");
       if (last_state_.bundle.has_value()) {
         status += QStringLiteral(" · %1 associated blocks · %2 tokens in result")
                       .arg(static_cast<qulonglong>(

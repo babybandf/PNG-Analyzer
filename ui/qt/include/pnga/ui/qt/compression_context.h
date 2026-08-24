@@ -19,14 +19,17 @@ class CompressionContext final : public QWidget {
 
   void setStatusText(const QString& text);
   void setMappingText(const QString& text);
+  void setStreamSummary(const QString& text);
   void clear();
 
   QLabel* statusLabel() const noexcept { return status_; }
   QLabel* mappingLabel() const noexcept { return mapping_; }
+  QLabel* streamSummaryLabel() const noexcept { return summary_; }
 
  private:
   QLabel* status_ = nullptr;
   QLabel* mapping_ = nullptr;
+  QLabel* summary_ = nullptr;
 };
 
 }  // namespace pnga::ui::qt
