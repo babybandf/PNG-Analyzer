@@ -1481,6 +1481,9 @@ void MainWindow::openTraceCoordinator() {
     return;
   }
   trace->setDocumentGeneration(generation_);
+  if (trace_binding_ != nullptr) {
+    trace_binding_->publishFastIndex(trace->fast_index());
+  }
   // Bridge the worker-thread result callback onto the GUI thread. The queued
   // invoke is dropped automatically if this window is destroyed.
   trace->setResultCallback(

@@ -35,6 +35,8 @@ class TraceInspectorBinding final : public QObject {
                std::optional<std::uint64_t> selected_output_offset =
                    std::nullopt,
                std::optional<std::uint64_t> scanline = std::nullopt);
+  void publishFastIndex(
+      const pnga::analysis_engine::FastCompressionIndexView& view);
   void publishState(const pnga::analysis_engine::TraceInspectorState& state);
   void clear();
   std::uint64_t generation() const noexcept { return generation_; }

@@ -85,7 +85,66 @@ BlockInspector::BlockInspector(QWidget* parent)
 
 void BlockInspector::setView(
     const pnga::analysis_engine::BlockInspectorView& view) {
-  view_ = view;
+  bounded_view_ = view;
+  renderView();
+}
+
+void BlockInspector::setFastIndex(
+    const pnga::analysis_engine::FastCompressionIndexView& view) {
+  fast_index_ = view;
+  has_fast_index_ = true;
+  renderView();
+}
+
+void BlockInspector::clearFastIndex() {
+  fast_index_ = pnga::analysis_engine::FastCompressionIndexView{};
+  has_fast_index_ = false;
+  renderView();
+}
+
+void BlockInspector::renderView() {
+  view_ = bounded_view_;
+  if (has_fast_index_) {
+    switch (fast_index_.status) {
+      case pnga::analysis_engine::FastCompressionIndexStatus::kReady:
+        view_.status = pnga::analysis_engine::BlockInspectorStatus::kReady;
+        break;
+      case pnga::analysis_engine::FastCompressionIndexStatus::kPartial:
+        view_.status = pnga::analysis_engine::BlockInspectorStatus::kPartial;
+        break;
+      case pnga::analysis_engine::FastCompressionIndexStatus::kError:
+        view_.status = pnga::analysis_engine::BlockInspectorStatus::kError;
+        break;
+      case pnga::analysis_engine::FastCompressionIndexStatus::kUnavailable:
+        view_.status = pnga::analysis_engine::BlockInspectorStatus::kNoTrace;
+        break;
+    }
+    view_.generation = fast_index_.generation;
+    view_.error = fast_index_.error;
+    view_.rows.clear();
+    view_.rows.reserve(fast_index_.blocks.size());
+    for (const auto& fast_row : fast_index_.blocks) {
+      pnga::analysis_engine::BlockInspectorRow row;
+      row.block_index = fast_row.block_index;
+      row.type = fast_row.type;
+      row.last = fast_row.last;
+      row.input_bit_begin = fast_row.input_range.begin.value;
+      row.input_bit_end = fast_row.input_range.end.value;
+      row.output_begin = fast_row.output_range.begin.value;
+      row.output_end = fast_row.output_range.end.value;
+      row.physical_spans = fast_row.physical_spans;
+      for (const auto& bounded_row : bounded_view_.rows) {
+        if (bounded_row.block_index == row.block_index) {
+          row.current_output_position = bounded_row.current_output_position;
+          if (row.current_output_position.has_value()) {
+            view_.selected_block_index = row.block_index;
+          }
+          break;
+        }
+      }
+      view_.rows.push_back(std::move(row));
+    }
+  }
   QTableWidget* table = masterTable();
   table->setRowCount(0);
   std::size_t rendered = 0;
@@ -144,7 +203,8 @@ void BlockInspector::setExternalStatus(const QString& /*text*/) {
 }
 
 void BlockInspector::clear() {
-  setView(pnga::analysis_engine::BlockInspectorView{});
+  bounded_view_ = pnga::analysis_engine::BlockInspectorView{};
+  clearFastIndex();
 }
 
 std::optional<std::size_t> BlockInspector::activeRow() const noexcept {

@@ -25,6 +25,9 @@ class BlockInspector final : public CompressionInspectorPage {
   explicit BlockInspector(QWidget* parent = nullptr);
 
   void setView(const pnga::analysis_engine::BlockInspectorView& view);
+  void setFastIndex(
+      const pnga::analysis_engine::FastCompressionIndexView& view);
+  void clearFastIndex();
   void setExternalStatus(const QString& text);
   void clear();
   const pnga::analysis_engine::BlockInspectorView& view() const noexcept {
@@ -48,8 +51,12 @@ class BlockInspector final : public CompressionInspectorPage {
   std::optional<std::size_t> activeRow() const noexcept;
   void updateButtons();
   void updateDetails();
+  void renderView();
 
   pnga::analysis_engine::BlockInspectorView view_;
+  pnga::analysis_engine::BlockInspectorView bounded_view_;
+  pnga::analysis_engine::FastCompressionIndexView fast_index_;
+  bool has_fast_index_ = false;
   QPushButton* hex_button_ = nullptr;
   QPushButton* deflate_button_ = nullptr;
 };

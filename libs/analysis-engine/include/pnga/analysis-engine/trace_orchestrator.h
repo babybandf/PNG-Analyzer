@@ -7,6 +7,7 @@
 // ownership remain in their existing modules.
 
 #include <pnga/analysis-engine/job_scheduler.h>
+#include <pnga/analysis-engine/block_inspector.h>
 #include <pnga/analysis-engine/trace_query.h>
 #include <pnga/deflate-index/block_index.h>
 #include <pnga/io/byte_source.h>
@@ -81,6 +82,7 @@ class TraceOrchestrator final {
   void setDocumentGeneration(std::uint64_t generation);
 
   bool has_index() const noexcept;
+  FastCompressionIndexView fast_index() const;
   std::uint64_t document_generation() const noexcept;
   std::size_t queued_tasks() const noexcept;
   std::string last_error() const;
@@ -96,6 +98,7 @@ class TraceOrchestrator final {
   pnga::png_format::ChunkIndex index_;
   std::unique_ptr<pnga::png_format::VirtualIDATStream> stream_;
   pnga::deflate_index::BlockIndexResult block_index_;
+  FastCompressionIndexView fast_index_;
   std::uint64_t generation_ = 0;
   std::uint64_t next_job_id_ = 1;
   std::string last_error_;

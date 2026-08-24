@@ -47,6 +47,13 @@ TraceInspectorBinding::TraceInspectorBinding(BlockInspector* block,
                                              QObject* parent)
     : QObject(parent), block_(block), huffman_(huffman), decode_(decode) {}
 
+void TraceInspectorBinding::publishFastIndex(
+    const pnga::analysis_engine::FastCompressionIndexView& view) {
+  if (block_ != nullptr) {
+    block_->setFastIndex(view);
+  }
+}
+
 void TraceInspectorBinding::publish(
     const pnga::analysis_engine::TraceQueryResult& result,
     std::optional<std::uint64_t> selected_token_index,

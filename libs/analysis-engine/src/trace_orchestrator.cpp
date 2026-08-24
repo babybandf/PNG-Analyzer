@@ -77,10 +77,13 @@ bool TraceOrchestrator::open(
       return false;
     }
     next_generation = generation_ + 1;
+    auto fast_index = build_fast_compression_index(next_generation,
+                                                   block_index, *stream);
     source_ = std::move(source);
     index_ = std::move(index);
     stream_ = std::move(stream);
     block_index_ = std::move(block_index);
+    fast_index_ = std::move(fast_index);
     completed_.clear();
     has_index_ = true;
     last_error_.clear();
@@ -203,6 +206,9 @@ void TraceOrchestrator::setDocumentGeneration(std::uint64_t generation) {
   {
     std::lock_guard<std::mutex> lock(mutex_);
     generation_ = generation;
+    if (has_index_) {
+      fast_index_.generation = generation;
+    }
     completed_.clear();
   }
   scheduler_.setDocumentGeneration(generation);
@@ -211,6 +217,11 @@ void TraceOrchestrator::setDocumentGeneration(std::uint64_t generation) {
 bool TraceOrchestrator::has_index() const noexcept {
   std::lock_guard<std::mutex> lock(mutex_);
   return has_index_;
+}
+
+FastCompressionIndexView TraceOrchestrator::fast_index() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return fast_index_;
 }
 
 std::uint64_t TraceOrchestrator::document_generation() const noexcept {

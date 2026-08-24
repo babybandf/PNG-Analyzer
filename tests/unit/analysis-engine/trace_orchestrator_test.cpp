@@ -61,6 +61,12 @@ TEST_CASE("Trace orchestrator delivers a bounded ready result",
   REQUIRE(orchestrator.open(shared_source(encoded.png_bytes), 1u << 20));
   REQUIRE(orchestrator.has_index());
   REQUIRE(orchestrator.document_generation() == 1);
+  const auto fast = orchestrator.fast_index();
+  REQUIRE(fast.status ==
+          pnga::analysis_engine::FastCompressionIndexStatus::kReady);
+  REQUIRE(fast.generation == 1);
+  REQUIRE_FALSE(fast.blocks.empty());
+  REQUIRE(fast.stream.total_output_bytes == encoded.filtered.size());
 
   TraceOrchestrationRequest request;
   request.generation = orchestrator.document_generation();
