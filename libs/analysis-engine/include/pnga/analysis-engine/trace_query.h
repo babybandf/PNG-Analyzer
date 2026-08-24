@@ -11,6 +11,7 @@
 #include <pnga/io/byte_source.h>
 #include <pnga/png-format/virtual_idat_stream.h>
 #include <pnga/trace-model/provenance.h>
+#include <pnga/trace-model/offset_range.h>
 #include <pnga/trace-model/selection.h>
 
 #include <cstdint>
@@ -41,6 +42,18 @@ struct TraceBlockSummary {
   std::uint64_t output_end = 0;
   std::vector<pnga::trace_model::ProvenanceSpan> physical_spans;
 
+  // Block input positions include the zlib wrapper origin used by the fast
+  // block index. Keeping this conversion named prevents callers from
+  // confusing them with token-relative Deflate payload bits.
+  pnga::trace_model::ZlibBitRange input_range() const noexcept {
+    return {pnga::trace_model::ZlibBitOffset{input_bit_begin},
+            pnga::trace_model::ZlibBitOffset{input_bit_end}};
+  }
+  pnga::trace_model::InflatedByteRange output_range() const noexcept {
+    return {pnga::trace_model::InflatedByteOffset{output_begin},
+            pnga::trace_model::InflatedByteOffset{output_end}};
+  }
+
   bool operator==(const TraceBlockSummary&) const = default;
 };
 
@@ -59,6 +72,17 @@ struct TraceTokenSummary {
   std::uint64_t match_source_end = 0;
   std::vector<pnga::deflate_trace::TokenOutputRange> match_source_ranges;
   std::int64_t block_index = -1;
+
+  // Token input positions are relative to the DEFLATE payload; output
+  // positions are absolute inflated-byte offsets.
+  pnga::trace_model::DeflateBitRange input_range() const noexcept {
+    return {pnga::trace_model::DeflateBitOffset{input_bit_begin},
+            pnga::trace_model::DeflateBitOffset{input_bit_end}};
+  }
+  pnga::trace_model::InflatedByteRange output_range() const noexcept {
+    return {pnga::trace_model::InflatedByteOffset{output_begin},
+            pnga::trace_model::InflatedByteOffset{output_end}};
+  }
 
   bool operator==(const TraceTokenSummary&) const = default;
 };

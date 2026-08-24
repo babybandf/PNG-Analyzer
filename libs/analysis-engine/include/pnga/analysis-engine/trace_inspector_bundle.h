@@ -8,10 +8,12 @@
 #include "pnga/analysis-engine/block_inspector.h"
 #include "pnga/analysis-engine/decode_trace_inspector.h"
 #include "pnga/analysis-engine/huffman_inspector.h"
+#include <pnga/trace-model/offset_range.h>
 
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace pnga::analysis_engine {
@@ -59,9 +61,12 @@ TraceLiteralWalkResult trace_to_original_literal(
 
 struct TraceNavigationRange {
   enum class Space { kLogicalDeflate, kInflatedOutput };
+
+  using Value = std::variant<pnga::trace_model::DeflateBitRange,
+                             pnga::trace_model::InflatedByteRange>;
+
   Space space = Space::kLogicalDeflate;
-  std::uint64_t begin = 0;
-  std::uint64_t end = 0;
+  Value value = pnga::trace_model::DeflateBitRange{};
 
   bool operator==(const TraceNavigationRange&) const = default;
 };

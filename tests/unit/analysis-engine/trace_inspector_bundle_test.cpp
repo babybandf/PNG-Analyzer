@@ -2,6 +2,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <variant>
+
 TEST_CASE("trace inspector bundle keeps one generation across pages") {
   pnga::analysis_engine::TraceQueryResult trace;
   trace.status = pnga::analysis_engine::TraceQueryStatus::kReady;
@@ -21,6 +23,19 @@ TEST_CASE("trace inspector bundle keeps one generation across pages") {
   token.output_begin = 1;
   token.output_end = 2;
   trace.tokens.push_back(token);
+
+  REQUIRE(block.input_range().begin ==
+          pnga::trace_model::ZlibBitOffset{0});
+  REQUIRE(block.input_range().end ==
+          pnga::trace_model::ZlibBitOffset{0});
+  REQUIRE(token.input_range().begin ==
+          pnga::trace_model::DeflateBitOffset{8});
+  REQUIRE(token.input_range().end ==
+          pnga::trace_model::DeflateBitOffset{15});
+  REQUIRE(token.output_range().begin ==
+          pnga::trace_model::InflatedByteOffset{1});
+  REQUIRE(token.output_range().end ==
+          pnga::trace_model::InflatedByteOffset{2});
 
   const auto bundle = pnga::analysis_engine::build_trace_inspector_bundle(
       trace, 3, 1, 5);
@@ -42,6 +57,10 @@ TEST_CASE("trace-to-original-literal is explicitly bounded") {
   pnga::analysis_engine::TraceTokenSummary match;
   match.index = 2;
   match.kind = pnga::deflate_trace::TokenKind::kLengthDistance;
+  match.input_bit_begin = 8;
+  match.input_bit_end = 15;
+  match.output_begin = 1;
+  match.output_end = 2;
   match.match_source_ranges.push_back({0, 1, 1});
   trace.tokens.push_back(match);
 
@@ -60,4 +79,21 @@ TEST_CASE("trace-to-original-literal is explicitly bounded") {
       trace, 2,
       pnga::analysis_engine::TraceNavigationRange::Space::kLogicalDeflate);
   REQUIRE(nav.has_value());
+  REQUIRE(std::holds_alternative<pnga::trace_model::DeflateBitRange>(
+      nav->value));
+  const auto logical =
+      std::get<pnga::trace_model::DeflateBitRange>(nav->value);
+  REQUIRE(logical.begin == pnga::trace_model::DeflateBitOffset{8});
+  REQUIRE(logical.end == pnga::trace_model::DeflateBitOffset{15});
+
+  const auto output = pnga::analysis_engine::trace_token_navigation(
+      trace, 2,
+      pnga::analysis_engine::TraceNavigationRange::Space::kInflatedOutput);
+  REQUIRE(output.has_value());
+  REQUIRE(std::holds_alternative<pnga::trace_model::InflatedByteRange>(
+      output->value));
+  const auto inflated =
+      std::get<pnga::trace_model::InflatedByteRange>(output->value);
+  REQUIRE(inflated.begin == pnga::trace_model::InflatedByteOffset{1});
+  REQUIRE(inflated.end == pnga::trace_model::InflatedByteOffset{2});
 }

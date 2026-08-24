@@ -112,10 +112,17 @@ std::optional<TraceNavigationRange> trace_token_navigation(
     return std::nullopt;
   }
   if (space == TraceNavigationRange::Space::kLogicalDeflate) {
-    return TraceNavigationRange{space, token->input_bit_begin,
-                                token->input_bit_end};
+    return TraceNavigationRange{
+        space,
+        pnga::trace_model::DeflateBitRange{
+            pnga::trace_model::DeflateBitOffset{token->input_bit_begin},
+            pnga::trace_model::DeflateBitOffset{token->input_bit_end}}};
   }
-  return TraceNavigationRange{space, token->output_begin, token->output_end};
+  return TraceNavigationRange{
+      space,
+      pnga::trace_model::InflatedByteRange{
+          pnga::trace_model::InflatedByteOffset{token->output_begin},
+          pnga::trace_model::InflatedByteOffset{token->output_end}}};
 }
 
 }  // namespace pnga::analysis_engine
