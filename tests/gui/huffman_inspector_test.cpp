@@ -35,6 +35,8 @@ void HuffmanInspectorTest::rendersDynamicEntryAndSelection() {
 
   pnga::ui::qt::HuffmanInspector widget;
   widget.setView(view);
+  widget.show();
+  QCoreApplication::processEvents();
   auto* table_widget = widget.findChild<QTableWidget*>(
       QStringLiteral("huffmanInspectorTable"));
   QVERIFY(table_widget != nullptr);
@@ -79,6 +81,8 @@ void HuffmanInspectorTest::selectorFiltersByTableKind() {
 
   pnga::ui::qt::HuffmanInspector widget;
   widget.setView(view);
+  widget.show();
+  QCoreApplication::processEvents();
   auto* table_widget = widget.findChild<QTableWidget*>(
       QStringLiteral("huffmanInspectorTable"));
   QVERIFY(table_widget != nullptr);
@@ -95,6 +99,12 @@ void HuffmanInspectorTest::selectorFiltersByTableKind() {
   QVERIFY(literal_button->isFlat());
   QVERIFY(distance_button->isFlat());
   QVERIFY(code_length_button->isFlat());
+  QVERIFY(literal_button->isVisible());
+  QVERIFY(distance_button->isVisible());
+  QVERIFY(code_length_button->isVisible());
+  QVERIFY(literal_button->width() > 0);
+  QVERIFY(distance_button->width() > 0);
+  QVERIFY(code_length_button->width() > 0);
 
   // Literal/Length selected -> one literal entry.
   QCOMPARE(table_widget->rowCount(), 1);

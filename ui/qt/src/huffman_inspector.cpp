@@ -8,9 +8,11 @@
 #include <QButtonGroup>
 #include <QBrush>
 #include <QColor>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QVBoxLayout>
@@ -150,15 +152,23 @@ HuffmanInspector::HuffmanInspector(QWidget* parent)
   heading_->setObjectName(QStringLiteral("huffmanInspectorHeading"));
   heading_->setWordWrap(true);
 
-  selector_ = new QWidget(this);
+  auto* selector_scroll = new QScrollArea(this);
+  selector_ = selector_scroll;
   selector_->setObjectName(QStringLiteral("huffmanTableKindSelector"));
   selector_->setAccessibleName(QStringLiteral("Huffman table kind"));
   selector_->setMinimumWidth(0);
-  selector_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
-  auto* selector_layout = new QHBoxLayout(selector_);
+  selector_->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+  selector_scroll->setFrameShape(QFrame::NoFrame);
+  selector_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  selector_scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  selector_scroll->setWidgetResizable(false);
+  selector_scroll->setMinimumHeight(28);
+  selector_scroll->setMaximumHeight(32);
+  auto* selector_content = new QWidget(selector_scroll);
+  auto* selector_layout = new QHBoxLayout(selector_content);
   selector_layout->setContentsMargins(0, 0, 0, 0);
   selector_layout->setSpacing(2);
-  kind_buttons_ = new QButtonGroup(selector_);
+  kind_buttons_ = new QButtonGroup(selector_scroll);
   kind_buttons_->setExclusive(true);
   const std::array<QString, 3> labels = {
       QStringLiteral("Code Length"), QStringLiteral("Literal / Length"),
@@ -169,17 +179,20 @@ HuffmanInspector::HuffmanInspector(QWidget* parent)
       QStringLiteral("huffmanTableKindDistance")};
   for (int id = 0; id < static_cast<int>(labels.size()); ++id) {
     auto* button = new QPushButton(labels[static_cast<std::size_t>(id)],
-                                   selector_);
+                                   selector_content);
     button->setObjectName(object_names[static_cast<std::size_t>(id)]);
     button->setCheckable(true);
     button->setFlat(true);
     button->setMinimumWidth(0);
-    button->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    button->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     button->setAccessibleName(labels[static_cast<std::size_t>(id)] +
                               QStringLiteral(" Huffman table"));
     kind_buttons_->addButton(button, id);
     selector_layout->addWidget(button);
   }
+  selector_layout->activate();
+  selector_content->setFixedSize(selector_layout->sizeHint());
+  selector_scroll->setWidget(selector_content);
   kind_buttons_->button(1)->setChecked(true);
 
   auto* header_row = new QWidget(this);
