@@ -82,6 +82,17 @@ constexpr std::uint64_t kCrcSpanLength = 4;
 constexpr int kMaxRecentFiles = 10;
 constexpr auto kRecentFilesSettingsKey = "file/recentFiles";
 constexpr auto kLastOpenDirectorySettingsKey = "file/lastOpenDirectory";
+constexpr auto kLastOpenFileSettingsKey = "file/lastOpenFile";
+
+std::filesystem::path filesystemPath(const QString& path) {
+#if defined(Q_OS_WIN)
+  // std::filesystem::path's narrow constructor follows the active Windows
+  // code page. Preserve Qt's UTF-16 path losslessly for Unicode filenames.
+  return std::filesystem::path(path.toStdWString());
+#else
+  return std::filesystem::path(path.toStdString());
+#endif
+}
 
 // Bounded Deep Trace budgets (WP-5U13). max_tokens is the primary row bound;
 // the output budget caps how much of the deflate stream a replay decodes.
@@ -882,6 +893,11 @@ void MainWindow::rememberLastOpenDirectory(const QString& path) {
   if (!directory.isEmpty() && QDir(directory).exists()) {
     QSettings settings;
     settings.setValue(QLatin1String(kLastOpenDirectorySettingsKey), directory);
+    if (info.isFile()) {
+      settings.setValue(QLatin1String(kLastOpenFileSettingsKey),
+                        info.absoluteFilePath());
+    }
+    settings.sync();
   }
 }
 
@@ -891,6 +907,16 @@ QString MainWindow::lastOpenDirectory() const {
       settings.value(QLatin1String(kLastOpenDirectorySettingsKey)).toString();
   return !directory.isEmpty() && QDir(directory).exists() ? directory
                                                            : QString();
+}
+
+QString MainWindow::lastOpenFile() const {
+  QSettings settings;
+  const QString path =
+      settings.value(QLatin1String(kLastOpenFileSettingsKey)).toString();
+  const QFileInfo info(path);
+  return !path.isEmpty() && info.exists() && info.isFile()
+             ? info.absoluteFilePath()
+             : QString();
 }
 
 void MainWindow::rememberOpenedFile(const QString& path) {
@@ -922,6 +948,7 @@ void MainWindow::rememberOpenedFile(const QString& path) {
     updated.push_back(candidate);
   }
   settings.setValue(QLatin1String(kRecentFilesSettingsKey), updated);
+  settings.sync();
   rememberLastOpenDirectory(normalized);
   refreshRecentFilesMenu();
 }
@@ -1227,8 +1254,8 @@ void MainWindow::onRowQueryStatus(std::uint64_t row, int status) {
 
 bool MainWindow::openFile(const QString& path) {
   std::unique_ptr<pnga::io::IByteSource> opened;
-  const std::error_code ec = pnga::io::open_mapped_file(
-      std::filesystem::path(path.toStdString()), opened);
+  const std::error_code ec =
+      pnga::io::open_mapped_file(filesystemPath(path), opened);
   if (ec) {
     return false;
   }
@@ -1280,6 +1307,11 @@ bool MainWindow::openFile(const QString& path) {
     lock_check_->setChecked(false);
   }
   resetDocument();
+  // A newly opened document always starts at the two primary views. This is
+  // intentionally independent of the saved workspace tab from the previous
+  // document, so Image and Reconstruction are visible immediately.
+  preview_tabs_->setCurrentIndex(0);
+  inspector_tabs_->setCurrentIndex(0);
   validation_report_ = {};
   validation_label_->setText(QStringLiteral("Validation: checking…"));
   validation_label_->setToolTip(QString());
@@ -1296,10 +1328,20 @@ void MainWindow::onOpenTriggered() {
   // macOS as well as on the other desktop platforms.
   raise();
   activateWindow();
-  const QString path = QFileDialog::getOpenFileName(
-      this, QStringLiteral("Open PNG"), lastOpenDirectory(),
-      QStringLiteral("PNG files (*.png);;All files (*)"), nullptr,
-      QFileDialog::DontUseNativeDialog);
+  QFileDialog dialog(this, QStringLiteral("Open PNG"), lastOpenDirectory(),
+                     QStringLiteral("PNG files (*.png);;All files (*)"));
+  dialog.setFileMode(QFileDialog::ExistingFile);
+  dialog.setOption(QFileDialog::DontUseNativeDialog, true);
+  const QString previous_file = lastOpenFile();
+  if (!previous_file.isEmpty()) {
+    dialog.selectFile(previous_file);
+  }
+  if (dialog.exec() != QDialog::Accepted) {
+    return;
+  }
+  const QStringList selected_files = dialog.selectedFiles();
+  const QString path =
+      selected_files.isEmpty() ? QString() : selected_files.front();
   if (path.isEmpty()) {
     return;
   }

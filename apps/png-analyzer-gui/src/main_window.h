@@ -228,6 +228,7 @@ class MainWindow final : public QMainWindow {
   void rememberOpenedFile(const QString& path);
   void rememberLastOpenDirectory(const QString& path);
   QString lastOpenDirectory() const;
+  QString lastOpenFile() const;
   void openRecentFile(const QString& path);
   void publishLockedCoordinate();
   void clearLockedCoordinate();

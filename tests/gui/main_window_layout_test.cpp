@@ -47,6 +47,7 @@ class MainWindowLayoutTest : public QObject {
   void inspectorSwitchesKeepColumnWidths();
   void dockSeparatorsShowThreeDotAffordance();
   void chunkDockStaysResizableAndRedockableAfterOpen();
+  void openingFileResetsPrimaryViewsAndStoresLastTarget();
   void recentFilesMenuPersistsAndCapsHistory();
 };
 
@@ -554,6 +555,36 @@ void MainWindowLayoutTest::recentFilesMenuPersistsAndCapsHistory() {
   QVERIFY(restored_recent != nullptr);
   QCOMPARE(restored_recent->actions().size(), 10);
   QCOMPARE(restored_recent->actions().front()->data().toString(), stored.front());
+  restored_recent->actions().front()->trigger();
+  QCoreApplication::processEvents();
+  QVERIFY(restored.windowTitle().contains(
+      QFileInfo(paths.back()).absoluteFilePath()));
+}
+
+void MainWindowLayoutTest::openingFileResetsPrimaryViewsAndStoresLastTarget() {
+  QTemporaryDir directory;
+  QVERIFY(directory.isValid());
+  const QString path = directory.filePath(QStringLiteral("selected.png"));
+  QFile file(path);
+  QVERIFY(file.open(QIODevice::WriteOnly));
+  QVERIFY(file.write("not a png") > 0);
+  file.close();
+
+  MainWindow window;
+  auto* preview = window.findChild<QTabWidget*>(QStringLiteral("previewTabs"));
+  auto* inspector =
+      window.findChild<QTabWidget*>(QStringLiteral("inspectorTabs"));
+  QVERIFY(preview != nullptr);
+  QVERIFY(inspector != nullptr);
+  preview->setCurrentIndex(2);
+  inspector->setCurrentIndex(1);
+  QVERIFY(window.openFile(path));
+  QCOMPARE(preview->currentIndex(), 0);
+  QCOMPARE(inspector->currentIndex(), 0);
+
+  QSettings settings;
+  QCOMPARE(settings.value(QStringLiteral("file/lastOpenFile")).toString(),
+           QFileInfo(path).absoluteFilePath());
 }
 
 QTEST_MAIN(MainWindowLayoutTest)
