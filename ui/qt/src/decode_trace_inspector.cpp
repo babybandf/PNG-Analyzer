@@ -103,13 +103,13 @@ void DecodeTraceInspector::setView(
                    new QTableWidgetItem(QLatin1String(
                        pnga::analysis_engine::decode_trace_path_text(step.path))));
     table->setItem(table_row, 2,
-                   new QTableWidgetItem(QStringLiteral("%1..%2")
+                   new QTableWidgetItem(QStringLiteral("%1～%2")
                                             .arg(static_cast<qulonglong>(
                                                 step.input_bit_begin))
                                             .arg(static_cast<qulonglong>(
                                                 step.input_bit_end))));
     table->setItem(table_row, 3,
-                   new QTableWidgetItem(QStringLiteral("%1..%2")
+                   new QTableWidgetItem(QStringLiteral("%1～%2")
                                             .arg(static_cast<qulonglong>(
                                                 step.output_begin))
                                             .arg(static_cast<qulonglong>(

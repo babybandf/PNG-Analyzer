@@ -47,6 +47,8 @@ QVariant ChunkModel::data(const QModelIndex& idx, int role) const {
     return QVariant();
   }
   switch (idx.column()) {
+    case kNumber:
+      return idx.row() + 1;
     case kType:
       return QString::fromStdString(node.text());
     case kLength:
@@ -66,6 +68,8 @@ QVariant ChunkModel::headerData(int section, Qt::Orientation orientation,
     return QVariant();
   }
   switch (section) {
+    case kNumber:
+      return QStringLiteral("#");
     case kType:
       return QStringLiteral("Type");
     case kLength:

@@ -3,9 +3,9 @@
 
 #include <QtTest/QtTest>
 
-#include <QComboBox>
 #include <QColor>
 #include <QLabel>
+#include <QPushButton>
 #include <QTableWidget>
 
 class HuffmanInspectorTest : public QObject {
@@ -29,7 +29,8 @@ void HuffmanInspectorTest::rendersDynamicEntryAndSelection() {
   table.kind = pnga::deflate_trace::HuffmanTableKind::kLiteralLength;
   table.build_order = 1;
   table.entries.push_back({65, 7, 42, 5, 12, true});
-  table.declared_entry_count = 1;
+  table.entries.push_back({268, 5, 3, 13, 14, false});
+  table.declared_entry_count = 2;
   view.tables.push_back(table);
 
   pnga::ui::qt::HuffmanInspector widget;
@@ -37,13 +38,15 @@ void HuffmanInspectorTest::rendersDynamicEntryAndSelection() {
   auto* table_widget = widget.findChild<QTableWidget*>(
       QStringLiteral("huffmanInspectorTable"));
   QVERIFY(table_widget != nullptr);
-  QCOMPARE(table_widget->rowCount(), 1);
-  // Build | Symbol | Bits | Canonical | Definition bits
+  QCOMPARE(table_widget->rowCount(), 2);
+  // Build | Symbol | Meaning | Bits | Canonical | Definition bits
   QCOMPARE(table_widget->item(0, 0)->text(), QStringLiteral("1"));
   QCOMPARE(table_widget->item(0, 1)->text(), QStringLiteral("65"));
-  QCOMPARE(table_widget->item(0, 2)->text(), QStringLiteral("7"));
-  QCOMPARE(table_widget->item(0, 3)->text(), QStringLiteral("42 (7 bits)"));
-  QCOMPARE(table_widget->item(0, 4)->text(), QStringLiteral("5..12"));
+  QCOMPARE(table_widget->item(0, 2)->text(), QStringLiteral("literal 65"));
+  QCOMPARE(table_widget->item(0, 3)->text(), QStringLiteral("7"));
+  QCOMPARE(table_widget->item(0, 4)->text(), QStringLiteral("0101010"));
+  QCOMPARE(table_widget->item(0, 5)->text(), QStringLiteral("5～12"));
+  QCOMPARE(table_widget->item(1, 2)->text(), QStringLiteral("length 17-18"));
   QCOMPARE(table_widget->item(0, 0)->background().color(),
            QColor(QStringLiteral("#FFF4CC")));
 
@@ -79,10 +82,19 @@ void HuffmanInspectorTest::selectorFiltersByTableKind() {
   auto* table_widget = widget.findChild<QTableWidget*>(
       QStringLiteral("huffmanInspectorTable"));
   QVERIFY(table_widget != nullptr);
-  auto* selector = widget.findChild<QComboBox*>(
-      QStringLiteral("huffmanTableKindSelector"));
-  QVERIFY(selector != nullptr);
-  QCOMPARE(selector->currentIndex(), 1);  // Literal / Length default
+  auto* literal_button = widget.findChild<QPushButton*>(
+      QStringLiteral("huffmanTableKindLiteralLength"));
+  auto* distance_button = widget.findChild<QPushButton*>(
+      QStringLiteral("huffmanTableKindDistance"));
+  auto* code_length_button = widget.findChild<QPushButton*>(
+      QStringLiteral("huffmanTableKindCodeLength"));
+  QVERIFY(literal_button != nullptr);
+  QVERIFY(distance_button != nullptr);
+  QVERIFY(code_length_button != nullptr);
+  QVERIFY(literal_button->isChecked());
+  QVERIFY(literal_button->isFlat());
+  QVERIFY(distance_button->isFlat());
+  QVERIFY(code_length_button->isFlat());
 
   // Literal/Length selected -> one literal entry.
   QCOMPARE(table_widget->rowCount(), 1);
@@ -90,12 +102,13 @@ void HuffmanInspectorTest::selectorFiltersByTableKind() {
 
   // Distance selected -> one distance entry; switching emits no replay request
   // (the widget only refilters the already-published bounded tables).
-  selector->setCurrentIndex(2);
+  distance_button->click();
   QCOMPARE(table_widget->rowCount(), 1);
   QCOMPARE(table_widget->item(0, 1)->text(), QStringLiteral("0"));
+  QCOMPARE(table_widget->item(0, 2)->text(), QStringLiteral("distance 1"));
 
   // Code length selected -> no code-length table in the bounded result.
-  selector->setCurrentIndex(0);
+  code_length_button->click();
   QCOMPARE(table_widget->rowCount(), 0);
   auto* heading =
       widget.findChild<QLabel*>(QStringLiteral("huffmanInspectorHeading"));
@@ -120,6 +133,8 @@ void HuffmanInspectorTest::rendersStoredExplanation() {
   QVERIFY(table_widget != nullptr);
   QCOMPARE(table_widget->rowCount(), 1);
   QCOMPARE(table_widget->item(0, 1)->text(), QStringLiteral("LEN/NLEN"));
+  QCOMPARE(table_widget->item(0, 2)->text(),
+           QStringLiteral("stored block fields"));
   auto* details_title =
       widget.findChild<QLabel*>(QStringLiteral("compressionDetailsTitle"));
   QVERIFY(details_title != nullptr);

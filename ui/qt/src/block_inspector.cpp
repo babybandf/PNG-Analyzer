@@ -177,14 +177,14 @@ void BlockInspector::renderView() {
                                                  : QStringLiteral("no")));
     table->setItem(
         table_row, 3,
-        new QTableWidgetItem(QStringLiteral("%1..%2")
+        new QTableWidgetItem(QStringLiteral("%1～%2")
                                  .arg(static_cast<qulonglong>(
                                      row.input_bit_begin))
                                  .arg(static_cast<qulonglong>(
                                      row.input_bit_end))));
     table->setItem(
         table_row, 4,
-        new QTableWidgetItem(QStringLiteral("%1..%2")
+        new QTableWidgetItem(QStringLiteral("%1～%2")
                                  .arg(static_cast<qulonglong>(row.output_begin))
                                  .arg(static_cast<qulonglong>(row.output_end))));
     if (row.current_output_position.has_value()) {

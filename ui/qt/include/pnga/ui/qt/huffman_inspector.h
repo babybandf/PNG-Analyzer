@@ -2,18 +2,19 @@
 #define PNGA_UI_QT_HUFFMAN_INSPECTOR_H
 
 // WP-505B / WP-5U12: presentation-only Huffman table inspector. A page-local
-// table-kind selector filters the already-published bounded tables; a compact
-// Build/Symbol/Bits/Canonical table plus a details area show the selected
-// entry. Qt never reconstructs a table or reads Deflate bits.
+// table-kind buttons filter the already-published bounded tables; a compact
+// Build/Symbol/Meaning/Bits/Canonical table plus a details area show the
+// selected entry. Qt never reconstructs a table or reads Deflate bits.
 
 #include <pnga/analysis-engine/huffman_inspector.h>
 #include <pnga/ui/qt/compression_inspector_page.h>
 
 #include <QString>
 
-class QComboBox;
+class QButtonGroup;
 class QLabel;
 class QTableWidget;
+class QWidget;
 
 namespace pnga::ui::qt {
 
@@ -37,7 +38,8 @@ class HuffmanInspector final : public CompressionInspectorPage {
 
   pnga::analysis_engine::HuffmanInspectorView view_;
   QLabel* heading_ = nullptr;
-  QComboBox* selector_ = nullptr;
+  QWidget* selector_ = nullptr;
+  QButtonGroup* kind_buttons_ = nullptr;
   int associated_row_ = -1;
 };
 

@@ -47,8 +47,8 @@ void BlockInspectorTest::rendersViewAndExposesNavigationSignals() {
   QCOMPARE(table->item(0, 0)->text(), QStringLiteral("2"));
   QCOMPARE(table->item(0, 1)->text(), QStringLiteral("stored"));
   QCOMPARE(table->item(0, 2)->text(), QStringLiteral("no"));
-  QCOMPARE(table->item(0, 3)->text(), QStringLiteral("16..32"));
-  QCOMPARE(table->item(0, 4)->text(), QStringLiteral("8..20"));
+  QCOMPARE(table->item(0, 3)->text(), QStringLiteral("16～32"));
+  QCOMPARE(table->item(0, 4)->text(), QStringLiteral("8～20"));
   QCOMPARE(table->item(0, 0)->background().color(),
            QColor(QStringLiteral("#FFF4CC")));
 

@@ -49,8 +49,8 @@ void DecodeTraceInspectorTest::rendersMatchArithmeticAndNavigation() {
   // Token | Path | Input bits | Output bytes
   QCOMPARE(table->item(0, 0)->text(), QStringLiteral("2"));
   QCOMPARE(table->item(0, 1)->text(), QStringLiteral("match"));
-  QCOMPARE(table->item(0, 2)->text(), QStringLiteral("17..31"));
-  QCOMPARE(table->item(0, 3)->text(), QStringLiteral("1..13"));
+  QCOMPARE(table->item(0, 2)->text(), QStringLiteral("17～31"));
+  QCOMPARE(table->item(0, 3)->text(), QStringLiteral("1～13"));
   QCOMPARE(table->item(0, 0)->background().color(),
            QColor(QStringLiteral("#FFF4CC")));
 

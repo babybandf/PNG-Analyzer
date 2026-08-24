@@ -318,6 +318,7 @@ void TracePipelineIntegrationTest::blockShowInDeflateNavigatesIdatSource() {
   QCOMPARE(hex_source->source(), pnga::ui::qt::HexSource::kIdatStream);
   QVERIFY(hex->currentLocation().has_value());
   QCOMPARE(*hex->currentLocation(), expected_byte);
+  QVERIFY(hex->highlightCount() > 0);
 }
 
 QTEST_MAIN(TracePipelineIntegrationTest)

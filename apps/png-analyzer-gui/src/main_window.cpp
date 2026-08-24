@@ -115,6 +115,27 @@ QString previewPageId(int index) {
   }
 }
 
+std::optional<std::pair<std::uint64_t, std::uint64_t>> byte_range_for_bits(
+    std::uint64_t bit_begin, std::uint64_t bit_end,
+    std::uint64_t byte_origin = 0) noexcept {
+  if (bit_end <= bit_begin ||
+      bit_end > std::numeric_limits<std::uint64_t>::max() - 7) {
+    return std::nullopt;
+  }
+  const std::uint64_t begin = bit_begin / 8;
+  const std::uint64_t end = (bit_end + 7) / 8;
+  if (byte_origin > std::numeric_limits<std::uint64_t>::max() - begin ||
+      byte_origin > std::numeric_limits<std::uint64_t>::max() - end) {
+    return std::nullopt;
+  }
+  const std::uint64_t start = byte_origin + begin;
+  const std::uint64_t finish = byte_origin + end;
+  if (finish <= start) {
+    return std::nullopt;
+  }
+  return std::pair<std::uint64_t, std::uint64_t>{start, finish - start};
+}
+
 int previewIndexForId(const QString& id) {
   if (id == QStringLiteral("image")) {
     return 0;
@@ -476,11 +497,17 @@ MainWindow::MainWindow(QWidget* parent,
           });
   connect(block_inspector_,
           &pnga::ui::qt::BlockInspector::showInDeflateRequested, this,
-          [this](quint64 bit_begin, quint64 /*bit_end*/) {
+          [this](quint64 bit_begin, quint64 bit_end) {
             // Block input bits are absolute logical (zlib/IDAT) stream bits,
             // including the zlib header.
             setHexSource(pnga::ui::qt::HexSource::kIdatStream);
-            hex_->navigateTo(bit_begin / 8);
+            const auto range = byte_range_for_bits(bit_begin, bit_end);
+            if (!range.has_value()) {
+              return;
+            }
+            hex_->setHighlight({{range->first, range->second,
+                                 QColor(0x42, 0xA5, 0xF5)}});
+            hex_->navigateTo(range->first);
           });
   connect(decode_trace_inspector_,
           &pnga::ui::qt::DecodeTraceInspector::showInHexRequested, this,
@@ -490,12 +517,19 @@ MainWindow::MainWindow(QWidget* parent,
           });
   connect(decode_trace_inspector_,
           &pnga::ui::qt::DecodeTraceInspector::showInDeflateRequested, this,
-          [this](quint64 bit_begin, quint64 /*bit_end*/) {
+          [this](quint64 bit_begin, quint64 bit_end) {
             // Token input bits are relative to the start of the Deflate data
             // (after the zlib wrapper); add deflate_data_begin for the IDAT
             // byte offset.
             setHexSource(pnga::ui::qt::HexSource::kIdatStream);
-            hex_->navigateTo(trace_deflate_data_begin_ + bit_begin / 8);
+            const auto range = byte_range_for_bits(
+                bit_begin, bit_end, trace_deflate_data_begin_);
+            if (!range.has_value()) {
+              return;
+            }
+            hex_->setHighlight({{range->first, range->second,
+                                 QColor(0x42, 0xA5, 0xF5)}});
+            hex_->navigateTo(range->first);
           });
   inspector_layout->addWidget(inspector_tabs_, 1);
   QWidget::setTabOrder(x_spin_, y_spin_);

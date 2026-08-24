@@ -60,7 +60,7 @@ void ChunkModelTest::rowCountMatchesIndex() {
   const pnga::png_format::ChunkIndex index = build_index();
   pnga::ui::qt::ChunkModel model(&index);
   QCOMPARE(model.rowCount(), 3);
-  QCOMPARE(model.columnCount(), 4);
+  QCOMPARE(model.columnCount(), 5);
   QVERIFY(!model.index(0, 0).parent().isValid());
   QVERIFY(!model.index(3, 0).isValid());
 }
@@ -69,17 +69,22 @@ void ChunkModelTest::displayRolesExposeEnvelope() {
   const pnga::png_format::ChunkIndex index = build_index();
   pnga::ui::qt::ChunkModel model(&index);
 
-  QCOMPARE(model.data(model.index(0, 0), Qt::DisplayRole).toString(),
+  QCOMPARE(model.data(model.index(0, 0), Qt::DisplayRole).toInt(), 1);
+  QCOMPARE(model.data(model.index(1, 0), Qt::DisplayRole).toInt(), 2);
+  QCOMPARE(model.data(model.index(2, 0), Qt::DisplayRole).toInt(), 3);
+  QCOMPARE(model.data(model.index(0, 1), Qt::DisplayRole).toString(),
            QStringLiteral("IHDR"));
-  QCOMPARE(model.data(model.index(1, 0), Qt::DisplayRole).toString(),
+  QCOMPARE(model.data(model.index(1, 1), Qt::DisplayRole).toString(),
            QStringLiteral("IDAT"));
-  QCOMPARE(model.data(model.index(2, 0), Qt::DisplayRole).toString(),
+  QCOMPARE(model.data(model.index(2, 1), Qt::DisplayRole).toString(),
            QStringLiteral("IEND"));
-  QCOMPARE(model.data(model.index(0, 1), Qt::DisplayRole).toULongLong(),
+  QCOMPARE(model.data(model.index(0, 2), Qt::DisplayRole).toULongLong(),
            qulonglong{13});
   QCOMPARE(model.headerData(0, Qt::Horizontal, Qt::DisplayRole).toString(),
+           QStringLiteral("#"));
+  QCOMPARE(model.headerData(1, Qt::Horizontal, Qt::DisplayRole).toString(),
            QStringLiteral("Type"));
-  QVERIFY(model.data(model.index(0, 0), Qt::ToolTipRole).isNull());
+  QVERIFY(model.data(model.index(0, 1), Qt::ToolTipRole).isNull());
 }
 
 void ChunkModelTest::chunkSpansAreExact() {

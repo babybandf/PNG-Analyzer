@@ -15,7 +15,14 @@ namespace pnga::ui::qt {
 class ChunkModel final : public QAbstractItemModel {
   Q_OBJECT
  public:
-  enum Column { kType = 0, kLength, kDataOffset, kCrcOffset, kColumnCount };
+  enum Column {
+    kNumber = 0,
+    kType,
+    kLength,
+    kDataOffset,
+    kCrcOffset,
+    kColumnCount
+  };
 
   // The ChunkIndex is borrowed and must outlive the model.
   explicit ChunkModel(const pnga::png_format::ChunkIndex* index,
