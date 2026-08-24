@@ -9,10 +9,34 @@
 #include <pnga/png-format/chunk_index.h>
 #include <pnga/png-format/virtual_idat_stream.h>
 
+#include <algorithm>
 #include <limits>
 #include <utility>
 
 namespace pnga::analysis_engine {
+
+namespace {
+
+// The token decoder is intentionally bounded, but it should not replay the
+// entire prefix up to the global budget when the selected output window is at
+// the beginning of a large image. A small look-ahead keeps the token that
+// crosses the requested end available while making first-pixel inspection
+// independent of total image size.
+constexpr std::uint64_t kTraceLookaheadBytes = 64ull * 1024ull;
+
+std::uint64_t decode_budget_for(
+    const TraceOrchestrationRequest& request) noexcept {
+  std::uint64_t target = request.inflated_end;
+  if (target <= std::numeric_limits<std::uint64_t>::max() -
+                    kTraceLookaheadBytes) {
+    target += kTraceLookaheadBytes;
+  } else {
+    target = std::numeric_limits<std::uint64_t>::max();
+  }
+  return std::min(request.trace_output_budget_bytes, target);
+}
+
+}  // namespace
 
 const char* trace_submit_status_text(TraceSubmitStatus status) noexcept {
   switch (status) {
@@ -162,7 +186,7 @@ TraceTaskHandle TraceOrchestrator::submit(
         }
         VirtualIdatSource logical(*stream, *source);
         const auto trace = pnga::deflate_trace::decode_stored_and_fixed(
-            logical, request.trace_output_budget_bytes);
+            logical, decode_budget_for(request));
         if (cancellation.cancelled()) {
           return;
         }

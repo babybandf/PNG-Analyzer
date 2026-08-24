@@ -59,16 +59,8 @@ void TracePipelineIntegrationTest::committedPixelPublishesReadyBundleToAllPages(
   QVERIFY(image != nullptr);
   QTRY_VERIFY_WITH_TIMEOUT(!image->image().isNull(), 5000);
 
-  auto* x = window.findChild<QSpinBox*>(QStringLiteral("xCoordinate"));
-  auto* y = window.findChild<QSpinBox*>(QStringLiteral("yCoordinate"));
   auto* lock = window.findChild<QCheckBox*>(QStringLiteral("lockCoordinate"));
-  QVERIFY(x != nullptr);
-  QVERIFY(y != nullptr);
   QVERIFY(lock != nullptr);
-  x->setValue(0);
-  y->setValue(0);
-  lock->setChecked(true);
-  QCoreApplication::processEvents();
 
   auto* context_status = window.findChild<QLabel*>(
       QStringLiteral("compressionContextStatus"));
@@ -91,6 +83,9 @@ void TracePipelineIntegrationTest::committedPixelPublishesReadyBundleToAllPages(
   QVERIFY(block != nullptr);
   QVERIFY(huffman != nullptr);
   QVERIFY(decode != nullptr);
+  QVERIFY(lock->isChecked());
+  QCOMPARE(block->view().selected_output_offset,
+           std::optional<std::uint64_t>{0});
   QCOMPARE(block->view().generation, huffman->view().generation);
   QCOMPARE(huffman->view().generation, decode->view().generation);
   QVERIFY(block->view().generation != 0);

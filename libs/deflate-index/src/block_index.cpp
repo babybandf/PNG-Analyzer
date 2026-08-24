@@ -52,13 +52,16 @@ bool read_bits(const pnga::io::IByteSource& source, std::uint64_t bit_pos,
     return false;
   }
   // `bytes` is the window starting at bit_pos, so bit (bit_pos + k) lives at
-  // bytes[k / 8]. The stream bit at position k becomes value bit k, so the
-  // first bit read (BFINAL) lands in the LSB of `value`.
+  // the relative window byte selected by (bit_offset + k) / 8. The stream bit
+  // at position k becomes value bit k, so the first bit read (BFINAL) lands in
+  // the LSB of `value`.
   value = 0;
+  const unsigned bit_offset = static_cast<unsigned>(bit_pos % 8);
   for (unsigned k = 0; k < count; ++k) {
-    const unsigned shift = static_cast<unsigned>((bit_pos + k) % 8);
+    const unsigned relative_bit = bit_offset + k;
+    const unsigned shift = relative_bit % 8;
     const std::uint16_t bit =
-        (static_cast<unsigned>(bytes[k / 8]) >> shift) & 1u;
+        (static_cast<unsigned>(bytes[relative_bit / 8]) >> shift) & 1u;
     value = static_cast<std::uint16_t>(value | (bit << k));
   }
   return true;

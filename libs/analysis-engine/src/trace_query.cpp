@@ -258,7 +258,13 @@ TraceQueryResult compose_trace_query(
     out.blocks.push_back(std::move(summary));
   }
 
-  if (trace.success) {
+  // A decoder stopped at its bounded output budget still owns verified
+  // tables/tokens for the prefix it decoded. Preserve those artifacts in the
+  // partial result; dropping them makes large valid images appear empty even
+  // though their selected output range was already covered.
+  const bool has_trace_artifacts =
+      trace.success || !trace.tokens.empty() || !trace.huffman_tables.empty();
+  if (has_trace_artifacts) {
     out.huffman_tables.reserve(trace.huffman_tables.size());
     for (const auto& table : trace.huffman_tables) {
       out.huffman_tables.push_back(

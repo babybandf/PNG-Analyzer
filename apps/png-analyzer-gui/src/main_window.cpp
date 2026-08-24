@@ -1416,6 +1416,13 @@ void MainWindow::onDecodeDone(std::uint64_t generation) {
           .arg(img.source_bit_depth)
           .arg(img.source_color_type);
   pixel_label_->setText(default_pixel_status_);
+  // Establish a deterministic initial provenance target as soon as the
+  // delivered image is available. The stage/query/trace workers may finish
+  // in either order; onPixelSelected() records the request while they are
+  // pending and openTraceCoordinator() replays it once both indexes exist.
+  // This keeps Compression populated immediately after opening a document
+  // instead of requiring an incidental image click first.
+  onPixelSelected(0, 0);
   decode_worker_ = nullptr;
 }
 

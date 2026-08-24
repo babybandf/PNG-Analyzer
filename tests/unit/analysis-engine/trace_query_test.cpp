@@ -205,7 +205,9 @@ TEST_CASE("Trace query preserves verified data as a partial result",
   REQUIRE(partial.status == TraceQueryStatus::kPartial);
   REQUIRE(partial.error == "replay stopped at block boundary");
   REQUIRE_FALSE(partial.blocks.empty());
-  REQUIRE(partial.tokens.empty());
+  // A failed replay can still carry verified prefix artifacts; those are
+  // retained so the UI can render a useful partial trace.
+  REQUIRE_FALSE(partial.tokens.empty());
 
   auto unavailable_index = inputs.blocks;
   unavailable_index.success = false;
