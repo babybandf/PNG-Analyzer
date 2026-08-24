@@ -31,6 +31,74 @@ bool contains(std::uint64_t begin, std::uint64_t end,
   return begin <= offset && offset < end;
 }
 
+bool checked_add(std::uint64_t left, std::uint64_t right,
+                 std::uint64_t* out) noexcept {
+  if (right > std::numeric_limits<std::uint64_t>::max() - left) {
+    return false;
+  }
+  *out = left + right;
+  return true;
+}
+
+bool checked_mul(std::uint64_t left, std::uint64_t right,
+                 std::uint64_t* out) noexcept {
+  if (left != 0 && right > std::numeric_limits<std::uint64_t>::max() / left) {
+    return false;
+  }
+  *out = left * right;
+  return true;
+}
+
+bool append_physical_bit_spans(
+    const pnga::png_format::VirtualIDATStream& stream,
+    pnga::trace_model::ZlibBitRange bits,
+    std::vector<pnga::trace_model::ProvenanceSpan>* spans) {
+  if (!bits.valid()) {
+    return false;
+  }
+  if (bits.empty()) {
+    return true;
+  }
+  std::uint64_t rounded_end = 0;
+  if (!checked_add(bits.end.value, 7, &rounded_end)) {
+    return false;
+  }
+  const std::uint64_t logical_begin = bits.begin.value / 8;
+  const std::uint64_t logical_end = rounded_end / 8;
+  if (logical_end < logical_begin) {
+    return false;
+  }
+  const std::uint64_t logical_length = logical_end - logical_begin;
+  std::vector<pnga::png_format::PhysicalRange> ranges;
+  if (!stream.logical_to_physical(logical_begin, logical_length, ranges)) {
+    return false;
+  }
+
+  std::uint64_t remaining = bits.end.value - bits.begin.value;
+  std::uint8_t bit_offset = static_cast<std::uint8_t>(bits.begin.value % 8);
+  for (const auto& range : ranges) {
+    std::uint64_t capacity = 0;
+    if (!checked_mul(range.length, 8, &capacity) || capacity < bit_offset) {
+      return false;
+    }
+    capacity -= bit_offset;
+    const std::uint64_t take = std::min(remaining, capacity);
+    spans->push_back(pnga::trace_model::ProvenanceSpan{
+        pnga::trace_model::ProvenanceSpace::kPhysicalFile,
+        range.offset,
+        range.length,
+        bit_offset,
+        take,
+        true});
+    remaining -= take;
+    bit_offset = 0;
+    if (remaining == 0) {
+      break;
+    }
+  }
+  return remaining == 0;
+}
+
 void append_number(std::ostringstream& out, std::uint64_t value) {
   out << value;
 }
@@ -128,6 +196,72 @@ std::string serialize_block_inspector(const BlockInspectorView& view) {
     out << ",spans=" << row.physical_spans.size();
   }
   return out.str();
+}
+
+const char* fast_compression_index_status_text(
+    FastCompressionIndexStatus status) noexcept {
+  switch (status) {
+    case FastCompressionIndexStatus::kUnavailable:
+      return "unavailable";
+    case FastCompressionIndexStatus::kReady:
+      return "ready";
+    case FastCompressionIndexStatus::kPartial:
+      return "partial";
+    case FastCompressionIndexStatus::kError:
+      return "error";
+  }
+  return "unknown";
+}
+
+FastCompressionIndexView build_fast_compression_index(
+    std::uint64_t generation,
+    const pnga::deflate_index::BlockIndexResult& block_index,
+    const pnga::png_format::VirtualIDATStream& stream) {
+  FastCompressionIndexView view;
+  view.generation = generation;
+  view.stream.stream_range = {
+      pnga::trace_model::ZlibByteOffset{0},
+      pnga::trace_model::ZlibByteOffset{stream.size()}};
+  view.stream.deflate_data_begin =
+      pnga::trace_model::ZlibBitOffset{block_index.zlib_header_bits};
+  view.stream.idat_segment_count = stream.segment_count();
+  view.stream.total_output_bytes = block_index.total_output_bytes;
+  view.stream.adler_ok = block_index.adler_ok;
+  view.blocks.reserve(block_index.blocks.size());
+  for (const auto& block : block_index.blocks) {
+    FastCompressionBlockRow row;
+    row.block_index = block.index;
+    row.type = block.type;
+    row.last = block.last;
+    row.input_range = {
+        pnga::trace_model::ZlibBitOffset{block.input_bit_begin},
+        pnga::trace_model::ZlibBitOffset{block.input_bit_end}};
+    row.output_range = {
+        pnga::trace_model::InflatedByteOffset{block.output_begin},
+        pnga::trace_model::InflatedByteOffset{block.output_end}};
+    if (!append_physical_bit_spans(stream, row.input_range,
+                                   &row.physical_spans)) {
+      view.status = FastCompressionIndexStatus::kError;
+      view.error = "fast block input provenance is unavailable";
+    }
+    view.blocks.push_back(std::move(row));
+  }
+
+  if (view.status == FastCompressionIndexStatus::kError) {
+    return view;
+  }
+  if (block_index.success) {
+    view.status = FastCompressionIndexStatus::kReady;
+  } else if (!block_index.blocks.empty()) {
+    view.status = FastCompressionIndexStatus::kPartial;
+    view.error = block_index.error;
+  } else if (!block_index.error.empty()) {
+    view.status = FastCompressionIndexStatus::kError;
+    view.error = block_index.error;
+  } else {
+    view.status = FastCompressionIndexStatus::kUnavailable;
+  }
+  return view;
 }
 
 }  // namespace pnga::analysis_engine

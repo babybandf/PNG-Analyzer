@@ -1,4 +1,6 @@
 #include <pnga/analysis-engine/block_inspector.h>
+#include <pnga/png-format/chunk_index.h>
+#include <pnga/png-format/virtual_idat_stream.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -6,6 +8,20 @@ using pnga::analysis_engine::BlockInspectorStatus;
 using pnga::analysis_engine::TraceBlockSummary;
 using pnga::analysis_engine::TraceQueryResult;
 using pnga::analysis_engine::TraceQueryStatus;
+
+namespace {
+
+pnga::png_format::ChunkNode idat(std::uint64_t offset,
+                                 std::uint64_t length) {
+  pnga::png_format::ChunkNode node;
+  node.data_offset = offset;
+  node.data_length = length;
+  node.type = {std::byte{'I'}, std::byte{'D'}, std::byte{'A'},
+               std::byte{'T'}};
+  return node;
+}
+
+}  // namespace
 
 TEST_CASE("block inspector projects block ranges and selected position") {
   TraceQueryResult trace;
@@ -65,3 +81,57 @@ TEST_CASE("block inspector preserves partial and unavailable states") {
   REQUIRE(no_trace.error == "replay pending");
 }
 
+TEST_CASE("fast compression index retains complete blocks and segmented IDAT") {
+  pnga::png_format::ChunkIndex chunks;
+  chunks.chunks = {idat(100, 2), idat(200, 2)};
+  const pnga::png_format::VirtualIDATStream stream(chunks);
+
+  pnga::deflate_index::BlockIndexResult index;
+  index.success = true;
+  index.zlib_header_bits = 16;
+  index.total_output_bytes = 12;
+  index.adler_ok = true;
+  index.blocks.push_back({0, pnga::deflate_index::BlockType::kDynamic, true,
+                          8, 32, 0, 12});
+
+  const auto view = pnga::analysis_engine::build_fast_compression_index(
+      88, index, stream);
+  REQUIRE(view.status ==
+          pnga::analysis_engine::FastCompressionIndexStatus::kReady);
+  REQUIRE(view.generation == 88);
+  REQUIRE(view.stream.stream_range.begin ==
+          pnga::trace_model::ZlibByteOffset{0});
+  REQUIRE(view.stream.stream_range.end ==
+          pnga::trace_model::ZlibByteOffset{4});
+  REQUIRE(view.stream.deflate_data_begin ==
+          pnga::trace_model::ZlibBitOffset{16});
+  REQUIRE(view.stream.idat_segment_count == 2);
+  REQUIRE(view.blocks.size() == 1);
+  REQUIRE(view.blocks[0].input_range.begin ==
+          pnga::trace_model::ZlibBitOffset{8});
+  REQUIRE(view.blocks[0].input_range.end ==
+          pnga::trace_model::ZlibBitOffset{32});
+  REQUIRE(view.blocks[0].physical_spans ==
+          std::vector<pnga::trace_model::ProvenanceSpan>{
+              {pnga::trace_model::ProvenanceSpace::kPhysicalFile, 101, 1, 0,
+               8, true},
+              {pnga::trace_model::ProvenanceSpace::kPhysicalFile, 200, 2, 0,
+               16, true}});
+}
+
+TEST_CASE("fast compression index preserves verified partial blocks") {
+  pnga::png_format::ChunkIndex chunks;
+  chunks.chunks = {idat(100, 2)};
+  const pnga::png_format::VirtualIDATStream stream(chunks);
+  pnga::deflate_index::BlockIndexResult index;
+  index.error = "truncated zlib stream (no end marker)";
+  index.blocks.push_back({0, pnga::deflate_index::BlockType::kStored, false,
+                          8, 16, 0, 1});
+
+  const auto view = pnga::analysis_engine::build_fast_compression_index(
+      89, index, stream);
+  REQUIRE(view.status ==
+          pnga::analysis_engine::FastCompressionIndexStatus::kPartial);
+  REQUIRE(view.error == "truncated zlib stream (no end marker)");
+  REQUIRE(view.blocks.size() == 1);
+}
