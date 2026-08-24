@@ -46,6 +46,7 @@
 #include <QMessageBox>
 #include <QPainter>
 #include <QPushButton>
+#include <QPair>
 #include <QSignalBlocker>
 #include <QScrollArea>
 #include <QSpinBox>
@@ -56,6 +57,7 @@
 #include <QTabWidget>
 #include <QTreeView>
 #include <QVBoxLayout>
+#include <QVector>
 #include <QWidget>
 #include <QSettings>
 
@@ -67,6 +69,7 @@
 #include <limits>
 #include <iterator>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -431,15 +434,23 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {  setWindowTitle(
   trace_state_ =
       std::make_unique<pnga::analysis_engine::TraceInspectorStateMachine>();
   connect(block_inspector_,
-          &pnga::ui::qt::BlockInspector::showInHexRequested, this,
-          [this](quint64 offset, quint64 length) {
+          &pnga::ui::qt::BlockInspector::showInHexSpansRequested, this,
+          [this](const QVector<QPair<quint64, quint64>>& ranges) {
+            if (ranges.isEmpty()) {
+              return;
+            }
             setHexSource(pnga::ui::qt::HexSource::kFile);
             hex_->clearHighlight();
-            hex_->navigateTo(offset);
-            if (length != 0) {
-              hex_->setHighlight(
-                  {{offset, length, QColor(0x42, 0xA5, 0xF5)}});
+            std::vector<pnga::ui::qt::HexHighlightSpan> highlights;
+            highlights.reserve(static_cast<std::size_t>(ranges.size()));
+            for (const auto& range : ranges) {
+              if (range.second != 0) {
+                highlights.push_back({range.first, range.second,
+                                      QColor(0x42, 0xA5, 0xF5)});
+              }
             }
+            hex_->navigateTo(ranges.front().first);
+            hex_->setHighlight(std::move(highlights));
           });
   connect(block_inspector_,
           &pnga::ui::qt::BlockInspector::showInDeflateRequested, this,

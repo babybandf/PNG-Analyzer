@@ -9,7 +9,9 @@
 #include <pnga/analysis-engine/block_inspector.h>
 #include <pnga/ui/qt/compression_inspector_page.h>
 
+#include <QPair>
 #include <QString>
+#include <QVector>
 
 class QPushButton;
 class QTableWidget;
@@ -30,7 +32,11 @@ class BlockInspector final : public CompressionInspectorPage {
   }
 
  signals:
+  // The legacy single-span signal remains for source compatibility with
+  // existing integrations. New consumers must use the complete segmented
+  // range signal so a block crossing IDAT chunks is not truncated.
   void showInHexRequested(quint64 file_offset, quint64 length);
+  void showInHexSpansRequested(QVector<QPair<quint64, quint64>> spans);
   void showInDeflateRequested(quint64 bit_begin, quint64 bit_end);
 
  private slots:

@@ -12,6 +12,7 @@
 #include <QTableWidgetItem>
 
 #include <limits>
+#include <utility>
 
 namespace pnga::ui::qt {
 
@@ -58,7 +59,7 @@ BlockInspector::BlockInspector(QWidget* parent)
   table->setHorizontalHeaderLabels(
       {QStringLiteral("Current"), QStringLiteral("#"),
        QStringLiteral("Type"), QStringLiteral("Final"),
-       QStringLiteral("Input bits"), QStringLiteral("Output bytes")});
+       QStringLiteral("zlib bits"), QStringLiteral("Output bytes")});
 
   hex_button_ = new QPushButton(QStringLiteral("Show in Hex"), this);
   hex_button_->setObjectName(QStringLiteral("blockShowInHex"));
@@ -206,7 +207,7 @@ void BlockInspector::updateDetails() {
                  : QStringLiteral("no · BFINAL=0"));
   details.emplace_back(
       QStringLiteral("Input"),
-      QStringLiteral("DEFLATE bits %1")
+      QStringLiteral("zlib-stream bits %1")
           .arg(range_text(block.input_bit_begin, block.input_bit_end)));
   details.emplace_back(
       QStringLiteral("Output"),
@@ -238,6 +239,15 @@ void BlockInspector::showSelectedInHex() {
   }
   const auto& spans = view_.rows[*row].physical_spans;
   if (!spans.empty()) {
+    QVector<QPair<quint64, quint64>> ranges;
+    ranges.reserve(static_cast<qsizetype>(spans.size()));
+    for (const auto& span : spans) {
+      ranges.push_back({static_cast<quint64>(span.offset),
+                        static_cast<quint64>(span.length)});
+    }
+    emit showInHexSpansRequested(std::move(ranges));
+    // Preserve the original signal for existing integrations. The
+    // application-level connection uses the segmented signal above.
     emit showInHexRequested(static_cast<quint64>(spans.front().offset),
                             static_cast<quint64>(spans.front().length));
   }

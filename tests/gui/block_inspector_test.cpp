@@ -31,6 +31,9 @@ void BlockInspectorTest::rendersViewAndExposesNavigationSignals() {
   row.physical_spans.push_back(
       {pnga::trace_model::ProvenanceSpace::kPhysicalFile, 100, 3, 0, 0,
        false});
+  row.physical_spans.push_back(
+      {pnga::trace_model::ProvenanceSpace::kPhysicalFile, 200, 2, 0, 0,
+       false});
   view.rows.push_back(row);
 
   pnga::ui::qt::BlockInspector widget;
@@ -55,7 +58,8 @@ void BlockInspectorTest::rendersViewAndExposesNavigationSignals() {
   bool found_span = false;
   const auto labels = widget.findChildren<QLabel*>();
   for (const auto* label : labels) {
-    if (label->text() == QStringLiteral("file[100..103)")) {
+    if (label->text().contains(QStringLiteral("file[100..103)")) &&
+        label->text().contains(QStringLiteral("file[200..202)"))) {
       found_span = true;
       break;
     }
@@ -63,6 +67,8 @@ void BlockInspectorTest::rendersViewAndExposesNavigationSignals() {
   QVERIFY(found_span);
 
   QSignalSpy hex_spy(&widget, &pnga::ui::qt::BlockInspector::showInHexRequested);
+  QSignalSpy hex_ranges_spy(
+      &widget, &pnga::ui::qt::BlockInspector::showInHexSpansRequested);
   QSignalSpy deflate_spy(
       &widget, &pnga::ui::qt::BlockInspector::showInDeflateRequested);
   const auto buttons = widget.findChildren<QPushButton*>();
@@ -74,6 +80,13 @@ void BlockInspectorTest::rendersViewAndExposesNavigationSignals() {
   }
   QCOMPARE(hex_spy.count(), 1);
   QCOMPARE(hex_spy.takeFirst().at(0).toULongLong(), qulonglong{100});
+  QCOMPARE(hex_ranges_spy.count(), 1);
+  const auto ranges =
+      qvariant_cast<QVector<QPair<quint64, quint64>>>(
+          hex_ranges_spy.takeFirst().at(0));
+  QCOMPARE(ranges.size(), 2);
+  QCOMPARE(ranges[0], qMakePair(quint64{100}, quint64{3}));
+  QCOMPARE(ranges[1], qMakePair(quint64{200}, quint64{2}));
   for (auto* button : buttons) {
     if (button->text() == QStringLiteral("Show in DEFLATE")) {
       button->click();
