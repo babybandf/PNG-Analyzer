@@ -169,9 +169,9 @@ void CompressionInspectorResponsiveTest::replacingDetailsDoesNotLeaveOverlapping
 
   const auto labels = details_body->findChildren<QLabel*>(
       QString(), Qt::FindDirectChildrenOnly);
-  // Seven label/value rows belong to the current Block details only. Old rows
+  // Eight label/value rows belong to the current Block details only. Old rows
   // must be deleted synchronously rather than lingering until the event loop.
-  QCOMPARE(labels.size(), 14);
+  QCOMPARE(labels.size(), 16);
 
   bool found_current_span = false;
   for (const auto* label : labels) {

@@ -50,6 +50,24 @@ QString range_text(std::uint64_t begin, std::uint64_t end) {
       .arg(static_cast<qulonglong>(end));
 }
 
+QString compression_ratio_text(
+    const pnga::analysis_engine::BlockInspectorRow& block) {
+  if (block.input_bit_end <= block.input_bit_begin ||
+      block.output_end <= block.output_begin) {
+    return QStringLiteral("—");
+  }
+  const std::uint64_t compressed_bits =
+      block.input_bit_end - block.input_bit_begin;
+  const std::uint64_t output_bytes = block.output_end - block.output_begin;
+  const long double ratio_percent =
+      (static_cast<long double>(compressed_bits) / 8.0L) /
+      static_cast<long double>(output_bytes) * 100.0L;
+  return QStringLiteral("%1% (%2 bits / %3 bytes)")
+      .arg(QString::number(static_cast<double>(ratio_percent), 'f', 1))
+      .arg(static_cast<qulonglong>(compressed_bits))
+      .arg(static_cast<qulonglong>(output_bytes));
+}
+
 void markAssociatedRow(QTableWidget* table, int row) {
   const QBrush background(QColor(QStringLiteral("#FFF4CC")));
   const QBrush foreground(QColor(QStringLiteral("#4A3B00")));
@@ -280,6 +298,8 @@ void BlockInspector::updateDetails() {
       QStringLiteral("Output"),
       QStringLiteral("Inflated bytes %1")
           .arg(range_text(block.output_begin, block.output_end)));
+  details.emplace_back(QStringLiteral("Compression ratio"),
+                       compression_ratio_text(block));
   details.emplace_back(
       QStringLiteral("Current"),
       block.current_output_position.has_value()

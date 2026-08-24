@@ -67,6 +67,15 @@ void BlockInspectorTest::rendersViewAndExposesNavigationSignals() {
     }
   }
   QVERIFY(found_span);
+  bool found_ratio = false;
+  for (const auto* label : labels) {
+    if (label->text().contains(QStringLiteral("16.7%")) &&
+        label->text().contains(QStringLiteral("16 bits / 12 bytes"))) {
+      found_ratio = true;
+      break;
+    }
+  }
+  QVERIFY(found_ratio);
 
   QSignalSpy hex_spy(&widget, &pnga::ui::qt::BlockInspector::showInHexRequested);
   QSignalSpy hex_ranges_spy(
