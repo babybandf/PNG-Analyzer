@@ -70,9 +70,29 @@ jobs:
         shell: bash
         run: python scripts/bootstrap.py
 
+      - name: Install Qt (GUI build)
+        id: install-qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          cache: true
+          cache-key-prefix: "pnga-qt-release"
+
       - name: Configure release
         shell: bash
-        run: cmake --preset release
+        run: |
+          # The GUI target is added when Qt is found; the portable package is
+          # self-contained only where the Qt deployment tool exists
+          # (macdeployqt/windeployqt). Linux Qt bundling (linuxdeployqt) is a
+          # separate follow-up, so Linux ships the GUI binary without the Qt
+          # runtime.
+          deploy_flags=""
+          if [ "$RUNNER_OS" = "macOS" ] || [ "$RUNNER_OS" = "Windows" ]; then
+            deploy_flags="-DPNGA_ENABLE_QT_DEPLOYMENT=ON"
+          fi
+          cmake --preset release \
+            -DCMAKE_PREFIX_PATH="${{ steps.install-qt.outputs.qtpath }}" \
+            $deploy_flags
 
       - name: Build release
         shell: bash
@@ -88,6 +108,21 @@ jobs:
           if [[ ${#packages[@]} -ne 1 || ! -f "${packages[0]}" ]]; then
             echo "expected exactly one portable package, found: ${packages[*]}"
             exit 1
+          fi
+
+      - name: Verify GUI in portable package
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            if ! unzip -l dist/png-analyzer-*.zip | grep -qi "pnga_analyzer_gui"; then
+              echo "GUI executable is missing from the Windows ZIP"
+              exit 1
+            fi
+          else
+            if ! tar tzf dist/png-analyzer-*.tgz | grep -qi "pnga_analyzer_gui"; then
+              echo "GUI executable is missing from the TGZ"
+              exit 1
+            fi
           fi
 
       - name: Upload release package
