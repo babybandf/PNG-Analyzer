@@ -74,7 +74,10 @@ jobs:
         id: install-qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: "6.8.3"
+          # Qt 6.9+ removed the deprecated AGL.framework dependency that fails
+          # to link on current macOS SDKs (Qt 6.8.x -> "framework 'AGL' not
+          # found" on macos-latest).
+          version: "6.9.2"
           cache: true
           cache-key-prefix: "pnga-qt-release"
 
@@ -119,7 +122,8 @@ jobs:
               exit 1
             fi
           else
-            if ! tar tzf dist/png-analyzer-*.tgz | grep -qi "pnga_analyzer_gui"; then
+            # CPack's TGZ generator emits .tar.gz archives.
+            if ! tar tzf dist/png-analyzer-*.tar.gz | grep -qi "pnga_analyzer_gui"; then
               echo "GUI executable is missing from the TGZ"
               exit 1
             fi
