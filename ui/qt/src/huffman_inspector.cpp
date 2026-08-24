@@ -5,6 +5,8 @@
 #include <pnga/deflate-trace/token_decoder.h>
 
 #include <QAbstractItemView>
+#include <QBrush>
+#include <QColor>
 #include <QComboBox>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -37,6 +39,17 @@ QString mode_label(pnga::analysis_engine::HuffmanTableMode mode) noexcept {
       pnga::analysis_engine::huffman_table_mode_text(mode));
 }
 
+void markAssociatedRow(QTableWidget* table, int row) {
+  const QBrush background(QColor(QStringLiteral("#FFF4CC")));
+  const QBrush foreground(QColor(QStringLiteral("#4A3B00")));
+  for (int column = 0; column < table->columnCount(); ++column) {
+    if (auto* item = table->item(row, column); item != nullptr) {
+      item->setBackground(background);
+      item->setForeground(foreground);
+    }
+  }
+}
+
 }  // namespace
 
 HuffmanInspector::HuffmanInspector(QWidget* parent)
@@ -44,10 +57,10 @@ HuffmanInspector::HuffmanInspector(QWidget* parent)
   QTableWidget* table = masterTable();
   table->setObjectName(QStringLiteral("huffmanInspectorTable"));
   table->setAccessibleName(QStringLiteral("Huffman table entries"));
-  table->setColumnCount(6);
+  table->setColumnCount(5);
   table->setHorizontalHeaderLabels(
-      {QStringLiteral("Current"), QStringLiteral("Build"),
-       QStringLiteral("Symbol"), QStringLiteral("Bits"),
+      {QStringLiteral("Build"), QStringLiteral("Symbol"),
+       QStringLiteral("Bits"),
        QStringLiteral("Canonical"), QStringLiteral("Definition bits")});
 
   heading_ = new QLabel(this);
@@ -106,6 +119,7 @@ pnga::deflate_trace::HuffmanTableKind HuffmanInspector::currentKind()
 void HuffmanInspector::rebuildTable() {
   QTableWidget* table = masterTable();
   table->setRowCount(0);
+  associated_row_ = -1;
 
   bool has_stored = false;
   for (const auto& candidate : view_.tables) {
@@ -119,11 +133,10 @@ void HuffmanInspector::rebuildTable() {
     const int row = table->rowCount();
     table->insertRow(row);
     table->setItem(row, 0, new QTableWidgetItem(QStringLiteral("—")));
-    table->setItem(row, 1, new QTableWidgetItem(QStringLiteral("—")));
-    table->setItem(row, 2, new QTableWidgetItem(QStringLiteral("LEN/NLEN")));
+    table->setItem(row, 1, new QTableWidgetItem(QStringLiteral("LEN/NLEN")));
+    table->setItem(row, 2, new QTableWidgetItem(QStringLiteral("—")));
     table->setItem(row, 3, new QTableWidgetItem(QStringLiteral("—")));
-    table->setItem(row, 4, new QTableWidgetItem(QStringLiteral("—")));
-    table->setItem(row, 5, new QTableWidgetItem(QStringLiteral("2 fields")));
+    table->setItem(row, 4, new QTableWidgetItem(QStringLiteral("2 fields")));
     table->selectRow(row);
     return;
   }
@@ -151,7 +164,6 @@ void HuffmanInspector::rebuildTable() {
 
   std::size_t rendered = 0;
   bool truncated = false;
-  std::optional<std::size_t> current_row;
   for (const auto* candidate : filtered) {
     if (candidate->entries.empty()) {
       if (rendered++ >= static_cast<std::size_t>(kMaxVisibleRows)) {
@@ -160,17 +172,16 @@ void HuffmanInspector::rebuildTable() {
       }
       const int row = table->rowCount();
       table->insertRow(row);
-      table->setItem(row, 0, new QTableWidgetItem(QStringLiteral("—")));
-      table->setItem(row, 1, new QTableWidgetItem(QString::number(
+      table->setItem(row, 0, new QTableWidgetItem(QString::number(
                                  static_cast<qulonglong>(candidate->build_order))));
-      table->setItem(row, 2,
+      table->setItem(row, 1,
                      new QTableWidgetItem(QStringLiteral("predefined")));
-      table->setItem(row, 3, new QTableWidgetItem(QStringLiteral("—")));
-      table->setItem(row, 4,
+      table->setItem(row, 2, new QTableWidgetItem(QStringLiteral("—")));
+      table->setItem(row, 3,
                      new QTableWidgetItem(QStringLiteral("%1 entries")
                                               .arg(static_cast<qulonglong>(
                                                   candidate->declared_entry_count))));
-      table->setItem(row, 5, new QTableWidgetItem(QStringLiteral("—")));
+      table->setItem(row, 4, new QTableWidgetItem(QStringLiteral("—")));
       continue;
     }
     for (const auto& entry : candidate->entries) {
@@ -183,28 +194,26 @@ void HuffmanInspector::rebuildTable() {
       }
       const int row = table->rowCount();
       table->insertRow(row);
-      auto* current_item = new QTableWidgetItem(
-          entry.selected ? QStringLiteral("●") : QString());
-      current_item->setTextAlignment(Qt::AlignCenter);
       if (entry.selected) {
-        current_item->setData(Qt::AccessibleTextRole, QStringLiteral("Current"));
-        current_row = static_cast<std::size_t>(row);
+        associated_row_ = row;
       }
-      table->setItem(row, 0, current_item);
-      table->setItem(row, 1, new QTableWidgetItem(QString::number(
+      table->setItem(row, 0, new QTableWidgetItem(QString::number(
                                  static_cast<qulonglong>(candidate->build_order))));
-      table->setItem(row, 2, new QTableWidgetItem(QString::number(entry.symbol)));
-      table->setItem(row, 3, new QTableWidgetItem(QString::number(entry.bit_length)));
-      table->setItem(row, 4,
+      table->setItem(row, 1, new QTableWidgetItem(QString::number(entry.symbol)));
+      table->setItem(row, 2, new QTableWidgetItem(QString::number(entry.bit_length)));
+      table->setItem(row, 3,
                      new QTableWidgetItem(QStringLiteral("%1 (%2 bits)")
                                               .arg(entry.canonical_code)
                                               .arg(entry.bit_length)));
-      table->setItem(row, 5,
+      table->setItem(row, 4,
                      new QTableWidgetItem(QStringLiteral("%1..%2")
                                               .arg(static_cast<qulonglong>(
                                                   entry.provenance_bit_begin))
                                               .arg(static_cast<qulonglong>(
-                                                  entry.provenance_bit_end))));
+                                                entry.provenance_bit_end))));
+      if (entry.selected) {
+        markAssociatedRow(table, row);
+      }
     }
     if (truncated) {
       break;
@@ -215,21 +224,18 @@ void HuffmanInspector::rebuildTable() {
     table->insertRow(row);
     table->setItem(row, 0, new QTableWidgetItem(QStringLiteral("…")));
     table->setItem(row, 1, new QTableWidgetItem(QStringLiteral("truncated")));
-    table->setItem(row, 4, new QTableWidgetItem(QStringLiteral("more entries")));
-  }
-  if (current_row.has_value()) {
-    table->selectRow(static_cast<int>(*current_row));
+    table->setItem(row, 3, new QTableWidgetItem(QStringLiteral("more entries")));
   }
 }
 
 void HuffmanInspector::updateDetails() {
   const auto rows = masterTable()->selectionModel()->selectedRows();
-  if (rows.size() != 1) {
+  const int table_row = rows.size() == 1 ? rows.front().row() : associated_row_;
+  if (table_row < 0) {
     setDetailsInstruction(QStringLiteral(
         "Select a table entry to inspect its canonical code and provenance."));
     return;
   }
-  const int table_row = rows.front().row();
   const pnga::deflate_trace::HuffmanTableKind kind = currentKind();
   std::size_t entry_cursor = 0;
   for (const auto& candidate : view_.tables) {

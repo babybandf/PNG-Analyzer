@@ -52,7 +52,7 @@
 
 ### 0.4 已完成与未完成的边界
 
-可直接复用：bounded orchestration、bundle publication、Current marker、master/detail
+可直接复用：bounded orchestration、bundle publication、current-row highlight、master/detail
 splitter、Literal/Match/EOB projection、Match base/extra 和 root source ranges。
 
 不能继续作为“完成证据”：项目文档中的 `implemented` 状态、39/39 回归、单纯 row-count
@@ -89,7 +89,7 @@ splitter、Literal/Match/EOB projection、Match base/extra 和 root source range
 4. **两层结果、同一 generation**：打开文件时产生不可变 Fast Compression Index；只有
    明确的 output/block provenance 操作才产生 bounded Deep Trace Window。切页、选行、
    resize 和 DEC/HEX 不 replay。
-5. **Current 与 Selection 分离**：当前像素的来源标记不能覆盖用户手动浏览的行。
+5. **Current 与 Selection 分离**：当前像素的关联行使用浅黄色背景，不能覆盖用户手动浏览的行。
 6. **错误保留部分结果**：后期校验或 decode 错误不清空此前已确认的 Block/event。
 7. **不以截图代替测试**：截图用于视觉验收，offset、code、event 和 mapping 必须由
    golden test 验证。
@@ -374,7 +374,7 @@ golden assertions
 - 表格、标签、按钮均有可访问名称。
 - 键盘可完成选 Block、切页、打开 occurrence、跳 Hex。
 - Current/Selected/Error 不只靠颜色。
-- Focus ring 清晰且不被 Current 标记覆盖。
+- Focus ring 清晰且不被当前关联行背景覆盖。
 - 所有展示值和详情可复制。
 
 ### 10.4 门禁

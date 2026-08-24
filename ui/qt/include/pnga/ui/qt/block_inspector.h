@@ -2,7 +2,7 @@
 #define PNGA_UI_QT_BLOCK_INSPECTOR_H
 
 // WP-505A / WP-5U12: the Qt presentation for the Qt-free BlockInspectorView.
-// Master/detail layout: a compact Current/#/Type/Final/Input/Output table plus
+// Master/detail layout: a compact #/Type/Final/Input/Output table plus
 // a details area for the selected/current block. This widget formats immutable
 // rows only; it does not inspect PNG or Deflate data.
 

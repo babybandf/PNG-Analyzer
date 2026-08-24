@@ -4,6 +4,7 @@
 #include <QtTest/QtTest>
 
 #include <QLabel>
+#include <QColor>
 #include <QPushButton>
 #include <QTableWidget>
 
@@ -45,12 +46,13 @@ void DecodeTraceInspectorTest::rendersMatchArithmeticAndNavigation() {
       QStringLiteral("decodeTraceInspectorTable"));
   QVERIFY(table != nullptr);
   QCOMPARE(table->rowCount(), 1);
-  // Current | Token | Path | Input bits | Output bytes
-  QCOMPARE(table->item(0, 0)->text(), QStringLiteral("●"));
-  QCOMPARE(table->item(0, 1)->text(), QStringLiteral("2"));
-  QCOMPARE(table->item(0, 2)->text(), QStringLiteral("match"));
-  QCOMPARE(table->item(0, 3)->text(), QStringLiteral("17..31"));
-  QCOMPARE(table->item(0, 4)->text(), QStringLiteral("1..13"));
+  // Token | Path | Input bits | Output bytes
+  QCOMPARE(table->item(0, 0)->text(), QStringLiteral("2"));
+  QCOMPARE(table->item(0, 1)->text(), QStringLiteral("match"));
+  QCOMPARE(table->item(0, 2)->text(), QStringLiteral("17..31"));
+  QCOMPARE(table->item(0, 3)->text(), QStringLiteral("1..13"));
+  QCOMPARE(table->item(0, 0)->background().color(),
+           QColor(QStringLiteral("#FFF4CC")));
 
   auto* details_title =
       widget.findChild<QLabel*>(QStringLiteral("compressionDetailsTitle"));

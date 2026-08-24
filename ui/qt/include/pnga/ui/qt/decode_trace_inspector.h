@@ -2,7 +2,7 @@
 #define PNGA_UI_QT_DECODE_TRACE_INSPECTOR_H
 
 // WP-505C / WP-5U12: presentation-only Decode Trace widget. A compact
-// Current/Token/Path/Input/Output table plus a details area explain Literal,
+// Token/Path/Input/Output table plus a details area explain Literal,
 // Match and EOB tokens from immutable projection rows; the GUI never decodes.
 
 #include <pnga/analysis-engine/decode_trace_inspector.h>

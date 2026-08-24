@@ -5,6 +5,8 @@
 #include <pnga/trace-model/provenance.h>
 
 #include <QAbstractItemView>
+#include <QBrush>
+#include <QColor>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
@@ -48,6 +50,17 @@ QString range_text(std::uint64_t begin, std::uint64_t end) {
       .arg(static_cast<qulonglong>(end));
 }
 
+void markAssociatedRow(QTableWidget* table, int row) {
+  const QBrush background(QColor(QStringLiteral("#FFF4CC")));
+  const QBrush foreground(QColor(QStringLiteral("#4A3B00")));
+  for (int column = 0; column < table->columnCount(); ++column) {
+    if (auto* item = table->item(row, column); item != nullptr) {
+      item->setBackground(background);
+      item->setForeground(foreground);
+    }
+  }
+}
+
 }  // namespace
 
 BlockInspector::BlockInspector(QWidget* parent)
@@ -55,10 +68,9 @@ BlockInspector::BlockInspector(QWidget* parent)
   QTableWidget* table = masterTable();
   table->setObjectName(QStringLiteral("blockInspectorTable"));
   table->setAccessibleName(QStringLiteral("Associated DEFLATE blocks"));
-  table->setColumnCount(6);
+  table->setColumnCount(5);
   table->setHorizontalHeaderLabels(
-      {QStringLiteral("Current"), QStringLiteral("#"),
-       QStringLiteral("Type"), QStringLiteral("Final"),
+      {QStringLiteral("#"), QStringLiteral("Type"), QStringLiteral("Final"),
        QStringLiteral("zlib bits"), QStringLiteral("Output bytes")});
 
   hex_button_ = new QPushButton(QStringLiteral("Show in Hex"), this);
@@ -154,42 +166,37 @@ void BlockInspector::renderView() {
     }
     const int table_row = table->rowCount();
     table->insertRow(table_row);
-    const bool current = row.current_output_position.has_value();
-    auto* current_item = new QTableWidgetItem(
-        current ? QStringLiteral("●") : QString());
-    current_item->setTextAlignment(Qt::AlignCenter);
-    if (current) {
-      current_item->setData(Qt::AccessibleTextRole, QStringLiteral("Current"));
-    }
-    table->setItem(table_row, 0, current_item);
-    table->setItem(table_row, 1,
+    table->setItem(table_row, 0,
                    new QTableWidgetItem(QString::number(
                        static_cast<qulonglong>(row.block_index))));
-    table->setItem(table_row, 2,
+    table->setItem(table_row, 1,
                    new QTableWidgetItem(QLatin1String(
                        pnga::deflate_index::block_type_text(row.type))));
-    table->setItem(table_row, 3,
+    table->setItem(table_row, 2,
                    new QTableWidgetItem(row.last ? QStringLiteral("yes")
                                                  : QStringLiteral("no")));
     table->setItem(
-        table_row, 4,
+        table_row, 3,
         new QTableWidgetItem(QStringLiteral("%1..%2")
                                  .arg(static_cast<qulonglong>(
                                      row.input_bit_begin))
                                  .arg(static_cast<qulonglong>(
                                      row.input_bit_end))));
     table->setItem(
-        table_row, 5,
+        table_row, 4,
         new QTableWidgetItem(QStringLiteral("%1..%2")
                                  .arg(static_cast<qulonglong>(row.output_begin))
                                  .arg(static_cast<qulonglong>(row.output_end))));
+    if (row.current_output_position.has_value()) {
+      markAssociatedRow(table, table_row);
+    }
   }
   if (view_.rows.size() > static_cast<std::size_t>(kMaxVisibleRows)) {
     const int row = table->rowCount();
     table->insertRow(row);
     table->setItem(row, 0, new QTableWidgetItem(QStringLiteral("…")));
     table->setItem(row, 1, new QTableWidgetItem(QStringLiteral("truncated")));
-    table->setItem(row, 5, new QTableWidgetItem(QStringLiteral("%1 more rows")
+    table->setItem(row, 4, new QTableWidgetItem(QStringLiteral("%1 more rows")
                                                     .arg(static_cast<qulonglong>(
                                                         view_.rows.size() -
                                                         kMaxVisibleRows))));

@@ -4,6 +4,7 @@
 #include <QtTest/QtTest>
 
 #include <QLabel>
+#include <QColor>
 #include <QPushButton>
 #include <QTableWidget>
 
@@ -42,13 +43,14 @@ void BlockInspectorTest::rendersViewAndExposesNavigationSignals() {
       QStringLiteral("blockInspectorTable"));
   QVERIFY(table != nullptr);
   QCOMPARE(table->rowCount(), 1);
-  // Current | # | Type | Final | Input bits | Output bytes
-  QCOMPARE(table->item(0, 0)->text(), QStringLiteral("●"));
-  QCOMPARE(table->item(0, 1)->text(), QStringLiteral("2"));
-  QCOMPARE(table->item(0, 2)->text(), QStringLiteral("stored"));
-  QCOMPARE(table->item(0, 3)->text(), QStringLiteral("no"));
-  QCOMPARE(table->item(0, 4)->text(), QStringLiteral("16..32"));
-  QCOMPARE(table->item(0, 5)->text(), QStringLiteral("8..20"));
+  // # | Type | Final | Input bits | Output bytes
+  QCOMPARE(table->item(0, 0)->text(), QStringLiteral("2"));
+  QCOMPARE(table->item(0, 1)->text(), QStringLiteral("stored"));
+  QCOMPARE(table->item(0, 2)->text(), QStringLiteral("no"));
+  QCOMPARE(table->item(0, 3)->text(), QStringLiteral("16..32"));
+  QCOMPARE(table->item(0, 4)->text(), QStringLiteral("8..20"));
+  QCOMPARE(table->item(0, 0)->background().color(),
+           QColor(QStringLiteral("#FFF4CC")));
 
   // The Current row drives the details (no manual selection yet).
   auto* details_title =

@@ -18,12 +18,9 @@ void HexSourceTabBarTest::exposesStableSourcesAndMetadata() {
   pnga::ui::qt::HexSourceTabBar bar;
   QCOMPARE(bar.count(), 4);
   QCOMPARE(bar.shape(), QTabBar::RoundedWest);
-  QVERIFY(bar.styleSheet().contains(QStringLiteral("padding-left: 8px")));
-  QVERIFY(bar.styleSheet().contains(QStringLiteral("padding-right: 8px")));
-  QVERIFY(bar.styleSheet().contains(QStringLiteral("background-color: #d0d0d0")));
-  QVERIFY(bar.styleSheet().contains(QStringLiteral("font-weight: bold")));
-  QVERIFY(bar.styleSheet().contains(QStringLiteral("QTabBar::tab:first")));
-  QVERIFY(bar.styleSheet().contains(QStringLiteral("margin-top: 6px")));
+  // Tab presentation is supplied by the application-wide theme rather than
+  // a local stylesheet so light/dark mode changes remain synchronized.
+  QVERIFY(bar.styleSheet().isEmpty());
   QCOMPARE(bar.tabText(0), QStringLiteral("File"));
   QCOMPARE(bar.tabText(1), QStringLiteral("IDAT"));
   QCOMPARE(bar.tabText(2), QStringLiteral("Inflated"));

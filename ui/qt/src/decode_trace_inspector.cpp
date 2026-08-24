@@ -3,6 +3,8 @@
 #include "pnga/ui/qt/decode_trace_inspector.h"
 
 #include <QAbstractItemView>
+#include <QBrush>
+#include <QColor>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
@@ -37,6 +39,17 @@ QString range_text(std::uint64_t begin, std::uint64_t end) {
       .arg(static_cast<qulonglong>(end));
 }
 
+void markAssociatedRow(QTableWidget* table, int row) {
+  const QBrush background(QColor(QStringLiteral("#FFF4CC")));
+  const QBrush foreground(QColor(QStringLiteral("#4A3B00")));
+  for (int column = 0; column < table->columnCount(); ++column) {
+    if (auto* item = table->item(row, column); item != nullptr) {
+      item->setBackground(background);
+      item->setForeground(foreground);
+    }
+  }
+}
+
 }  // namespace
 
 DecodeTraceInspector::DecodeTraceInspector(QWidget* parent)
@@ -44,10 +57,10 @@ DecodeTraceInspector::DecodeTraceInspector(QWidget* parent)
   QTableWidget* table = masterTable();
   table->setObjectName(QStringLiteral("decodeTraceInspectorTable"));
   table->setAccessibleName(QStringLiteral("Decode trace tokens"));
-  table->setColumnCount(5);
+  table->setColumnCount(4);
   table->setHorizontalHeaderLabels(
-       {QStringLiteral("Current"), QStringLiteral("Token"),
-       QStringLiteral("Path"), QStringLiteral("Deflate bits"),
+       {QStringLiteral("Token"), QStringLiteral("Path"),
+       QStringLiteral("Deflate bits"),
        QStringLiteral("Output bytes")});
 
   hex_button_ = new QPushButton(QStringLiteral("Show in Hex"), this);
@@ -84,37 +97,33 @@ void DecodeTraceInspector::setView(
     }
     const int table_row = table->rowCount();
     table->insertRow(table_row);
-    auto* current_item = new QTableWidgetItem(
-        step.selected ? QStringLiteral("●") : QString());
-    current_item->setTextAlignment(Qt::AlignCenter);
-    if (step.selected) {
-      current_item->setData(Qt::AccessibleTextRole, QStringLiteral("Current"));
-    }
-    table->setItem(table_row, 0, current_item);
-    table->setItem(table_row, 1, new QTableWidgetItem(QString::number(
+    table->setItem(table_row, 0, new QTableWidgetItem(QString::number(
                                      static_cast<qulonglong>(step.token_index))));
-    table->setItem(table_row, 2,
+    table->setItem(table_row, 1,
                    new QTableWidgetItem(QLatin1String(
                        pnga::analysis_engine::decode_trace_path_text(step.path))));
-    table->setItem(table_row, 3,
+    table->setItem(table_row, 2,
                    new QTableWidgetItem(QStringLiteral("%1..%2")
                                             .arg(static_cast<qulonglong>(
                                                 step.input_bit_begin))
                                             .arg(static_cast<qulonglong>(
                                                 step.input_bit_end))));
-    table->setItem(table_row, 4,
+    table->setItem(table_row, 3,
                    new QTableWidgetItem(QStringLiteral("%1..%2")
                                             .arg(static_cast<qulonglong>(
                                                 step.output_begin))
                                             .arg(static_cast<qulonglong>(
                                                 step.output_end))));
+    if (step.selected) {
+      markAssociatedRow(table, table_row);
+    }
   }
   if (view_.steps.size() > static_cast<std::size_t>(kMaxVisibleRows)) {
     const int row = table->rowCount();
     table->insertRow(row);
     table->setItem(row, 0, new QTableWidgetItem(QStringLiteral("…")));
     table->setItem(row, 1, new QTableWidgetItem(QStringLiteral("truncated")));
-    table->setItem(row, 4, new QTableWidgetItem(QStringLiteral("more steps")));
+    table->setItem(row, 3, new QTableWidgetItem(QStringLiteral("more steps")));
   }
   updateButtons();
   updateDetails();

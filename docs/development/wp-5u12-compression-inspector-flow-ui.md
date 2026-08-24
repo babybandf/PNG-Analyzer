@@ -35,7 +35,7 @@ ready 状态和三页基本联动，但不能替代 Stored、Fixed、多 Block�
 ### 0.2 总体判断
 
 当前实现不是“没有接线”：bounded Deep Trace、generation/stale 防护、三页共同 bundle、
-Current 标记、master/detail 外壳和基本导航均已工作。但它仍是“工程投影视图”，尚未达到
+当前关联行高亮、master/detail 外壳和基本导航均已工作。但它仍是“工程投影视图”，尚未达到
 本任务包和交互原型定义的产品级 Compression Inspector。项目内现有 WP-5U12 文档虽标记
 `implemented`，该结论只能说明既有投影字段和回归测试已接通，不能作为本次 UI/功能目标
 的完成证明。
@@ -74,14 +74,14 @@ summary，第二行显示 current mapping；generation 进入可复制诊断详�
 
 #### DEFLATE Blocks
 
-当前表为 `Current | # | Type | Final | Input bits | Output bytes`，fixture 显示一个
+当前表为 `# | Type | Final | Input bits | Output bytes`，fixture 对当前关联行使用浅黄色背景，显示一个
 `dynamic / yes / 16..539 / 0..3104` Block。详情能显示 BFINAL、输入/输出半开范围、当前
 output、file span 和 scanline，这是可复用基础。
 
 目标差距：
 
 - 表数据源从 bounded `TraceQueryResult.blocks` 改为 document generation 的完整 Fast
-  Block Index projection；bounded result 只负责 Current 标记和 trace 可用状态；
+  Block Index projection；bounded result 只负责当前关联行信息和 trace 可用状态；
 - 详情补 BTYPE 原始值、Block 输出字节数、Stored/Dynamic metadata（仅显示已有 core
   事实）和多段 IDAT provenance；
 - `Show in Hex` 必须能表达完整逻辑输入及全部 physical spans；
@@ -91,7 +91,7 @@ output、file span 和 scanline，这是可复用基础。
 #### Huffman
 
 当前 Dynamic Literal/Length 表显示 292 行，列为
-`Current | Build | Symbol | Bits | Canonical | Definition bits`。`Canonical` 当前是类似
+`Build | Symbol | Bits | Canonical | Definition bits`。当前关联 entry 使用浅黄色背景。`Canonical` 当前是类似
 `42 (7 bits)` 的十进制整数，0-bit 未使用 symbol 也全部展示。
 
 目标差距：
@@ -110,7 +110,7 @@ output、file span 和 scanline，这是可复用基础。
 #### Decode Trace
 
 当前 fixture 返回 7 个与选定 scanline output 相交的 token，列为
-`Current | Token | Path | Input bits | Output bytes`；详情已经具备 Literal value，以及 Match
+`Token | Path | Input bits | Output bytes`；当前关联 token 使用浅黄色背景，详情已经具备 Literal value，以及 Match
 的 base/extra length、distance 和 root source ranges。这些是正确基础。
 
 目标差距：
@@ -160,7 +160,7 @@ Document generation
 - `TraceInspectorBinding` 同 generation 发布三页 bundle 的边界；
 - `CompressionInspectorPage` 的 master/detail splitter 结构；
 - Literal/Match/EOB、length/distance arithmetic、root source ranges 的 Qt-free projection；
-- Current `●` 与 Qt 原生 row selection 的双重视觉基础；
+- 当前关联行浅黄色背景与 Qt 原生 row selection 的双重视觉基础；
 - `VirtualIDATStream` 和 Fast Block Index，不新增 IDAT 拼接或第二套 GUI decoder。
 
 
@@ -532,9 +532,9 @@ Reserved/Error Block：
 - 单击 Block 更新全局 `selectedBlockId`。
 - 双击或 `Enter` 进入 `Decode Trace` 并定位该 Block 第一个事件。
 - `Open Huffman` 仅对 Fixed/Dynamic 启用；Stored 显示无 Huffman 的解释。
-- 当前像素命中的 Block 使用“Current”侧标或靶标图标；键盘选中仍使用原生 selection。
-- Current 与用户 selection 不得只靠两种相近背景色区分。
-- 当当前输出跨多个 Block 时，各 Block 都显示 Current 标记，主 Block 为最早相交 Block。
+- 当前像素命中的 Block 使用浅黄色整行背景；键盘选中仍使用原生 selection。
+- 当前关联背景与用户 selection 必须保持可区分。
+- 当当前输出跨多个 Block 时，各 Block 都使用浅黄色整行背景，主 Block 为最早相交 Block。
 
 ## 8. 子页 B — Huffman
 
@@ -726,7 +726,7 @@ output 1573 = target offset +4 ← source logical offset 1566
 ### 9.7 Current 与手动选择
 
 - 表格使用原生 selection 表示用户当前选中的 event。
-- 与 X/Y output range 相交的事件使用独立 `Current` 标记。
+- 与 X/Y output range 相交的事件使用浅黄色整行背景。
 - `Jump to current output` 仅在用户已滚离 current event 时显示为紧凑文本动作。
 - 用户手动浏览另一个 Block/event 后，普通 X/Y 刷新不应强行抢走选择；只有明确的
   图像点击、坐标提交或 Lock 规则要求 follow 时才重新定位。
@@ -1039,7 +1039,7 @@ P0-A/B 必须先于页面正文；页面不得先通过解析 debug string 或�
 - canonical code 与 read-order bits 不混列。
 - symbol occurrence 跳到正确 event。
 - 图像/X/Y 选择高亮相交 Block/events。
-- Manual selection 与 Current 标记可同时存在。
+- Manual selection 与当前关联行浅黄色背景可同时存在。
 - `Show in Hex` 选择准确 file/IDAT range。
 - `Show inflated output` 使用正确 source/range。
 - 选择非 IDAT Chunk 不清空 Compression。
@@ -1250,7 +1250,7 @@ CompressionInspector
 - 允许表格内部横向滚动，但不得提高 Inspector minimum width。
 - footer 两个动作在横向标签放不下时改为纵向堆叠，顺序仍为 `Show in Hex`、
   `Show inflated output`。
-- 页面不得通过隐藏 Current 标记、Input、Event 或 Output 语义换取宽度。
+- 页面不得通过隐藏当前关联行、Input、Event 或 Output 语义换取宽度。
 
 小于 320 px 不作为完整可用目标，但仍不得崩溃、无限扩宽或覆盖相邻 Dock。
 

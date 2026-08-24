@@ -4,6 +4,7 @@
 #include <QtTest/QtTest>
 
 #include <QComboBox>
+#include <QColor>
 #include <QLabel>
 #include <QTableWidget>
 
@@ -37,13 +38,14 @@ void HuffmanInspectorTest::rendersDynamicEntryAndSelection() {
       QStringLiteral("huffmanInspectorTable"));
   QVERIFY(table_widget != nullptr);
   QCOMPARE(table_widget->rowCount(), 1);
-  // Current | Build | Symbol | Bits | Canonical | Definition bits
-  QCOMPARE(table_widget->item(0, 0)->text(), QStringLiteral("●"));
-  QCOMPARE(table_widget->item(0, 1)->text(), QStringLiteral("1"));
-  QCOMPARE(table_widget->item(0, 2)->text(), QStringLiteral("65"));
-  QCOMPARE(table_widget->item(0, 3)->text(), QStringLiteral("7"));
-  QCOMPARE(table_widget->item(0, 4)->text(), QStringLiteral("42 (7 bits)"));
-  QCOMPARE(table_widget->item(0, 5)->text(), QStringLiteral("5..12"));
+  // Build | Symbol | Bits | Canonical | Definition bits
+  QCOMPARE(table_widget->item(0, 0)->text(), QStringLiteral("1"));
+  QCOMPARE(table_widget->item(0, 1)->text(), QStringLiteral("65"));
+  QCOMPARE(table_widget->item(0, 2)->text(), QStringLiteral("7"));
+  QCOMPARE(table_widget->item(0, 3)->text(), QStringLiteral("42 (7 bits)"));
+  QCOMPARE(table_widget->item(0, 4)->text(), QStringLiteral("5..12"));
+  QCOMPARE(table_widget->item(0, 0)->background().color(),
+           QColor(QStringLiteral("#FFF4CC")));
 
   auto* details_title =
       widget.findChild<QLabel*>(QStringLiteral("compressionDetailsTitle"));
@@ -84,13 +86,13 @@ void HuffmanInspectorTest::selectorFiltersByTableKind() {
 
   // Literal/Length selected -> one literal entry.
   QCOMPARE(table_widget->rowCount(), 1);
-  QCOMPARE(table_widget->item(0, 2)->text(), QStringLiteral("65"));
+  QCOMPARE(table_widget->item(0, 1)->text(), QStringLiteral("65"));
 
   // Distance selected -> one distance entry; switching emits no replay request
   // (the widget only refilters the already-published bounded tables).
   selector->setCurrentIndex(2);
   QCOMPARE(table_widget->rowCount(), 1);
-  QCOMPARE(table_widget->item(0, 2)->text(), QStringLiteral("0"));
+  QCOMPARE(table_widget->item(0, 1)->text(), QStringLiteral("0"));
 
   // Code length selected -> no code-length table in the bounded result.
   selector->setCurrentIndex(0);
@@ -117,7 +119,7 @@ void HuffmanInspectorTest::rendersStoredExplanation() {
       QStringLiteral("huffmanInspectorTable"));
   QVERIFY(table_widget != nullptr);
   QCOMPARE(table_widget->rowCount(), 1);
-  QCOMPARE(table_widget->item(0, 2)->text(), QStringLiteral("LEN/NLEN"));
+  QCOMPARE(table_widget->item(0, 1)->text(), QStringLiteral("LEN/NLEN"));
   auto* details_title =
       widget.findChild<QLabel*>(QStringLiteral("compressionDetailsTitle"));
   QVERIFY(details_title != nullptr);

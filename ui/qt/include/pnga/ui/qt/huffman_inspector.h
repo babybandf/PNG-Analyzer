@@ -38,6 +38,7 @@ class HuffmanInspector final : public CompressionInspectorPage {
   pnga::analysis_engine::HuffmanInspectorView view_;
   QLabel* heading_ = nullptr;
   QComboBox* selector_ = nullptr;
+  int associated_row_ = -1;
 };
 
 }  // namespace pnga::ui::qt
