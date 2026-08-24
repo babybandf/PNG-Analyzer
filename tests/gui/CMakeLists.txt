@@ -325,6 +325,20 @@ target_compile_features(pnga_gui_about_tests PRIVATE cxx_std_20)
 
 add_test(NAME gui_about_tests COMMAND pnga_gui_about_tests)
 
+add_executable(pnga_gui_application_theme_tests
+  application_theme_test.cpp
+)
+set_target_properties(pnga_gui_application_theme_tests PROPERTIES AUTOMOC ON)
+target_link_libraries(pnga_gui_application_theme_tests PRIVATE
+  pnga::ui_qt
+  Qt6::Test
+)
+target_compile_features(pnga_gui_application_theme_tests PRIVATE cxx_std_20)
+
+add_test(NAME gui_application_theme_tests COMMAND pnga_gui_application_theme_tests)
+set_tests_properties(gui_application_theme_tests PROPERTIES
+  ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
 # WP-606 verification target: build every GUI test executable without running
 # them so the documented two-target build command remains deterministic.
 add_custom_target(pnga_gui_tests DEPENDS
@@ -347,4 +361,5 @@ add_custom_target(pnga_gui_tests DEPENDS
   pnga_gui_trace_inspector_binding_tests
   pnga_gui_trace_inspector_performance_tests
   pnga_gui_about_tests
+  pnga_gui_application_theme_tests
 )

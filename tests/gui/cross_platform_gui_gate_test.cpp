@@ -8,6 +8,7 @@
 #include <pnga/analysis-engine/decode_trace_inspector.h>
 #include <pnga/analysis-engine/huffman_inspector.h>
 #include <pnga/ui/qt/about_dialog.h>
+#include <pnga/ui/qt/application_theme.h>
 #include <pnga/ui/qt/block_inspector.h>
 #include <pnga/ui/qt/decode_trace_inspector.h>
 #include <pnga/ui/qt/huffman_inspector.h>
@@ -74,6 +75,7 @@ class CrossPlatformGuiGateTest : public QObject {
   void initTestCase();
   void layoutSurvivesReferenceSizesAndDpi();
   void themeSwitchKeepsInspectorVisible();
+  void themeMenuAppliesWithoutResettingLayout();
   void shortcutsAndFocusOrderAreStable();
   void accessibilityNamesCoverControlsAndInspectors();
   void inspectorTruncationContractsRemainBounded();
@@ -173,6 +175,31 @@ void CrossPlatformGuiGateTest::themeSwitchKeepsInspectorVisible() {
   QVERIFY(inspector->isVisible());
   QApplication::setPalette(original);
   QCoreApplication::processEvents();
+}
+
+void CrossPlatformGuiGateTest::themeMenuAppliesWithoutResettingLayout() {
+  pnga::ui::qt::ApplicationTheme theme(qApp);
+  QVERIFY(theme.setMode(pnga::ui::qt::ApplicationTheme::ThemeMode::kLight,
+                        false));
+  MainWindow window(nullptr, &theme);
+  QMenu* theme_menu = window.findChild<QMenu*>(QStringLiteral("themeMenu"));
+  QVERIFY(theme_menu != nullptr);
+  QAction* dark = theme_menu->findChild<QAction*>(QStringLiteral("themeDark"));
+  QVERIFY(dark != nullptr);
+  QVERIFY(!dark->isChecked());
+  dark->trigger();
+  QCOMPARE(theme.requestedMode(),
+           pnga::ui::qt::ApplicationTheme::ThemeMode::kDark);
+  QCOMPARE(theme.effectiveMode(),
+           pnga::ui::qt::ApplicationTheme::ThemeMode::kDark);
+  QVERIFY(dark->isChecked());
+  auto* preview = window.findChild<QTabWidget*>(QStringLiteral("previewTabs"));
+  QVERIFY(preview != nullptr);
+  preview->setCurrentIndex(2);
+  QMetaObject::invokeMethod(&window, "resetLayout", Qt::DirectConnection);
+  QCOMPARE(theme.requestedMode(),
+           pnga::ui::qt::ApplicationTheme::ThemeMode::kDark);
+  QCOMPARE(preview->currentIndex(), 0);
 }
 
 void CrossPlatformGuiGateTest::shortcutsAndFocusOrderAreStable() {

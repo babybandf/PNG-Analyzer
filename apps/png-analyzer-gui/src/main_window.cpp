@@ -4,6 +4,7 @@
 #include "main_window.h"
 
 #include <pnga/ui/qt/about_dialog.h>
+#include <pnga/ui/qt/application_theme.h>
 #include <pnga/ui/qt/block_inspector.h>
 #include <pnga/ui/qt/chunk_detail_panel.h>
 #include <pnga/ui/qt/chunk_model.h>
@@ -24,6 +25,8 @@
 
 #include <QAbstractItemView>
 #include <QAction>
+#include <QActionGroup>
+#include <QApplication>
 #include <QColor>
 #include <QCheckBox>
 #include <QCloseEvent>
@@ -216,15 +219,23 @@ void ChunkDetailWorker::run() {
 // MainWindow
 // ---------------------------------------------------------------------------
 
-MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {  setWindowTitle(QStringLiteral("PNG Analyzer"));
+MainWindow::MainWindow(QWidget* parent,
+                       pnga::ui::qt::ApplicationTheme* theme)
+    : QMainWindow(parent), theme_(theme) {
+  setWindowTitle(QStringLiteral("PNG Analyzer"));
+  // Standalone layout tests construct MainWindow without the application
+  // controller. Keep their separator contract while the product build uses
+  // the centralized stylesheet installed by ApplicationTheme.
+  if (qApp == nullptr || qApp->styleSheet().isEmpty()) {
+    setStyleSheet(QStringLiteral(
+        "QMainWindow::separator { width: 8px; height: 8px; "
+        "background: transparent; }"
+        "QMainWindow::separator:hover, QMainWindow::separator:pressed { "
+        "background: palette(highlight); }"));
+  }
   // QMainWindow creates its dock separators lazily when the window is laid
   // out.  Keep the hit target wide enough for a mouse even when a native
   // style would otherwise expose only a one-pixel separator.
-  setStyleSheet(QStringLiteral(
-      "QMainWindow::separator { width: 8px; height: 8px; "
-      "background: transparent; }"
-      "QMainWindow::separator:hover, QMainWindow::separator:pressed { "
-      "background: palette(highlight); }"));
   setDockOptions(QMainWindow::AnimatedDocks | QMainWindow::AllowNestedDocks |
                  QMainWindow::AllowTabbedDocks |
                  QMainWindow::GroupedDragging);
@@ -510,6 +521,46 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {  setWindowTitle(
   QAction* resetAction =
       viewMenu->addAction(QStringLiteral("&Reset Layout"));
   connect(resetAction, &QAction::triggered, this, &MainWindow::resetLayout);
+  if (theme_ != nullptr) {
+    QMenu* themeMenu = viewMenu->addMenu(QStringLiteral("Theme"));
+    themeMenu->setObjectName(QStringLiteral("themeMenu"));
+    auto* group = new QActionGroup(themeMenu);
+    group->setExclusive(true);
+    const auto addThemeAction = [this, themeMenu, group](
+                                    const QString& text,
+                                    const QString& object_name,
+                                    pnga::ui::qt::ApplicationTheme::ThemeMode mode) {
+      QAction* action = themeMenu->addAction(text);
+      action->setObjectName(object_name);
+      action->setCheckable(true);
+      action->setData(static_cast<int>(mode));
+      group->addAction(action);
+      connect(action, &QAction::triggered, this, [this, mode] {
+        theme_->setMode(mode);
+      });
+      return action;
+    };
+    QAction* systemTheme = addThemeAction(
+        QStringLiteral("Follow System"), QStringLiteral("themeSystem"),
+        pnga::ui::qt::ApplicationTheme::ThemeMode::kSystem);
+    QAction* lightTheme = addThemeAction(
+        QStringLiteral("Light"), QStringLiteral("themeLight"),
+        pnga::ui::qt::ApplicationTheme::ThemeMode::kLight);
+    QAction* darkTheme = addThemeAction(
+        QStringLiteral("Dark"), QStringLiteral("themeDark"),
+        pnga::ui::qt::ApplicationTheme::ThemeMode::kDark);
+    const auto updateThemeActions = [this, systemTheme, lightTheme, darkTheme] {
+      systemTheme->setChecked(theme_->requestedMode() ==
+                              pnga::ui::qt::ApplicationTheme::ThemeMode::kSystem);
+      lightTheme->setChecked(theme_->requestedMode() ==
+                             pnga::ui::qt::ApplicationTheme::ThemeMode::kLight);
+      darkTheme->setChecked(theme_->requestedMode() ==
+                            pnga::ui::qt::ApplicationTheme::ThemeMode::kDark);
+    };
+    connect(theme_, &pnga::ui::qt::ApplicationTheme::themeChanged, this,
+            updateThemeActions);
+    updateThemeActions();
+  }
 
   QMenu* helpMenu = menuBar()->addMenu(QStringLiteral("&Help"));
   helpMenu->addAction(QStringLiteral("About"), this, [this] {

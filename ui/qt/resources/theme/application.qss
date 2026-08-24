@@ -1,0 +1,153 @@
+/* WP-5U14: scoped product presentation. Tokens are expanded by
+   ApplicationTheme; no broad QWidget selector is intentional. */
+
+QMainWindow::separator {
+  background: transparent;
+  width: 8px;
+  height: 8px;
+}
+QMainWindow::separator:hover, QMainWindow::separator:pressed {
+  background: @FOCUS_RING@;
+}
+
+QTabWidget#previewTabs::pane,
+QTabWidget#inspectorTabs::pane,
+QTabWidget#compressionInspectorPages::pane {
+  background: @BASE@;
+  border: 1px solid @BORDER@;
+  border-radius: 4px;
+}
+QTabWidget#previewTabs > QTabBar::tab,
+QTabWidget#inspectorTabs > QTabBar::tab,
+QTabWidget#compressionInspectorPages > QTabBar::tab {
+  background: @RAISED@;
+  color: @MUTED_TEXT@;
+  border: 1px solid transparent;
+  border-bottom: 2px solid transparent;
+  padding: 5px 10px;
+  margin-right: 2px;
+}
+QTabWidget#previewTabs > QTabBar::tab:hover,
+QTabWidget#inspectorTabs > QTabBar::tab:hover,
+QTabWidget#compressionInspectorPages > QTabBar::tab:hover {
+  background: @BASE@;
+  color: @TEXT@;
+}
+QTabWidget#previewTabs > QTabBar::tab:selected,
+QTabWidget#inspectorTabs > QTabBar::tab:selected,
+QTabWidget#compressionInspectorPages > QTabBar::tab:selected {
+  background: @ACCENT@;
+  color: @ACCENT_TEXT@;
+  font-weight: 600;
+  border-bottom-color: @ACCENT_PRESSED@;
+}
+QTabWidget#previewTabs > QTabBar::tab:focus,
+QTabWidget#inspectorTabs > QTabBar::tab:focus,
+QTabWidget#compressionInspectorPages > QTabBar::tab:focus {
+  border: 2px solid @FOCUS_RING@;
+}
+
+QTabBar#hexSourceTabs {
+  background: @RAISED@;
+}
+QTabBar#hexSourceTabs::tab {
+  background: @RAISED@;
+  color: @MUTED_TEXT@;
+  border: 1px solid transparent;
+  border-right: 3px solid transparent;
+  padding: 5px 8px;
+  margin: 2px;
+}
+QTabBar#hexSourceTabs::tab:hover {
+  background: @BASE@;
+  color: @TEXT@;
+}
+QTabBar#hexSourceTabs::tab:selected {
+  background: @BASE@;
+  color: @TEXT@;
+  font-weight: 600;
+  border-right-color: @ACCENT@;
+}
+QTabBar#hexSourceTabs::tab:focus {
+  border: 2px solid @FOCUS_RING@;
+}
+
+QDockWidget::title,
+QHeaderView::section,
+QStatusBar,
+QScrollArea#coordinateToolbarScroll {
+  background: @RAISED@;
+  color: @TEXT@;
+  border: 1px solid @BORDER@;
+}
+QTableWidget, QTreeView, QTextEdit {
+  background: @BASE@;
+  color: @TEXT@;
+  border: 1px solid @BORDER@;
+  selection-background-color: @ACCENT@;
+  selection-color: @ACCENT_TEXT@;
+}
+QPushButton#numericBase:focus,
+QCheckBox#lockCoordinate:focus,
+QSpinBox#xCoordinate:focus,
+QSpinBox#yCoordinate:focus {
+  border: 2px solid @FOCUS_RING@;
+}
+QPushButton#numericBase:hover {
+  background: @ACCENT_HOVER@;
+  color: @ACCENT_TEXT@;
+}
+QPushButton#numericBase:pressed {
+  background: @ACCENT_PRESSED@;
+  color: @ACCENT_TEXT@;
+}
+
+QFrame#imageZoomControls {
+  background: @RAISED@;
+  border: 1px solid @BORDER@;
+  border-radius: 3px;
+}
+QFrame#imageZoomControls QToolButton {
+  background: transparent;
+  border: 0;
+  border-radius: 2px;
+  min-width: 18px;
+  min-height: 18px;
+  font-size: 13px;
+  font-weight: 700;
+}
+QFrame#imageZoomControls QToolButton:hover {
+  background: @BASE@;
+}
+QFrame#imageZoomControls QToolButton:pressed {
+  background: @ACCENT_PRESSED@;
+}
+QFrame#imageZoomControls QComboBox {
+  background: transparent;
+  border: 0;
+  min-width: 46px;
+  min-height: 18px;
+  padding: 0 3px;
+  selection-background-color: @ACCENT@;
+}
+QFrame#imageZoomControls QComboBox:hover {
+  background: @BASE@;
+  border-radius: 3px;
+}
+QFrame#imageZoomControls QComboBox::drop-down,
+QFrame#imageZoomControls QComboBox::down-arrow {
+  border: 0;
+  background: transparent;
+  width: 13px;
+  image: none;
+}
+QLabel#imageZoomDropdownIndicator {
+  background: transparent;
+  color: @MUTED_TEXT@;
+  font-size: 10px;
+}
+QFrame#imageZoomControls QComboBox QLineEdit {
+  background: transparent;
+  border: 0;
+  padding: 0;
+}

@@ -62,6 +62,7 @@ class SelectionBus;
 class StageInspector;
 class StagePixelProcessView;
 class TraceInspectorBinding;
+class ApplicationTheme;
 }  // namespace pnga::ui::qt
 
 namespace {
@@ -188,7 +189,8 @@ class QueryStatusBridge final : public QObject {
 class MainWindow final : public QMainWindow {
   Q_OBJECT
  public:
-  explicit MainWindow(QWidget* parent = nullptr);
+  explicit MainWindow(QWidget* parent = nullptr,
+                      pnga::ui::qt::ApplicationTheme* theme = nullptr);
   ~MainWindow() override;
 
   // Opens and indexes `path`; starts background reference decode and stage
@@ -294,6 +296,7 @@ class MainWindow final : public QMainWindow {
   QString default_pixel_status_ = QStringLiteral("No image");
   QLabel* pixel_label_ = nullptr;
   QLabel* validation_label_ = nullptr;
+  pnga::ui::qt::ApplicationTheme* theme_ = nullptr;
   pnga::analysis_engine::DocumentValidationReport validation_report_;
 };
 

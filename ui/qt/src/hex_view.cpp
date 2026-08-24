@@ -3,8 +3,9 @@
 
 #include "pnga/ui/qt/hex_view.h"
 
+#include <pnga/ui/qt/application_theme.h>
+
 #include <QColor>
-#include <QFontDatabase>
 #include <QPainter>
 #include <QPaintEvent>
 #include <QResizeEvent>
@@ -29,7 +30,7 @@ bool is_printable(std::byte b) {
 }  // namespace
 
 HexView::HexView(QWidget* parent) : QAbstractScrollArea(parent) {
-  setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+  setFont(ApplicationTheme::applicationMonospaceFont());
   setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 }
 

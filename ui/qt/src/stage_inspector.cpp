@@ -5,8 +5,8 @@
 
 #include <pnga/analysis-engine/reconstruct_view_model.h>
 #include <pnga/png-reconstruction/reverse_filter.h>
+#include <pnga/ui/qt/application_theme.h>
 
-#include <QFontDatabase>
 #include <QTextEdit>
 #include <QVBoxLayout>
 
@@ -73,17 +73,25 @@ QString cell_style(const QPalette& palette, bool current,
                    const RoleSet& roles) {
   const bool dark = palette.color(QPalette::Base).lightness() < 128;
   const bool dependency = !current && (roles.a || roles.b || roles.c);
-  const QColor background = current
-                                ? (dark ? QColor("#5b2630") : QColor("#ffe0e6"))
-                                : dependency
-                                      ? (dark ? QColor("#5a4316") : QColor("#fff1c2"))
-                                      : (dark ? QColor("#173f53") : QColor("#f4f7f9"));
-  const QColor border = current
-                           ? (dark ? QColor("#ff8a9b") : QColor("#c6284a"))
-                           : dependency
-                                 ? (dark ? QColor("#f2c14e") : QColor("#c58a00"))
-                                 : (dark ? QColor("#65c7f3") : QColor("#aab7c2"));
-  const QColor text = dark ? QColor("#f5f5f5") : QColor("#202124");
+  const auto token = current
+                         ? ApplicationTheme::ColorToken::kCurrentPixel
+                         : dependency ? ApplicationTheme::ColorToken::kDependency
+                                      : ApplicationTheme::ColorToken::kNeutral;
+  QColor background = ApplicationTheme::applicationColor(token);
+  if (!background.isValid()) {
+    background = dark ? QColor("#173f53") : QColor("#f4f7f9");
+  }
+  QColor border = ApplicationTheme::applicationColor(
+      current ? ApplicationTheme::ColorToken::kAccent
+              : ApplicationTheme::ColorToken::kBorder);
+  if (!border.isValid()) {
+    border = QColor("#aab7c2");
+  }
+  QColor text = ApplicationTheme::applicationColor(
+      ApplicationTheme::ColorToken::kText);
+  if (!text.isValid()) {
+    text = dark ? QColor("#f5f5f5") : QColor("#202124");
+  }
   return QStringLiteral("background:%1;color:%2;border:1px solid %3;padding:3px;min-width:76px;text-align:center;")
       .arg(background.name(QColor::HexRgb), text.name(QColor::HexRgb),
            border.name(QColor::HexRgb));
@@ -100,7 +108,7 @@ StageInspector::StageInspector(QWidget* parent) : QWidget(parent) {
   report_->setAcceptRichText(true);
   report_->setTextInteractionFlags(Qt::TextSelectableByMouse |
                                    Qt::TextSelectableByKeyboard);
-  report_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+  report_->setFont(ApplicationTheme::applicationMonospaceFont());
   report_->setPlaceholderText(QStringLiteral("Select a pixel to inspect"));
   auto* layout = new QVBoxLayout(this);
   layout->setContentsMargins(0, 0, 0, 0);

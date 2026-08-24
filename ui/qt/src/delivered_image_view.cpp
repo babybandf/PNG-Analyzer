@@ -32,58 +32,6 @@ DeliveredImageView::DeliveredImageView(QWidget* parent) : QWidget(parent) {
   controls->setObjectName(QStringLiteral("imageZoomControls"));
   controls->setFrameShape(QFrame::NoFrame);
   controls->setAccessibleName(QStringLiteral("Image zoom controls"));
-  controls->setStyleSheet(QStringLiteral(R"(
-    QFrame#imageZoomControls {
-      background-color: rgba(250, 250, 250, 194);
-      border: 1px solid rgba(0, 0, 0, 14);
-      border-radius: 3px;
-    }
-    QFrame#imageZoomControls QToolButton {
-      background: transparent;
-      border: 0;
-      border-radius: 2px;
-      min-width: 18px;
-      min-height: 18px;
-      font-size: 13px;
-      font-weight: 700;
-    }
-    QFrame#imageZoomControls QToolButton:hover {
-      background-color: rgba(0, 0, 0, 14);
-    }
-    QFrame#imageZoomControls QToolButton:pressed {
-      background-color: rgba(0, 0, 0, 28);
-    }
-    QFrame#imageZoomControls QComboBox {
-      background: transparent;
-      border: 0;
-      min-width: 46px;
-      min-height: 18px;
-      padding: 0 3px;
-      selection-background-color: rgba(0, 122, 255, 46);
-    }
-    QFrame#imageZoomControls QComboBox:hover {
-      background-color: rgba(0, 0, 0, 8);
-      border-radius: 3px;
-    }
-    QFrame#imageZoomControls QComboBox::drop-down {
-      border: 0;
-      background: transparent;
-      width: 13px;
-    }
-    QFrame#imageZoomControls QComboBox::down-arrow {
-      image: none;
-    }
-    QLabel#imageZoomDropdownIndicator {
-      background: transparent;
-      color: rgba(0, 0, 0, 110);
-      font-size: 10px;
-    }
-    QFrame#imageZoomControls QComboBox QLineEdit {
-      background: transparent;
-      border: 0;
-      padding: 0;
-    }
-  )"));
   auto* controls_layout = new QHBoxLayout(controls);
   controls_layout->setContentsMargins(1, 1, 1, 1);
   controls_layout->setSpacing(0);

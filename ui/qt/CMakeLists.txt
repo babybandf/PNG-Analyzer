@@ -8,6 +8,7 @@
 
 add_library(pnga_ui_qt
   include/pnga/ui/qt/about_dialog.h
+  include/pnga/ui/qt/application_theme.h
   include/pnga/ui/qt/block_inspector.h
   include/pnga/ui/qt/chunk_detail_panel.h
   include/pnga/ui/qt/chunk_model.h
@@ -29,6 +30,7 @@ add_library(pnga_ui_qt
   include/pnga/ui/qt/stage_pixel_process_view.h
   include/pnga/ui/qt/stage_preview_view.h
   src/about_dialog.cpp
+  src/application_theme.cpp
   src/block_inspector.cpp
   src/chunk_detail_panel.cpp
   src/chunk_model.cpp
@@ -49,6 +51,7 @@ add_library(pnga_ui_qt
   src/stage_pixel_process_view.cpp
   src/stage_preview_view.cpp
   resources/png-analyzer-branding.qrc
+  resources/png-analyzer-ui.qrc
 )
 add_library(pnga::ui_qt ALIAS pnga_ui_qt)
 

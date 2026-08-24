@@ -8,6 +8,7 @@
 
 #include <pnga/core/version.h>
 #include <pnga/ui/qt/about_dialog.h>
+#include <pnga/ui/qt/application_theme.h>
 
 #include <QApplication>
 #include <QString>
@@ -19,7 +20,9 @@ int main(int argc, char** argv) {
   app.setApplicationName(QStringLiteral("png-analyzer"));
   app.setWindowIcon(pnga::ui::qt::application_icon());
 
-  MainWindow window;
+  pnga::ui::qt::ApplicationTheme theme(&app);
+  theme.install();
+  MainWindow window(nullptr, &theme);
   window.setWindowTitle(
       QStringLiteral("PNG Analyzer %1")
           .arg(QString::fromLatin1(pnga::version_string())));

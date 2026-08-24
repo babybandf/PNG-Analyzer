@@ -37,21 +37,8 @@ HexSourceTabBar::HexSourceTabBar(QWidget* parent) : QTabBar(parent) {
   setDocumentMode(true);
   setFocusPolicy(Qt::StrongFocus);
   setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
-  // RoundedWest reserves style padding on both sides of every tab. Keep the
-  // bar itself content-sized so it does not consume HexView's horizontal
-  // space, while retaining enough inset for rotated labels to remain legible
-  // at normal and high-DPI font sizes. Keep the tab and the small gaps between
-  // tabs on one neutral gray surface; the selected source is communicated by
-  // bold text. Native scroll buttons handle constrained heights.
-  setStyleSheet(QStringLiteral(
-      "QTabBar { background-color: #d0d0d0; }"
-      "QTabBar::tab { padding-left: 8px; padding-right: 8px; "
-      "padding-top: 3px; padding-bottom: 3px; margin: 2px; "
-      "background-color: #d0d0d0; color: #202124; }"
-      "QTabBar::tab:selected { background-color: #d0d0d0; "
-      "color: #202124; font-weight: bold; }"
-      "QTabBar::tab:hover { background-color: #d0d0d0; }"
-      "QTabBar::tab:first { margin-top: 6px; }"));
+  // Presentation is owned by the application theme. Keeping this widget free
+  // of a local stylesheet lets Light/Dark modes update it atomically.
 
   for (const auto& presentation : kSources) {
     const int index = addTab(QString::fromLatin1(presentation.label));

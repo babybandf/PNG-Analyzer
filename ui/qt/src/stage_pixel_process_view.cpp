@@ -1,6 +1,6 @@
 #include "pnga/ui/qt/stage_pixel_process_view.h"
 
-#include <QFontDatabase>
+#include <pnga/ui/qt/application_theme.h>
 #include <QColor>
 #include <QPalette>
 #include <QSizePolicy>
@@ -112,17 +112,25 @@ QString esc(const QString& value) { return value.toHtmlEscaped(); }
 
 QString cell_style(const QPalette& palette, bool current, bool dependency) {
   const bool dark = palette.color(QPalette::Base).lightness() < 128;
-  const QColor background = current
-                                ? (dark ? QColor("#5b2630") : QColor("#ffe0e6"))
-                                : dependency
-                                      ? (dark ? QColor("#5a4316") : QColor("#fff1c2"))
-                                      : (dark ? QColor("#173f53") : QColor("#f4f7f9"));
-  const QColor border = current
-                           ? (dark ? QColor("#ff8a9b") : QColor("#c6284a"))
-                           : dependency
-                                 ? (dark ? QColor("#f2c14e") : QColor("#c58a00"))
-                                 : (dark ? QColor("#65c7f3") : QColor("#aab7c2"));
-  const QColor foreground = dark ? QColor("#f5f5f5") : QColor("#202124");
+  const auto token = current
+                         ? ApplicationTheme::ColorToken::kCurrentPixel
+                         : dependency ? ApplicationTheme::ColorToken::kDependency
+                                      : ApplicationTheme::ColorToken::kNeutral;
+  QColor background = ApplicationTheme::applicationColor(token);
+  if (!background.isValid()) {
+    background = dark ? QColor("#173f53") : QColor("#f4f7f9");
+  }
+  QColor border = ApplicationTheme::applicationColor(
+      current ? ApplicationTheme::ColorToken::kAccent
+              : ApplicationTheme::ColorToken::kBorder);
+  if (!border.isValid()) {
+    border = QColor("#aab7c2");
+  }
+  QColor foreground = ApplicationTheme::applicationColor(
+      ApplicationTheme::ColorToken::kText);
+  if (!foreground.isValid()) {
+    foreground = dark ? QColor("#f5f5f5") : QColor("#202124");
+  }
   return QStringLiteral(
              "background:%1;color:%2;border:1px solid %3;padding:3px;"
              "min-width:76px;text-align:center;white-space:nowrap;")
@@ -285,7 +293,7 @@ StagePixelProcessView::StagePixelProcessView(
   text_->setLineWrapMode(QTextEdit::WidgetWidth);
   text_->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   text_->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-  text_->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+  text_->setFont(ApplicationTheme::applicationMonospaceFont());
   text_->setMinimumWidth(0);
   text_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Expanding);
   layout->addWidget(text_);
