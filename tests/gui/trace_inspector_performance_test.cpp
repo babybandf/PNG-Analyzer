@@ -34,6 +34,7 @@ void TraceInspectorPerformanceTest::largeViewsAreCappedAndFast() {
   huffman.status = pnga::analysis_engine::HuffmanInspectorStatus::kReady;
   pnga::analysis_engine::HuffmanInspectorTable table;
   table.mode = pnga::analysis_engine::HuffmanTableMode::kDynamic;
+  table.kind = pnga::deflate_trace::HuffmanTableKind::kLiteralLength;
   for (std::uint16_t i = 0; i < 5000; ++i) {
     table.entries.push_back({i, 1, 0, 0, 1, false});
   }

@@ -1,15 +1,13 @@
-// WP-505C Decode Trace widget implementation.
+// WP-505C / WP-5U12 Decode Trace widget implementation.
 
 #include "pnga/ui/qt/decode_trace_inspector.h"
 
 #include <QAbstractItemView>
 #include <QHBoxLayout>
-#include <QHeaderView>
 #include <QLabel>
 #include <QPushButton>
 #include <QTableWidget>
 #include <QTableWidgetItem>
-#include <QVBoxLayout>
 
 namespace pnga::ui::qt {
 
@@ -33,43 +31,41 @@ QString sources_text(
   return out;
 }
 
+QString range_text(std::uint64_t begin, std::uint64_t end) {
+  return QStringLiteral("[%1, %2)")
+      .arg(static_cast<qulonglong>(begin))
+      .arg(static_cast<qulonglong>(end));
+}
+
 }  // namespace
 
-DecodeTraceInspector::DecodeTraceInspector(QWidget* parent) : QWidget(parent) {
-  status_ = new QLabel(QStringLiteral("Decode trace: no trace"), this);
-  status_->setObjectName(QStringLiteral("decodeTraceInspectorStatus"));
-  context_ = new QLabel(QStringLiteral("selected token: — | output: —"), this);
-  context_->setObjectName(QStringLiteral("decodeTraceInspectorContext"));
-  table_ = new QTableWidget(this);
-  table_->setObjectName(QStringLiteral("decodeTraceInspectorTable"));
-  table_->setColumnCount(9);
-  table_->setHorizontalHeaderLabels(
-      {QStringLiteral("Token"), QStringLiteral("Path"),
-       QStringLiteral("Input bits"), QStringLiteral("Output bytes"),
-       QStringLiteral("Huffman"), QStringLiteral("Length"),
-       QStringLiteral("Distance"), QStringLiteral("Match source"),
-       QStringLiteral("Selected")});
-  table_->setSelectionBehavior(QAbstractItemView::SelectRows);
-  table_->setSelectionMode(QAbstractItemView::SingleSelection);
-  table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
-  table_->horizontalHeader()->setStretchLastSection(true);
+DecodeTraceInspector::DecodeTraceInspector(QWidget* parent)
+    : CompressionInspectorPage(parent) {
+  QTableWidget* table = masterTable();
+  table->setObjectName(QStringLiteral("decodeTraceInspectorTable"));
+  table->setAccessibleName(QStringLiteral("Decode trace tokens"));
+  table->setColumnCount(5);
+  table->setHorizontalHeaderLabels(
+      {QStringLiteral("Current"), QStringLiteral("Token"),
+       QStringLiteral("Path"), QStringLiteral("Input bits"),
+       QStringLiteral("Output bytes")});
 
   hex_button_ = new QPushButton(QStringLiteral("Show in Hex"), this);
-  deflate_button_ = new QPushButton(QStringLiteral("Show in DEFLATE"), this);
+  hex_button_->setObjectName(QStringLiteral("decodeShowInHex"));
+  deflate_button_ =
+      new QPushButton(QStringLiteral("Show in DEFLATE"), this);
+  deflate_button_->setObjectName(QStringLiteral("decodeShowInDeflate"));
   hex_button_->setEnabled(false);
   deflate_button_->setEnabled(false);
   auto* buttons = new QHBoxLayout;
+  buttons->setContentsMargins(0, 0, 0, 0);
   buttons->addWidget(hex_button_);
   buttons->addWidget(deflate_button_);
   buttons->addStretch(1);
+  layout()->addItem(buttons);
 
-  auto* layout = new QVBoxLayout(this);
-  layout->addWidget(status_);
-  layout->addWidget(context_);
-  layout->addWidget(table_, 1);
-  layout->addLayout(buttons);
-  connect(table_, &QTableWidget::itemSelectionChanged, this,
-          &DecodeTraceInspector::updateButtons);
+  connect(table, &QTableWidget::itemSelectionChanged, this,
+          &DecodeTraceInspector::onSelectionChanged);
   connect(hex_button_, &QPushButton::clicked, this,
           &DecodeTraceInspector::showSelectedInHex);
   connect(deflate_button_, &QPushButton::clicked, this,
@@ -79,125 +75,206 @@ DecodeTraceInspector::DecodeTraceInspector(QWidget* parent) : QWidget(parent) {
 void DecodeTraceInspector::setView(
     const pnga::analysis_engine::DecodeTraceInspectorView& view) {
   view_ = view;
-  table_->setRowCount(0);
-  status_->setText(QStringLiteral("Decode trace: %1 (generation %2)%3")
-                       .arg(QLatin1String(
-                           pnga::analysis_engine::
-                               decode_trace_inspector_status_text(view_.status)))
-                       .arg(static_cast<qulonglong>(view_.generation))
-                       .arg(view_.error.empty()
-                                ? QString{}
-                                : QStringLiteral(" — %1")
-                                      .arg(QString::fromStdString(view_.error))));
-  context_->setText(
-      QStringLiteral("selected token: %1 | output: %2")
-          .arg(view_.selected_token_index.has_value()
-                   ? QString::number(static_cast<qulonglong>(
-                         *view_.selected_token_index))
-                   : QStringLiteral("—"))
-          .arg(view_.selected_output_offset.has_value()
-                   ? QString::number(static_cast<qulonglong>(
-                         *view_.selected_output_offset))
-                   : QStringLiteral("—")));
+  QTableWidget* table = masterTable();
+  table->setRowCount(0);
   std::size_t rendered = 0;
   for (const auto& step : view_.steps) {
     if (rendered++ >= static_cast<std::size_t>(kMaxVisibleRows)) {
       break;
     }
-    const int row = table_->rowCount();
-    table_->insertRow(row);
-    table_->setItem(row, 0, new QTableWidgetItem(QString::number(
-        static_cast<qulonglong>(step.token_index))));
-    table_->setItem(row, 1, new QTableWidgetItem(QLatin1String(
-        pnga::analysis_engine::decode_trace_path_text(step.path))));
-    table_->setItem(row, 2, new QTableWidgetItem(QStringLiteral("%1..%2")
-                                                     .arg(static_cast<qulonglong>(
-                                                         step.input_bit_begin))
-                                                     .arg(static_cast<qulonglong>(
-                                                         step.input_bit_end))));
-    table_->setItem(row, 3, new QTableWidgetItem(QStringLiteral("%1..%2")
-                                                     .arg(static_cast<qulonglong>(
-                                                         step.output_begin))
-                                                     .arg(static_cast<qulonglong>(
-                                                         step.output_end))));
-    table_->setItem(row, 4, new QTableWidgetItem(
-                                step.huffman_symbol.has_value()
-                                    ? QString::number(*step.huffman_symbol)
-                                    : QStringLiteral("—")));
-    table_->setItem(row, 5,
-                    new QTableWidgetItem(step.path ==
-                                                 pnga::analysis_engine::DecodeTracePath::kMatch
-                                             ? QStringLiteral("%1 = %2 + %3 (%4 bits)")
-                                                   .arg(step.length)
-                                                   .arg(step.length_base)
-                                                   .arg(step.length_extra_value)
-                                                   .arg(step.length_extra_bits)
-                                             : QStringLiteral("—")));
-    table_->setItem(row, 6,
-                    new QTableWidgetItem(step.path ==
-                                                 pnga::analysis_engine::DecodeTracePath::kMatch
-                                             ? QStringLiteral("%1 = %2 + %3 (%4 bits)")
-                                                   .arg(step.distance)
-                                                   .arg(step.distance_base)
-                                                   .arg(step.distance_extra_value)
-                                                   .arg(step.distance_extra_bits)
-                                             : QStringLiteral("—")));
-    table_->setItem(row, 7,
-                    new QTableWidgetItem(sources_text(step.match_source_ranges)));
-    table_->setItem(row, 8, new QTableWidgetItem(
-                                step.selected_output_byte.has_value()
-                                    ? QStringLiteral("output byte %1")
-                                          .arg(static_cast<qulonglong>(
-                                              *step.selected_output_byte))
-                                    : (step.selected ? QStringLiteral("selected")
-                                                     : QStringLiteral("—"))));
+    const int table_row = table->rowCount();
+    table->insertRow(table_row);
+    auto* current_item = new QTableWidgetItem(
+        step.selected ? QStringLiteral("●") : QString());
+    current_item->setTextAlignment(Qt::AlignCenter);
     if (step.selected) {
-      table_->selectRow(row);
+      current_item->setData(Qt::AccessibleTextRole, QStringLiteral("Current"));
     }
+    table->setItem(table_row, 0, current_item);
+    table->setItem(table_row, 1, new QTableWidgetItem(QString::number(
+                                     static_cast<qulonglong>(step.token_index))));
+    table->setItem(table_row, 2,
+                   new QTableWidgetItem(QLatin1String(
+                       pnga::analysis_engine::decode_trace_path_text(step.path))));
+    table->setItem(table_row, 3,
+                   new QTableWidgetItem(QStringLiteral("%1..%2")
+                                            .arg(static_cast<qulonglong>(
+                                                step.input_bit_begin))
+                                            .arg(static_cast<qulonglong>(
+                                                step.input_bit_end))));
+    table->setItem(table_row, 4,
+                   new QTableWidgetItem(QStringLiteral("%1..%2")
+                                            .arg(static_cast<qulonglong>(
+                                                step.output_begin))
+                                            .arg(static_cast<qulonglong>(
+                                                step.output_end))));
   }
   if (view_.steps.size() > static_cast<std::size_t>(kMaxVisibleRows)) {
-    const int row = table_->rowCount();
-    table_->insertRow(row);
-    table_->setItem(row, 0, new QTableWidgetItem(QStringLiteral("…")));
-    table_->setItem(row, 1, new QTableWidgetItem(QStringLiteral("truncated")));
-    table_->setItem(row, 8, new QTableWidgetItem(QStringLiteral("more steps")));
+    const int row = table->rowCount();
+    table->insertRow(row);
+    table->setItem(row, 0, new QTableWidgetItem(QStringLiteral("…")));
+    table->setItem(row, 1, new QTableWidgetItem(QStringLiteral("truncated")));
+    table->setItem(row, 4, new QTableWidgetItem(QStringLiteral("more steps")));
   }
   updateButtons();
+  updateDetails();
 }
 
-void DecodeTraceInspector::setExternalStatus(const QString& text) {
-  status_->setText(text);
+void DecodeTraceInspector::setExternalStatus(const QString& /*text*/) {
+  // WP-5U12: the shared Compression context owns the trace status.
 }
 
 void DecodeTraceInspector::clear() {
   setView(pnga::analysis_engine::DecodeTraceInspectorView{});
 }
 
+std::optional<std::size_t> DecodeTraceInspector::activeStep() const noexcept {
+  const auto rows = masterTable()->selectionModel()->selectedRows();
+  if (rows.size() == 1 &&
+      rows.front().row() < static_cast<int>(view_.steps.size())) {
+    return static_cast<std::size_t>(rows.front().row());
+  }
+  for (std::size_t i = 0; i < view_.steps.size(); ++i) {
+    if (view_.steps[i].selected) {
+      return i;
+    }
+  }
+  return std::nullopt;
+}
+
+void DecodeTraceInspector::onSelectionChanged() {
+  updateButtons();
+  updateDetails();
+}
+
 void DecodeTraceInspector::updateButtons() {
-  const auto rows = table_->selectionModel()->selectedRows();
-  const bool valid = rows.size() == 1 &&
-                     rows.front().row() <
-                         static_cast<int>(view_.steps.size());
+  const bool valid = activeStep().has_value();
   hex_button_->setEnabled(valid);
   deflate_button_->setEnabled(valid);
 }
 
-void DecodeTraceInspector::showSelectedInHex() {
-  const auto rows = table_->selectionModel()->selectedRows();
-  if (rows.size() != 1) {
+void DecodeTraceInspector::updateDetails() {
+  if (view_.steps.empty()) {
+    if (view_.status == pnga::analysis_engine::DecodeTraceInspectorStatus::kError &&
+        !view_.error.empty()) {
+      setDetailsInstruction(QStringLiteral("Trace stopped: %1")
+                                .arg(QString::fromStdString(view_.error)));
+    } else if (view_.status ==
+               pnga::analysis_engine::DecodeTraceInspectorStatus::kPartial) {
+      setDetailsInstruction(QStringLiteral(
+          "Partial trace · verified tokens are shown above."));
+    } else {
+      setDetailsInstruction(QStringLiteral(
+          "No tokens in the bounded result for the selected output range."));
+    }
     return;
   }
-  const auto& step = view_.steps[static_cast<std::size_t>(rows.front().row())];
+  const std::optional<std::size_t> step_index = activeStep();
+  if (!step_index.has_value()) {
+    setDetailsInstruction(QStringLiteral(
+        "Select a token to inspect its decode path, or lock a pixel to find "
+        "the current token."));
+    return;
+  }
+  const auto& step = view_.steps[*step_index];
+  const QString path =
+      QString::fromLatin1(pnga::analysis_engine::decode_trace_path_text(
+          step.path));
+  std::vector<std::pair<QString, QString>> details;
+  switch (step.path) {
+    case pnga::analysis_engine::DecodeTracePath::kLiteral:
+      details.emplace_back(
+          QStringLiteral("Huffman"),
+          step.huffman_symbol.has_value()
+              ? QStringLiteral("symbol %1").arg(*step.huffman_symbol)
+              : QStringLiteral("—"));
+      details.emplace_back(QStringLiteral("Literal"),
+                           QStringLiteral("0x%1")
+                               .arg(step.literal, 2, 16, QLatin1Char('0')));
+      details.emplace_back(QStringLiteral("Input"),
+                           QStringLiteral("DEFLATE bits %1")
+                               .arg(range_text(step.input_bit_begin,
+                                               step.input_bit_end)));
+      details.emplace_back(QStringLiteral("Output"),
+                           QStringLiteral("Inflated bytes %1")
+                               .arg(range_text(step.output_begin,
+                                               step.output_end)));
+      if (step.selected_output_byte.has_value()) {
+        details.emplace_back(
+            QStringLiteral("Current"),
+            QStringLiteral("output byte %1")
+                .arg(static_cast<qulonglong>(*step.selected_output_byte)));
+      }
+      break;
+    case pnga::analysis_engine::DecodeTracePath::kMatch:
+      details.emplace_back(
+          QStringLiteral("Huffman"),
+          step.huffman_symbol.has_value()
+              ? QStringLiteral("symbol %1").arg(*step.huffman_symbol)
+              : QStringLiteral("—"));
+      details.emplace_back(
+          QStringLiteral("Length"),
+          QStringLiteral("%1 = base %2 + extra %3 (%4 bits)")
+              .arg(step.length)
+              .arg(step.length_base)
+              .arg(step.length_extra_value)
+              .arg(step.length_extra_bits));
+      details.emplace_back(
+          QStringLiteral("Distance"),
+          QStringLiteral("%1 = base %2 + extra %3 (%4 bits)")
+              .arg(step.distance)
+              .arg(step.distance_base)
+              .arg(step.distance_extra_value)
+              .arg(step.distance_extra_bits));
+      details.emplace_back(QStringLiteral("Source"),
+                           sources_text(step.match_source_ranges));
+      details.emplace_back(QStringLiteral("Output"),
+                           QStringLiteral("Inflated bytes %1")
+                               .arg(range_text(step.output_begin,
+                                               step.output_end)));
+      if (step.selected_output_byte.has_value()) {
+        details.emplace_back(
+            QStringLiteral("Current"),
+            QStringLiteral("output byte %1")
+                .arg(static_cast<qulonglong>(*step.selected_output_byte)));
+      }
+      break;
+    case pnga::analysis_engine::DecodeTracePath::kEndOfBlock:
+      details.emplace_back(QStringLiteral("Explanation"),
+                           QStringLiteral("End of block"));
+      details.emplace_back(QStringLiteral("Input"),
+                           QStringLiteral("DEFLATE bits %1")
+                               .arg(range_text(step.input_bit_begin,
+                                               step.input_bit_end)));
+      details.emplace_back(QStringLiteral("Output"),
+                           QStringLiteral("Inflated bytes %1")
+                               .arg(range_text(step.output_begin,
+                                               step.output_end)));
+      break;
+  }
+  setDetails(
+      QStringLiteral("Token #%1 · %2")
+          .arg(static_cast<qulonglong>(step.token_index))
+          .arg(path),
+      details);
+}
+
+void DecodeTraceInspector::showSelectedInHex() {
+  const std::optional<std::size_t> step_index = activeStep();
+  if (!step_index.has_value()) {
+    return;
+  }
+  const auto& step = view_.steps[*step_index];
   emit showInHexRequested(static_cast<quint64>(step.output_begin),
                           static_cast<quint64>(step.output_end));
 }
 
 void DecodeTraceInspector::showSelectedInDeflate() {
-  const auto rows = table_->selectionModel()->selectedRows();
-  if (rows.size() != 1) {
+  const std::optional<std::size_t> step_index = activeStep();
+  if (!step_index.has_value()) {
     return;
   }
-  const auto& step = view_.steps[static_cast<std::size_t>(rows.front().row())];
+  const auto& step = view_.steps[*step_index];
   emit showInDeflateRequested(static_cast<quint64>(step.input_bit_begin),
                               static_cast<quint64>(step.input_bit_end));
 }

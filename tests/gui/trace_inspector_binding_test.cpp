@@ -1,6 +1,7 @@
 #include <pnga/analysis-engine/trace_query.h>
 #include <pnga/analysis-engine/trace_inspector_state.h>
 #include <pnga/ui/qt/block_inspector.h>
+#include <pnga/ui/qt/compression_context.h>
 #include <pnga/ui/qt/decode_trace_inspector.h>
 #include <pnga/ui/qt/huffman_inspector.h>
 #include <pnga/ui/qt/trace_inspector_binding.h>
@@ -47,14 +48,16 @@ void TraceInspectorBindingTest::publishesLifecycleStatus() {
   pnga::ui::qt::BlockInspector block;
   pnga::ui::qt::HuffmanInspector huffman;
   pnga::ui::qt::DecodeTraceInspector decode;
+  pnga::ui::qt::CompressionContext context;
   pnga::ui::qt::TraceInspectorBinding binding(&block, &huffman, &decode);
+  binding.setContext(&context);
   pnga::analysis_engine::TraceInspectorState state;
   state.generation = 12;
   state.status = pnga::analysis_engine::TraceInspectorLifecycle::kReplaying;
   binding.publishState(state);
-  QVERIFY(block.findChild<QLabel*>(QStringLiteral("blockInspectorStatus"))
+  QVERIFY(context.findChild<QLabel*>(QStringLiteral("compressionContextStatus"))
               ->text()
-              .contains(QStringLiteral("replaying")));
+              .contains(QStringLiteral("Replaying")));
 }
 
 QTEST_MAIN(TraceInspectorBindingTest)

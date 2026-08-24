@@ -3,6 +3,7 @@
 
 #include <QtTest/QtTest>
 
+#include <QLabel>
 #include <QPushButton>
 #include <QTableWidget>
 
@@ -38,20 +39,41 @@ void BlockInspectorTest::rendersViewAndExposesNavigationSignals() {
       QStringLiteral("blockInspectorTable"));
   QVERIFY(table != nullptr);
   QCOMPARE(table->rowCount(), 1);
-  QCOMPARE(table->item(0, 1)->text(), QStringLiteral("stored"));
-  QCOMPARE(table->item(0, 6)->text(), QStringLiteral("file[100..103)"));
+  // Current | # | Type | Final | Input bits | Output bytes
+  QCOMPARE(table->item(0, 0)->text(), QStringLiteral("●"));
+  QCOMPARE(table->item(0, 1)->text(), QStringLiteral("2"));
+  QCOMPARE(table->item(0, 2)->text(), QStringLiteral("stored"));
+  QCOMPARE(table->item(0, 3)->text(), QStringLiteral("no"));
+  QCOMPARE(table->item(0, 4)->text(), QStringLiteral("16..32"));
+  QCOMPARE(table->item(0, 5)->text(), QStringLiteral("8..20"));
+
+  // The Current row drives the details (no manual selection yet).
+  auto* details_title =
+      widget.findChild<QLabel*>(QStringLiteral("compressionDetailsTitle"));
+  QVERIFY(details_title != nullptr);
+  QVERIFY(details_title->text().contains(QStringLiteral("Block #2")));
+  bool found_span = false;
+  const auto labels = widget.findChildren<QLabel*>();
+  for (const auto* label : labels) {
+    if (label->text() == QStringLiteral("file[100..103)")) {
+      found_span = true;
+      break;
+    }
+  }
+  QVERIFY(found_span);
 
   QSignalSpy hex_spy(&widget, &pnga::ui::qt::BlockInspector::showInHexRequested);
   QSignalSpy deflate_spy(
       &widget, &pnga::ui::qt::BlockInspector::showInDeflateRequested);
-  auto* hex = widget.findChild<QPushButton*>();
-  QVERIFY(hex != nullptr);
-  hex->click();
-  QCOMPARE(hex_spy.count(), 1);
-  QCOMPARE(hex_spy.takeFirst().at(0).toULongLong(), qulonglong{100});
-  // The second button is found by its stable label, avoiding child ordering.
   const auto buttons = widget.findChildren<QPushButton*>();
   QVERIFY(buttons.size() >= 2);
+  for (auto* button : buttons) {
+    if (button->text() == QStringLiteral("Show in Hex")) {
+      button->click();
+    }
+  }
+  QCOMPARE(hex_spy.count(), 1);
+  QCOMPARE(hex_spy.takeFirst().at(0).toULongLong(), qulonglong{100});
   for (auto* button : buttons) {
     if (button->text() == QStringLiteral("Show in DEFLATE")) {
       button->click();

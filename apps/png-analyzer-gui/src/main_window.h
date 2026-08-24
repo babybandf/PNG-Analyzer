@@ -23,6 +23,8 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
+#include <utility>
 
 class QLabel;
 class QCheckBox;
@@ -39,10 +41,18 @@ class QTabWidget;
 class QTreeView;
 class QWidget;
 
+namespace pnga::analysis_engine {
+class TraceOrchestrator;
+class TraceInspectorStateMachine;
+struct TraceTaskHandle;
+struct TraceQueryResult;
+}  // namespace pnga::analysis_engine
+
 namespace pnga::ui::qt {
 class ChunkModel;
 class ChunkDetailPanel;
 class BlockInspector;
+class CompressionContext;
 class DeliveredImageView;
 class DecodeTraceInspector;
 class HuffmanInspector;
@@ -51,6 +61,7 @@ class HexSourceTabBar;
 class SelectionBus;
 class StageInspector;
 class StagePixelProcessView;
+class TraceInspectorBinding;
 }  // namespace pnga::ui::qt
 
 namespace {
@@ -178,6 +189,7 @@ class MainWindow final : public QMainWindow {
   Q_OBJECT
  public:
   explicit MainWindow(QWidget* parent = nullptr);
+  ~MainWindow() override;
 
   // Opens and indexes `path`; starts background reference decode and stage
   // analysis. Returns false when the file cannot be read.
@@ -194,6 +206,7 @@ class MainWindow final : public QMainWindow {
                          std::uint64_t selection_serial);
   void onPixelSelected(int x, int y);
   void onRowQueryStatus(std::uint64_t row, int status);
+  void onTraceResult(const pnga::analysis_engine::TraceQueryResult& result);
   void resetLayout();
 
  private:
@@ -202,6 +215,9 @@ class MainWindow final : public QMainWindow {
   void startStageAnalysis();
   void startValidation();
   void openQueryCoordinator(const pnga::png_reconstruction::ImageHeader& header);
+  void openTraceCoordinator();
+  void requestTraceFor(const pnga::trace_model::ImageCoordinate& coordinate);
+  void setHexSource(pnga::ui::qt::HexSource source);
   void restoreWorkspace();
   void saveWorkspace() const;
   void applyDefaultWorkspace();
@@ -239,6 +255,8 @@ class MainWindow final : public QMainWindow {
   pnga::ui::qt::BlockInspector* block_inspector_ = nullptr;
   pnga::ui::qt::HuffmanInspector* huffman_inspector_ = nullptr;
   pnga::ui::qt::DecodeTraceInspector* decode_trace_inspector_ = nullptr;
+  pnga::ui::qt::TraceInspectorBinding* trace_binding_ = nullptr;
+  pnga::ui::qt::CompressionContext* compression_context_ = nullptr;
   pnga::ui::qt::SelectionViewState view_state_;
   QDockWidget* chunks_dock_ = nullptr;
   QDockWidget* inspector_dock_ = nullptr;
@@ -261,6 +279,14 @@ class MainWindow final : public QMainWindow {
   ValidationWorker* validation_worker_ = nullptr;
   ChunkDetailWorker* chunk_detail_worker_ = nullptr;
   std::unique_ptr<pnga::analysis_engine::QueryCoordinator> query_;
+  std::unique_ptr<pnga::analysis_engine::TraceOrchestrator> trace_;
+  std::unique_ptr<pnga::analysis_engine::TraceInspectorStateMachine> trace_state_;
+  std::unique_ptr<pnga::analysis_engine::TraceTaskHandle> trace_handle_;
+  std::optional<pnga::trace_model::ImageCoordinate> pending_trace_coordinate_;
+  std::optional<std::uint64_t> trace_scanline_;
+  std::optional<std::pair<std::uint64_t, std::uint64_t>> trace_interval_;
+  std::uint64_t trace_request_generation_ = 0;
+  std::uint64_t trace_deflate_data_begin_ = 0;
   QueryStatusBridge* query_bridge_ = nullptr;
   std::uint64_t generation_ = 0;
   std::uint64_t chunk_selection_serial_ = 0;

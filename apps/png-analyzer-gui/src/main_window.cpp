@@ -7,6 +7,7 @@
 #include <pnga/ui/qt/block_inspector.h>
 #include <pnga/ui/qt/chunk_detail_panel.h>
 #include <pnga/ui/qt/chunk_model.h>
+#include <pnga/ui/qt/compression_context.h>
 #include <pnga/ui/qt/delivered_image_view.h>
 #include <pnga/ui/qt/decode_trace_inspector.h>
 #include <pnga/ui/qt/hex_view.h>
@@ -17,6 +18,9 @@
 #include <pnga/ui/qt/stage_inspector.h>
 #include <pnga/ui/qt/stage_pixel_process_view.h>
 #include <pnga/ui/qt/stage_preview_view.h>
+#include <pnga/ui/qt/trace_inspector_binding.h>
+#include <pnga/analysis-engine/trace_inspector_state.h>
+#include <pnga/analysis-engine/trace_orchestrator.h>
 
 #include <QAbstractItemView>
 #include <QAction>
@@ -72,6 +76,12 @@ constexpr std::uint64_t kCrcSpanLength = 4;
 constexpr int kMaxRecentFiles = 10;
 constexpr auto kRecentFilesSettingsKey = "file/recentFiles";
 constexpr auto kLastOpenDirectorySettingsKey = "file/lastOpenDirectory";
+
+// Bounded Deep Trace budgets (WP-5U13). max_tokens is the primary row bound;
+// the output budget caps how much of the deflate stream a replay decodes.
+constexpr std::uint64_t kMaxTraceTokens = 4096;
+constexpr std::uint64_t kTraceOutputBudgetBytes = 1ull << 22;   // 4 MiB
+constexpr std::uint64_t kTraceIndexOutputBytes = 1ull << 26;    // 64 MiB
 
 QString previewPageId(int index) {
   switch (index) {
@@ -203,8 +213,7 @@ void ChunkDetailWorker::run() {
 // MainWindow
 // ---------------------------------------------------------------------------
 
-MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
-  setWindowTitle(QStringLiteral("PNG Analyzer"));
+MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {  setWindowTitle(QStringLiteral("PNG Analyzer"));
   // QMainWindow creates its dock separators lazily when the window is laid
   // out.  Keep the hit target wide enough for a mouse even when a native
   // style would otherwise expose only a one-pixel separator.
@@ -398,7 +407,63 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   decode_trace_inspector_->setAccessibleName(
       QStringLiteral("DEFLATE decode trace inspector"));
   compression_inspector_tabs_->addTab(decode_trace_inspector_, QStringLiteral("Decode Trace"));
-  inspector_tabs_->addTab(compression_inspector_tabs_, QStringLiteral("Compression"));
+  // WP-5U12: the shared Compression context sits above the page stack so the
+  // trace state is stated once, not repeated on every page.
+  auto* compression_container = new QWidget(inspector_container);
+  compression_container->setObjectName(QStringLiteral("compressionContainer"));
+  compression_container->setAccessibleName(
+      QStringLiteral("Compression inspector"));
+  auto* compression_layout = new QVBoxLayout(compression_container);
+  compression_layout->setContentsMargins(4, 2, 4, 2);
+  compression_layout->setSpacing(2);
+  compression_context_ = new pnga::ui::qt::CompressionContext(compression_container);
+  compression_layout->addWidget(compression_context_);
+  compression_layout->addWidget(compression_inspector_tabs_, 1);
+  inspector_tabs_->addTab(compression_container, QStringLiteral("Compression"));
+  // WP-5U13: bind the bounded trace pipeline to the three Compression pages.
+  // The binding publishes one generation-coherent bundle; navigation keeps the
+  // WP-5U11 source semantics (physical File for block spans, Inflated for
+  // output bytes, IDAT for logical Deflate bits).
+  trace_binding_ = new pnga::ui::qt::TraceInspectorBinding(
+      block_inspector_, huffman_inspector_, decode_trace_inspector_, this);
+  trace_binding_->setContext(compression_context_);
+  trace_binding_->setHasDocument(false);
+  trace_state_ =
+      std::make_unique<pnga::analysis_engine::TraceInspectorStateMachine>();
+  connect(block_inspector_,
+          &pnga::ui::qt::BlockInspector::showInHexRequested, this,
+          [this](quint64 offset, quint64 length) {
+            setHexSource(pnga::ui::qt::HexSource::kFile);
+            hex_->clearHighlight();
+            hex_->navigateTo(offset);
+            if (length != 0) {
+              hex_->setHighlight(
+                  {{offset, length, QColor(0x42, 0xA5, 0xF5)}});
+            }
+          });
+  connect(block_inspector_,
+          &pnga::ui::qt::BlockInspector::showInDeflateRequested, this,
+          [this](quint64 bit_begin, quint64 /*bit_end*/) {
+            // Block input bits are absolute logical (zlib/IDAT) stream bits,
+            // including the zlib header.
+            setHexSource(pnga::ui::qt::HexSource::kIdatStream);
+            hex_->navigateTo(bit_begin / 8);
+          });
+  connect(decode_trace_inspector_,
+          &pnga::ui::qt::DecodeTraceInspector::showInHexRequested, this,
+          [this](quint64 output_begin, quint64 /*output_end*/) {
+            setHexSource(pnga::ui::qt::HexSource::kInflated);
+            hex_->navigateTo(output_begin);
+          });
+  connect(decode_trace_inspector_,
+          &pnga::ui::qt::DecodeTraceInspector::showInDeflateRequested, this,
+          [this](quint64 bit_begin, quint64 /*bit_end*/) {
+            // Token input bits are relative to the start of the Deflate data
+            // (after the zlib wrapper); add deflate_data_begin for the IDAT
+            // byte offset.
+            setHexSource(pnga::ui::qt::HexSource::kIdatStream);
+            hex_->navigateTo(trace_deflate_data_begin_ + bit_begin / 8);
+          });
   inspector_layout->addWidget(inspector_tabs_, 1);
   QWidget::setTabOrder(x_spin_, y_spin_);
   QWidget::setTabOrder(y_spin_, lock_check_);
@@ -524,6 +589,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
   restoreWorkspace();
   configureDockInteraction();
 }
+
+MainWindow::~MainWindow() = default;
 
 void MainWindow::applyDefaultWorkspace() {
   const auto preserved_locked = view_state_.locked;
@@ -870,6 +937,7 @@ void MainWindow::publishLockedCoordinate() {
   update.image = coordinate;
   update.stage = pnga::trace_model::Stage::kDelivered;
   bus_->publishMerged(kImagePanelOrigin, generation_, update);
+  requestTraceFor(coordinate);
 }
 
 void MainWindow::clearLockedCoordinate() {
@@ -1054,6 +1122,7 @@ void MainWindow::onStageDone(std::uint64_t generation) {
   updateHexSource();
   stage_worker_ = nullptr;
   openQueryCoordinator(header);
+  openTraceCoordinator();
 }
 
 void MainWindow::onValidationDone(std::uint64_t generation) {
@@ -1124,6 +1193,20 @@ bool MainWindow::openFile(const QString& path) {
   ++generation_;
   bus_->setDocumentGeneration(generation_);
   view_state_.set_document_generation(generation_);
+  trace_.reset();
+  if (trace_state_ != nullptr) {
+    trace_state_->replaceDocument(generation_);
+  }
+  trace_handle_.reset();
+  pending_trace_coordinate_.reset();
+  trace_scanline_.reset();
+  trace_interval_.reset();
+  trace_request_generation_ = 0;
+  trace_deflate_data_begin_ = 0;
+  if (trace_binding_ != nullptr) {
+    trace_binding_->clear();
+    trace_binding_->setHasDocument(true);
+  }
   stage_set_.reset();
   pixel_view_->clear();
   filtered_view_->clear();
@@ -1362,5 +1445,127 @@ void MainWindow::onPixelSelected(int x, int y) {
   defiltered_view_->setCoordinate(static_cast<std::uint64_t>(x),
                                   static_cast<std::uint64_t>(y));
   bus_->publishMerged(kImagePanelOrigin, generation_, sel);
+  requestTraceFor(
+      pnga::trace_model::ImageCoordinate{0, 0, 0, static_cast<std::uint64_t>(x),
+                                         static_cast<std::uint64_t>(y)});
   setPixelStatus(x, y);
+}
+
+// ---------------------------------------------------------------------------
+// WP-5U13: bounded trace pipeline wiring
+// ---------------------------------------------------------------------------
+
+void MainWindow::openTraceCoordinator() {
+  trace_.reset();
+  trace_handle_.reset();
+  if (source_ == nullptr) {
+    return;
+  }
+  const std::shared_ptr<const pnga::io::IByteSource> shared =
+      std::shared_ptr<const pnga::io::IByteSource>(source_);
+  auto trace = std::make_unique<pnga::analysis_engine::TraceOrchestrator>(
+      /*worker_count=*/1,
+      /*max_reserved_bytes=*/kTraceOutputBudgetBytes * 2);
+  if (!trace->open(shared, kTraceIndexOutputBytes)) {
+    return;
+  }
+  trace->setDocumentGeneration(generation_);
+  // Bridge the worker-thread result callback onto the GUI thread. The queued
+  // invoke is dropped automatically if this window is destroyed.
+  trace->setResultCallback(
+      [this](const pnga::analysis_engine::TraceQueryResult& result) {
+        QMetaObject::invokeMethod(
+            this, [this, result] { onTraceResult(result); },
+            Qt::QueuedConnection);
+      });
+  trace_ = std::move(trace);
+  if (pending_trace_coordinate_.has_value()) {
+    const pnga::trace_model::ImageCoordinate pending =
+        *pending_trace_coordinate_;
+    pending_trace_coordinate_.reset();
+    requestTraceFor(pending);
+  }
+}
+
+void MainWindow::onTraceResult(
+    const pnga::analysis_engine::TraceQueryResult& result) {
+  if (result.generation != generation_ || trace_binding_ == nullptr ||
+      trace_state_ == nullptr) {
+    return;  // stale result; never publish for an older document
+  }
+  trace_deflate_data_begin_ = result.deflate_data_begin;
+  const bool accepted = trace_state_->publish(
+      result, std::nullopt, result.inflated_begin, trace_scanline_);
+  if (accepted) {
+    trace_binding_->publishState(trace_state_->state());
+  }
+  trace_handle_.reset();
+}
+
+void MainWindow::requestTraceFor(
+    const pnga::trace_model::ImageCoordinate& coordinate) {
+  if (trace_binding_ == nullptr || trace_state_ == nullptr) {
+    return;
+  }
+  if (trace_ == nullptr || !trace_->has_index() || query_ == nullptr ||
+      !query_->has_index()) {
+    // The trace pipeline is not ready yet; remember the committed coordinate
+    // and publish a not-indexed state instead of guessing an interval.
+    pending_trace_coordinate_ = coordinate;
+    trace_binding_->setNotIndexed(true);
+    return;
+  }
+  trace_binding_->setNotIndexed(false);
+  const auto row = pnga::analysis_engine::stream_row_for_pixel(
+      query_->anchors().layout, coordinate.x, coordinate.y);
+  if (!row.has_value()) {
+    return;
+  }
+  const auto& scanlines = query_->anchors().scanlines;
+  if (*row >= scanlines.size()) {
+    return;
+  }
+  const std::uint64_t begin = scanlines[*row].offset;
+  const std::uint64_t end = begin + scanlines[*row].length;
+  if (end <= begin) {
+    return;
+  }
+  if (trace_interval_.has_value() && trace_request_generation_ == generation_ &&
+      trace_interval_->first == begin && trace_interval_->second == end) {
+    return;  // identical committed interval already requested (dedup)
+  }
+  pending_trace_coordinate_.reset();
+  trace_interval_ = std::make_pair(begin, end);
+  trace_scanline_ = *row;
+  trace_request_generation_ = generation_;
+  if (trace_handle_ != nullptr && trace_handle_->accepted()) {
+    trace_->cancel(*trace_handle_);
+    trace_handle_.reset();
+  }
+  pnga::analysis_engine::TraceOrchestrationRequest request;
+  request.generation = generation_;
+  pnga::trace_model::Selection selection;
+  selection.image = coordinate;
+  selection.stage = pnga::trace_model::Stage::kDelivered;
+  request.selection = selection;
+  request.inflated_begin = begin;
+  request.inflated_end = end;
+  request.max_tokens = kMaxTraceTokens;
+  request.trace_output_budget_bytes = kTraceOutputBudgetBytes;
+  request.priority = pnga::analysis_engine::JobPriority::kSelection;
+  trace_state_->markReplaying(generation_);
+  trace_binding_->publishState(trace_state_->state());
+  const auto handle = trace_->submit(request);
+  trace_handle_ = handle.accepted()
+                      ? std::make_unique<pnga::analysis_engine::TraceTaskHandle>(
+                            handle)
+                      : nullptr;
+}
+
+void MainWindow::setHexSource(pnga::ui::qt::HexSource source) {
+  view_state_.hex_source = source;
+  if (hex_source_tabs_ != nullptr) {
+    hex_source_tabs_->setSource(source);
+  }
+  updateHexSource();
 }

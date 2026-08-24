@@ -262,6 +262,7 @@ void CrossPlatformGuiGateTest::inspectorTruncationContractsRemainBounded() {
 
   pnga::analysis_engine::HuffmanInspectorView huffman;
   pnga::analysis_engine::HuffmanInspectorTable table;
+  table.kind = pnga::deflate_trace::HuffmanTableKind::kLiteralLength;
   for (int i = 0; i < pnga::ui::qt::HuffmanInspector::kMaxVisibleRows + 1;
        ++i) {
     table.entries.push_back({static_cast<std::uint16_t>(i), 1, 0, 0, 1,
