@@ -14,7 +14,11 @@
 #include <optional>
 
 class QEvent;
+class QComboBox;
 class QKeyEvent;
+class QLabel;
+class QToolButton;
+class QWidget;
 
 namespace pnga::ui::qt {
 
@@ -27,6 +31,10 @@ class DeliveredImageView final : public QWidget {
   void setImage(const QImage& image);
 
   QImage image() const { return image_; }
+
+  // Current display scale expressed as a percentage of source-image pixels.
+  // This is presentation state only; it never changes decoded image data.
+  double zoomPercent() const noexcept { return transform_.zoom() * 100.0; }
 
   // Reads the RGBA value at image pixel (x, y), or null when out of bounds.
   std::optional<std::array<std::uint8_t, 4>> rgbaAt(int x, int y) const;
@@ -65,6 +73,10 @@ class DeliveredImageView final : public QWidget {
 
  private:
   void refit();
+  void adjustZoom(double factor);
+  void applyZoomText(const QString& text);
+  void updateZoomControls();
+  void layoutZoomControls();
 
   QImage image_;
   ImageTransform transform_;
@@ -72,8 +84,14 @@ class DeliveredImageView final : public QWidget {
   QPoint pressPosition_;
   std::optional<QPoint> hover_pixel_;
   std::optional<QPoint> locked_pixel_;
+  QWidget* zoom_controls_ = nullptr;
+  QToolButton* zoom_out_button_ = nullptr;
+  QComboBox* zoom_percent_combo_ = nullptr;
+  QLabel* zoom_dropdown_indicator_ = nullptr;
+  QToolButton* zoom_in_button_ = nullptr;
   bool panning_ = false;
   bool dragged_ = false;
+  bool manual_zoom_ = false;
 };
 
 }  // namespace pnga::ui::qt

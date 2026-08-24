@@ -6,8 +6,15 @@
 #include <QPainter>
 #include <QPaintEvent>
 #include <QApplication>
+#include <QComboBox>
 #include <QKeyEvent>
 #include <QEvent>
+#include <QFrame>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QLineEdit>
+#include <QSignalBlocker>
+#include <QToolButton>
 #include <QWheelEvent>
 
 #include <array>
@@ -20,12 +27,124 @@ namespace pnga::ui::qt {
 DeliveredImageView::DeliveredImageView(QWidget* parent) : QWidget(parent) {
   setMouseTracking(true);
   setFocusPolicy(Qt::StrongFocus);
+
+  auto* controls = new QFrame(this);
+  controls->setObjectName(QStringLiteral("imageZoomControls"));
+  controls->setFrameShape(QFrame::NoFrame);
+  controls->setAccessibleName(QStringLiteral("Image zoom controls"));
+  controls->setStyleSheet(QStringLiteral(R"(
+    QFrame#imageZoomControls {
+      background-color: rgba(250, 250, 250, 194);
+      border: 1px solid rgba(0, 0, 0, 14);
+      border-radius: 3px;
+    }
+    QFrame#imageZoomControls QToolButton {
+      background: transparent;
+      border: 0;
+      border-radius: 2px;
+      min-width: 18px;
+      min-height: 18px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    QFrame#imageZoomControls QToolButton:hover {
+      background-color: rgba(0, 0, 0, 14);
+    }
+    QFrame#imageZoomControls QToolButton:pressed {
+      background-color: rgba(0, 0, 0, 28);
+    }
+    QFrame#imageZoomControls QComboBox {
+      background: transparent;
+      border: 0;
+      min-width: 46px;
+      min-height: 18px;
+      padding: 0 3px;
+      selection-background-color: rgba(0, 122, 255, 46);
+    }
+    QFrame#imageZoomControls QComboBox:hover {
+      background-color: rgba(0, 0, 0, 8);
+      border-radius: 3px;
+    }
+    QFrame#imageZoomControls QComboBox::drop-down {
+      border: 0;
+      background: transparent;
+      width: 13px;
+    }
+    QFrame#imageZoomControls QComboBox::down-arrow {
+      image: none;
+    }
+    QLabel#imageZoomDropdownIndicator {
+      background: transparent;
+      color: rgba(0, 0, 0, 110);
+      font-size: 10px;
+    }
+    QFrame#imageZoomControls QComboBox QLineEdit {
+      background: transparent;
+      border: 0;
+      padding: 0;
+    }
+  )"));
+  auto* controls_layout = new QHBoxLayout(controls);
+  controls_layout->setContentsMargins(1, 1, 1, 1);
+  controls_layout->setSpacing(0);
+
+  zoom_out_button_ = new QToolButton(controls);
+  zoom_out_button_->setObjectName(QStringLiteral("imageZoomOut"));
+  zoom_out_button_->setText(QString::fromUtf8("−"));
+  zoom_out_button_->setToolTip(QStringLiteral("Zoom out"));
+  zoom_out_button_->setAccessibleName(QStringLiteral("Zoom out"));
+  controls_layout->addWidget(zoom_out_button_);
+
+  zoom_percent_combo_ = new QComboBox(controls);
+  zoom_percent_combo_->setObjectName(QStringLiteral("imageZoomPercent"));
+  zoom_percent_combo_->setEditable(true);
+  zoom_percent_combo_->setFrame(false);
+  zoom_percent_combo_->setInsertPolicy(QComboBox::NoInsert);
+  zoom_percent_combo_->setMinimumContentsLength(4);
+  zoom_percent_combo_->setSizeAdjustPolicy(
+      QComboBox::AdjustToMinimumContentsLengthWithIcon);
+  zoom_percent_combo_->setAccessibleName(QStringLiteral("Image zoom percentage"));
+  const QStringList common_zoom_percentages = {
+      QStringLiteral("25%"), QStringLiteral("50%"),
+      QStringLiteral("75%"), QStringLiteral("100%"),
+      QStringLiteral("125%"), QStringLiteral("150%"),
+      QStringLiteral("200%")};
+  zoom_percent_combo_->addItems(common_zoom_percentages);
+  zoom_percent_combo_->lineEdit()->setFrame(false);
+  zoom_percent_combo_->lineEdit()->setAlignment(Qt::AlignCenter);
+  zoom_dropdown_indicator_ = new QLabel(zoom_percent_combo_);
+  zoom_dropdown_indicator_->setObjectName(
+      QStringLiteral("imageZoomDropdownIndicator"));
+  zoom_dropdown_indicator_->setText(QString::fromUtf8("▾"));
+  zoom_dropdown_indicator_->setAlignment(Qt::AlignCenter);
+  zoom_dropdown_indicator_->setAttribute(Qt::WA_TransparentForMouseEvents);
+  controls_layout->addWidget(zoom_percent_combo_);
+
+  zoom_in_button_ = new QToolButton(controls);
+  zoom_in_button_->setObjectName(QStringLiteral("imageZoomIn"));
+  zoom_in_button_->setText(QStringLiteral("+"));
+  zoom_in_button_->setToolTip(QStringLiteral("Zoom in"));
+  zoom_in_button_->setAccessibleName(QStringLiteral("Zoom in"));
+  controls_layout->addWidget(zoom_in_button_);
+
+  zoom_controls_ = controls;
+  connect(zoom_out_button_, &QToolButton::clicked, this,
+          [this] { adjustZoom(0.8); });
+  connect(zoom_in_button_, &QToolButton::clicked, this,
+          [this] { adjustZoom(1.25); });
+  connect(zoom_percent_combo_, &QComboBox::textActivated, this,
+          [this](const QString& text) { applyZoomText(text); });
+  connect(zoom_percent_combo_->lineEdit(), &QLineEdit::editingFinished, this,
+          [this] { applyZoomText(zoom_percent_combo_->currentText()); });
+
+  updateZoomControls();
 }
 
 void DeliveredImageView::setImage(const QImage& image) {
   image_ = image;
   clearHoverPixel();
   clearLockedPixel();
+  manual_zoom_ = false;
   refit();
   update();
 }
@@ -111,6 +230,77 @@ void DeliveredImageView::clearLockedPixel() {
 
 void DeliveredImageView::refit() {
   transform_.fit(size(), image_.size());
+  updateZoomControls();
+}
+
+void DeliveredImageView::adjustZoom(double factor) {
+  if (image_.isNull()) {
+    return;
+  }
+  transform_.zoomBy(factor, QPointF(rect().center()));
+  manual_zoom_ = true;
+  updateZoomControls();
+  update();
+}
+
+void DeliveredImageView::applyZoomText(const QString& text) {
+  if (image_.isNull()) {
+    return;
+  }
+  QString numeric_text = text.trimmed();
+  if (numeric_text.endsWith(QLatin1Char('%'))) {
+    numeric_text.chop(1);
+  }
+  bool ok = false;
+  const double percent = numeric_text.trimmed().toDouble(&ok);
+  if (!ok || !std::isfinite(percent) || percent < 1.0 || percent > 6400.0) {
+    updateZoomControls();
+    return;
+  }
+  const double current_zoom = transform_.zoom();
+  if (current_zoom <= 0.0) {
+    updateZoomControls();
+    return;
+  }
+  transform_.zoomBy(percent / 100.0 / current_zoom, QPointF(rect().center()));
+  manual_zoom_ = true;
+  updateZoomControls();
+  update();
+}
+
+void DeliveredImageView::updateZoomControls() {
+  if (zoom_controls_ == nullptr) {
+    return;
+  }
+  const bool enabled = !image_.isNull();
+  zoom_controls_->setEnabled(enabled);
+  QSignalBlocker blocker(zoom_percent_combo_);
+  if (!enabled) {
+    zoom_percent_combo_->setEditText(QStringLiteral("—"));
+    return;
+  }
+  zoom_percent_combo_->setEditText(
+      QStringLiteral("%1%")
+          .arg(QString::number(zoomPercent(), 'f', 0)));
+}
+
+void DeliveredImageView::layoutZoomControls() {
+  if (zoom_controls_ == nullptr) {
+    return;
+  }
+  const QSize control_size = zoom_controls_->sizeHint();
+  zoom_controls_->setGeometry(
+      qMax(0, width() - control_size.width()),
+      qMax(0, height() - control_size.height()),
+      control_size.width(), control_size.height());
+  if (zoom_dropdown_indicator_ != nullptr) {
+    constexpr int kIndicatorWidth = 11;
+    zoom_dropdown_indicator_->setGeometry(
+        zoom_percent_combo_->width() - kIndicatorWidth, 0, kIndicatorWidth,
+        zoom_percent_combo_->height());
+    zoom_dropdown_indicator_->raise();
+  }
+  zoom_controls_->raise();
 }
 
 void DeliveredImageView::paintEvent(QPaintEvent*) {
@@ -151,12 +341,23 @@ void DeliveredImageView::paintEvent(QPaintEvent*) {
 
 void DeliveredImageView::resizeEvent(QResizeEvent* event) {
   QWidget::resizeEvent(event);
-  refit();
+  if (!manual_zoom_ || event->oldSize().isEmpty()) {
+    refit();
+  } else {
+    const QPointF previous_center =
+        transform_.widgetToImage(QPointF(event->oldSize().width() / 2.0,
+                                         event->oldSize().height() / 2.0));
+    transform_.centerOn(previous_center, size());
+    updateZoomControls();
+  }
+  layoutZoomControls();
 }
 
 void DeliveredImageView::wheelEvent(QWheelEvent* event) {
   const double factor = event->angleDelta().y() > 0 ? 1.25 : 0.8;
   transform_.zoomBy(factor, QPointF(event->position()));
+  manual_zoom_ = true;
+  updateZoomControls();
   update();
   event->accept();
 }

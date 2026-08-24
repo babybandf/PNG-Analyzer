@@ -5,8 +5,16 @@
 
 #include <QtTest/QtTest>
 
+#include <QApplication>
+#include <QAbstractItemView>
+#include <QComboBox>
 #include <QImage>
+#include <QLineEdit>
+#include <QMetaObject>
+#include <QMouseEvent>
 #include <QSignalSpy>
+#include <QToolButton>
+#include <QWheelEvent>
 #include <QWidget>
 
 class DeliveredImageViewInteractionTest : public QObject {
@@ -18,6 +26,7 @@ class DeliveredImageViewInteractionTest : public QObject {
   void dragPansWithoutPublishingSelection();
   void hoverPublishesAndClearsWithoutSelection();
   void keyboardPublishesNudgeAndCancel();
+  void zoomControlsSynchronizeButtonsWheelAndEditablePercentage();
 
  private:
   QImage image_;
@@ -90,11 +99,21 @@ void DeliveredImageViewInteractionTest::hoverPublishesAndClearsWithoutSelection(
   QSignalSpy selected(&view,
                       &pnga::ui::qt::DeliveredImageView::pixelSelected);
 
-  QTest::mouseMove(&view, QPoint(150, 50));
+  // Showing a mouse-tracking widget can generate an initial hover at the
+  // system cursor position. Reset that presentation state so the test starts
+  // from a deterministic pointer state.
+  view.clearHoverPixel();
+  const QPoint hovered_point(150, 50);
+  QMouseEvent hover_event(
+      QEvent::MouseMove, QPointF(hovered_point),
+      QPointF(view.mapToGlobal(hovered_point)), Qt::NoButton, Qt::NoButton,
+      Qt::NoModifier);
+  QApplication::sendEvent(&view, &hover_event);
   QVERIFY(hovered.count() >= 1);
   QCOMPARE(hovered.last().at(0).toInt(), 1);
   QCOMPARE(hovered.last().at(1).toInt(), 0);
-  QTest::mouseMove(&view, QPoint(-1, -1));
+  QEvent leave_event(QEvent::Leave);
+  QApplication::sendEvent(&view, &leave_event);
   QVERIFY(left.count() >= 1);
   QCOMPARE(selected.count(), 0);
 }
@@ -120,6 +139,67 @@ void DeliveredImageViewInteractionTest::keyboardPublishesNudgeAndCancel() {
   QCOMPARE(nudge.at(1).at(0).toInt(), 0);
   QCOMPARE(nudge.at(1).at(1).toInt(), 1);
   QCOMPARE(cancelled.count(), 1);
+}
+
+void DeliveredImageViewInteractionTest::zoomControlsSynchronizeButtonsWheelAndEditablePercentage() {
+  pnga::ui::qt::DeliveredImageView view;
+  view.resize(400, 300);
+  view.setImage(QImage(100, 100, QImage::Format_RGBA8888));
+  view.show();
+  QCoreApplication::processEvents();
+
+  auto* zoom_out =
+      view.findChild<QToolButton*>(QStringLiteral("imageZoomOut"));
+  auto* zoom_percent =
+      view.findChild<QComboBox*>(QStringLiteral("imageZoomPercent"));
+  auto* zoom_in =
+      view.findChild<QToolButton*>(QStringLiteral("imageZoomIn"));
+  QVERIFY(zoom_out != nullptr);
+  QVERIFY(zoom_percent != nullptr);
+  QVERIFY(zoom_in != nullptr);
+  QVERIFY(zoom_percent->isEditable());
+  QCOMPARE(zoom_percent->count(), 7);
+  QCOMPARE(zoom_percent->itemText(0), QStringLiteral("25%"));
+  QCOMPARE(zoom_percent->itemText(6), QStringLiteral("200%"));
+  QCOMPARE(qRound(view.zoomPercent()), 300);
+  QCOMPARE(zoom_percent->currentText(), QStringLiteral("300%"));
+
+  QTest::mouseClick(zoom_percent, Qt::LeftButton, Qt::NoModifier,
+                    QPoint(zoom_percent->width() - 6,
+                           zoom_percent->height() / 2));
+  QTRY_VERIFY(zoom_percent->view()->isVisible());
+  QTest::keyClick(zoom_percent->view(), Qt::Key_Escape);
+
+  QTest::mouseClick(zoom_in, Qt::LeftButton);
+  QCOMPARE(qRound(view.zoomPercent()), 375);
+  QCOMPARE(zoom_percent->currentText(), QStringLiteral("375%"));
+  QTest::mouseClick(zoom_out, Qt::LeftButton);
+  QCOMPARE(qRound(view.zoomPercent()), 300);
+
+  const QPoint anchor(200, 150);
+  QWheelEvent wheel_event(
+      QPointF(anchor), QPointF(view.mapToGlobal(anchor)), QPoint(),
+      QPoint(0, 120), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+  QApplication::sendEvent(&view, &wheel_event);
+  QCOMPARE(qRound(view.zoomPercent()), 375);
+  QCOMPARE(zoom_percent->currentText(), QStringLiteral("375%"));
+
+  auto* editor = zoom_percent->lineEdit();
+  QVERIFY(editor != nullptr);
+  editor->setFocus();
+  editor->selectAll();
+  QTest::keyClicks(editor, QStringLiteral("150%"));
+  QTest::keyClick(editor, Qt::Key_Return);
+  QCOMPARE(qRound(view.zoomPercent()), 150);
+  QCOMPARE(zoom_percent->currentText(), QStringLiteral("150%"));
+
+  // Choosing an entry from the list uses the same visible percentage
+  // immediately, rather than only changing the editable text.
+  QVERIFY(QMetaObject::invokeMethod(
+      zoom_percent, "textActivated", Qt::DirectConnection,
+      Q_ARG(QString, QStringLiteral("200%"))));
+  QCOMPARE(qRound(view.zoomPercent()), 200);
+  QCOMPARE(zoom_percent->currentText(), QStringLiteral("200%"));
 }
 
 QTEST_MAIN(DeliveredImageViewInteractionTest)
