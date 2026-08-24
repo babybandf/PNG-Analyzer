@@ -8,6 +8,25 @@ if(APPLE)
             -always-overwrite
     RESULT_VARIABLE _pnga_qt_deploy_result
   )
+  # macdeployqt on some Qt versions copies the frameworks but skips embedding
+  # the bundle rpath, so @rpath/Qt*.framework cannot resolve at runtime. Add
+  # it explicitly (delete-then-add keeps the step idempotent). CI binaries are
+  # unsigned, so install_name_tool is safe here.
+  set(_pnga_gui_binary
+      "${_pnga_qt_deploy_target}/Contents/MacOS/pnga_analyzer_gui")
+  execute_process(
+    COMMAND install_name_tool -delete_rpath "@executable_path/../Frameworks"
+            "${_pnga_gui_binary}"
+    RESULT_VARIABLE _pnga_del_rpath
+  )
+  execute_process(
+    COMMAND install_name_tool -add_rpath "@executable_path/../Frameworks"
+            "${_pnga_gui_binary}"
+    RESULT_VARIABLE _pnga_add_rpath
+  )
+  if(NOT _pnga_add_rpath EQUAL 0)
+    message(FATAL_ERROR "Qt bundle rpath fix failed: ${_pnga_add_rpath}")
+  endif()
 elseif(WIN32)
   set(_pnga_qt_deploy_target
       "${CMAKE_INSTALL_PREFIX}/@CMAKE_INSTALL_BINDIR@/pnga_analyzer_gui.exe")
