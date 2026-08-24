@@ -76,7 +76,7 @@ QString StagePreviewView::summary() const {
                  .arg(static_cast<qulonglong>(stages_->scanlines.size()));
       break;
     case PreviewStage::kDefiltered:
-      text = QStringLiteral("Defiltered bytes\nbytes: %1")
+      text = QStringLiteral("Unfiltered bytes\nbytes: %1")
                  .arg(static_cast<qulonglong>(stages_->unfiltered.size()));
       break;
   }

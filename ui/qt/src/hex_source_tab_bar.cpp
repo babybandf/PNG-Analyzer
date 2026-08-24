@@ -19,8 +19,8 @@ constexpr SourcePresentation kSources[] = {
     {"IDAT", "Virtual concatenated IDAT payload stream", "Hex source: IDAT"},
     {"Inflated", "Inflate output filtered scanline bytes",
      "Hex source: Inflated"},
-    {"Defiltered", "Reconstructed packed scanline bytes",
-     "Hex source: Defiltered"},
+    {"Unfiltered", "Reconstructed packed scanline bytes",
+     "Hex source: Unfiltered"},
 };
 
 }  // namespace

@@ -27,7 +27,7 @@ void HexSourceTabBarTest::exposesStableSourcesAndMetadata() {
   QCOMPARE(bar.tabText(0), QStringLiteral("File"));
   QCOMPARE(bar.tabText(1), QStringLiteral("IDAT"));
   QCOMPARE(bar.tabText(2), QStringLiteral("Inflated"));
-  QCOMPARE(bar.tabText(3), QStringLiteral("Defiltered"));
+  QCOMPARE(bar.tabText(3), QStringLiteral("Unfiltered"));
   for (int index = 0; index < bar.count(); ++index) {
     QCOMPARE(bar.tabData(index).toInt(), index);
     QVERIFY(!bar.tabToolTip(index).isEmpty());

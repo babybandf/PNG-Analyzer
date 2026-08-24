@@ -39,7 +39,7 @@ QString stage_title(StagePixelProcessStage stage, bool hexadecimal) {
       return QStringLiteral("Filtered bytes (%1)")
           .arg(hexadecimal ? QStringLiteral("HEX") : QStringLiteral("DEC"));
     case StagePixelProcessStage::kDefiltered:
-      return QStringLiteral("Defiltered bytes (%1)")
+      return QStringLiteral("Unfiltered bytes (%1)")
           .arg(hexadecimal ? QStringLiteral("HEX") : QStringLiteral("DEC"));
   }
   return {};
@@ -229,7 +229,7 @@ QString render_html(const ModelStagePixelProcessView& view,
   switch (view.stage) {
     case StagePixelProcessStage::kNative:
       html += QStringLiteral(
-          "<p>Defiltered packed bytes → native source sample; %1 mapping.</p>")
+          "<p>Unfiltered packed bytes → native source sample; %1 mapping.</p>")
                   .arg(stages.header.interlace ? QStringLiteral("Adam7 pass")
                                                 : QStringLiteral("non-interlaced row"));
       break;

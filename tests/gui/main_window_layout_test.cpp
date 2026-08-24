@@ -70,7 +70,7 @@ void MainWindowLayoutTest::defaultLayoutHasRequiredRegions() {
   QCOMPARE(preview->tabText(0), QStringLiteral("Image"));
   QCOMPARE(preview->tabText(1), QStringLiteral("Pixels"));
   QCOMPARE(preview->tabText(2), QStringLiteral("Filtered"));
-  QCOMPARE(preview->tabText(3), QStringLiteral("Defiltered"));
+  QCOMPARE(preview->tabText(3), QStringLiteral("Unfiltered"));
 
   auto* inspector =
       window.findChild<QTabWidget*>(QStringLiteral("inspectorTabs"));
@@ -107,7 +107,7 @@ void MainWindowLayoutTest::defaultLayoutHasRequiredRegions() {
   QCOMPARE(hex_source->tabText(0), QStringLiteral("File"));
   QCOMPARE(hex_source->tabText(1), QStringLiteral("IDAT"));
   QCOMPARE(hex_source->tabText(2), QStringLiteral("Inflated"));
-  QCOMPARE(hex_source->tabText(3), QStringLiteral("Defiltered"));
+  QCOMPARE(hex_source->tabText(3), QStringLiteral("Unfiltered"));
 }
 
 void MainWindowLayoutTest::docksAreMovableFloatableAndClosable() {

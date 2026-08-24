@@ -137,7 +137,7 @@ std::shared_ptr<const HexDataSource> make_inflated_hex_source(
 
 std::shared_ptr<const HexDataSource> make_defiltered_hex_source(
     std::shared_ptr<const pnga::analysis_engine::StageSet> stages) {
-  return std::make_shared<StageBytesHexDataSource>("Defiltered",
+  return std::make_shared<StageBytesHexDataSource>("Unfiltered",
                                                    std::move(stages), true);
 }
 

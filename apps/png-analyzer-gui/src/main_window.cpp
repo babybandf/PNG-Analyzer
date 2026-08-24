@@ -253,7 +253,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {  setWindowTitle(
   preview_tabs_->addTab(filtered_view_, QStringLiteral("Filtered"));
   defiltered_view_ = new pnga::ui::qt::StagePixelProcessView(
       pnga::analysis_engine::StagePixelProcessStage::kDefiltered, preview_tabs_);
-  preview_tabs_->addTab(defiltered_view_, QStringLiteral("Defiltered"));
+  preview_tabs_->addTab(defiltered_view_, QStringLiteral("Unfiltered"));
 
   hex_panel_ = new QWidget(center_splitter_);
   hex_panel_->setObjectName(QStringLiteral("hexPanel"));
