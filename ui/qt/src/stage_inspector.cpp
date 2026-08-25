@@ -8,6 +8,7 @@
 #include <pnga/ui/qt/application_theme.h>
 
 #include <QTextEdit>
+#include <QTextDocument>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -18,6 +19,8 @@
 namespace pnga::ui::qt {
 
 namespace {
+
+constexpr qreal kContentDocumentMargin = 8.0;
 
 QString esc(const QString& value) { return value.toHtmlEscaped(); }
 
@@ -109,6 +112,7 @@ StageInspector::StageInspector(QWidget* parent) : QWidget(parent) {
   report_->setTextInteractionFlags(Qt::TextSelectableByMouse |
                                    Qt::TextSelectableByKeyboard);
   report_->setFont(ApplicationTheme::applicationMonospaceFont());
+  report_->document()->setDocumentMargin(kContentDocumentMargin);
   report_->setPlaceholderText(QStringLiteral("Select a pixel to inspect"));
   auto* layout = new QVBoxLayout(this);
   layout->setContentsMargins(0, 0, 0, 0);

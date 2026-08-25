@@ -5,6 +5,7 @@
 #include <QPalette>
 #include <QSizePolicy>
 #include <QTextEdit>
+#include <QTextDocument>
 #include <QVBoxLayout>
 
 #include <algorithm>
@@ -14,6 +15,8 @@
 namespace pnga::ui::qt {
 
 namespace {
+
+constexpr qreal kContentDocumentMargin = 8.0;
 
 using pnga::analysis_engine::StagePixelProcessCalculation;
 using pnga::analysis_engine::StagePixelProcessCell;
@@ -294,6 +297,7 @@ StagePixelProcessView::StagePixelProcessView(
   text_->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   text_->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   text_->setFont(ApplicationTheme::applicationMonospaceFont());
+  text_->document()->setDocumentMargin(kContentDocumentMargin);
   text_->setMinimumWidth(0);
   text_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Expanding);
   layout->addWidget(text_);

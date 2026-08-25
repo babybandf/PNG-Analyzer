@@ -164,6 +164,7 @@ void StageInspectorModelTest::reconstructReportUsesViewModel() {
   auto* report =
       inspector.findChild<QTextEdit*>(QStringLiteral("reconstructReport"));
   QVERIFY(report != nullptr);
+  QCOMPARE(report->document()->documentMargin(), 8.0);
   const QString text = report->toPlainText();
   QVERIFY(text.contains(QStringLiteral("Target pixel")));
   QVERIFY(text.contains(QStringLiteral("Scanline location")));

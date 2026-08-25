@@ -35,6 +35,7 @@ void StagePixelProcessViewTest::rendersEachStageWithSharedNeighborhoodContract()
     view->setCoordinate(2, 2);
     auto* text = view->findChild<QTextEdit*>();
     QVERIFY(text != nullptr);
+    QCOMPARE(text->document()->documentMargin(), 8.0);
     QVERIFY(text->isReadOnly());
     QVERIFY(text->acceptRichText());
     QVERIFY(text->toHtml().contains(QStringLiteral("<table")));
