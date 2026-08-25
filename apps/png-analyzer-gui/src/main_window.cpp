@@ -37,6 +37,7 @@
 #include <QDockWidget>
 #include <QEvent>
 #include <QFileDialog>
+#include <QFileSystemModel>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QImage>
@@ -1441,10 +1442,26 @@ void MainWindow::onOpenTriggered() {
   // macOS as well as on the other desktop platforms.
   raise();
   activateWindow();
-  QFileDialog dialog(this, QStringLiteral("Open PNG"), lastOpenDirectory(),
-                     QStringLiteral("PNG files (*.png);;All files (*)"));
-  dialog.setFileMode(QFileDialog::ExistingFile);
+  // Keep the picker constrained to PNG images. Including an "All files"
+  // name-filter makes every file selectable, which defeats the Open PNG
+  // workflow (especially with Qt's non-native dialog used by development
+  // builds).
+  // Set this option before any other dialog property. On macOS, setting it
+  // after the constructor has already installed the name filter can leave the
+  // native panel selected, where QFileDialog's name filter is ignored.
+  QFileDialog dialog(this);
   dialog.setOption(QFileDialog::DontUseNativeDialog, true);
+  dialog.setWindowTitle(QStringLiteral("Open PNG"));
+  dialog.setDirectory(lastOpenDirectory());
+  dialog.setNameFilter(QStringLiteral("PNG files (*.png *.PNG)"));
+  // QFileSystemModel disables non-matching files by default. That is the
+  // behavior seen in the macOS picker; make the Qt-backed dialog hide them
+  // instead while retaining directory entries for navigation.
+  if (auto* file_system_model = dialog.findChild<QFileSystemModel*>();
+      file_system_model != nullptr) {
+    file_system_model->setNameFilterDisables(false);
+  }
+  dialog.setFileMode(QFileDialog::ExistingFile);
   const QString previous_file = lastOpenFile();
   if (!previous_file.isEmpty()) {
     dialog.selectFile(previous_file);
