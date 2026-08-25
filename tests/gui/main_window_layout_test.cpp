@@ -51,6 +51,7 @@ class MainWindowLayoutTest : public QObject {
   void openingFileResetsPrimaryViewsAndStoresLastTarget();
   void hexHighlightsSelectedChunkAfterStageCompletes();
   void recentFilesMenuPersistsAndCapsHistory();
+  void viewMenuTogglesCoreViewsAndFileHasExit();
 };
 
 void MainWindowLayoutTest::init() {
@@ -627,6 +628,73 @@ void MainWindowLayoutTest::hexHighlightsSelectedChunkAfterStageCompletes() {
   QCOMPARE(hex->highlightCount(), std::size_t{3});
   QVERIFY(hex->currentLocation().has_value());
   QCOMPARE(*hex->currentLocation(), std::uint64_t{8});
+}
+
+void MainWindowLayoutTest::viewMenuTogglesCoreViewsAndFileHasExit() {
+  MainWindow window;
+  window.show();
+  QCoreApplication::processEvents();
+
+  auto* chunks =
+      window.findChild<QDockWidget*>(QStringLiteral("chunksDock"));
+  auto* inspector =
+      window.findChild<QDockWidget*>(QStringLiteral("inspectorDock"));
+  auto* hex_panel = window.findChild<QWidget*>(QStringLiteral("hexPanel"));
+  QVERIFY(chunks != nullptr);
+  QVERIFY(inspector != nullptr);
+  QVERIFY(hex_panel != nullptr);
+
+  QMenu* file_menu = nullptr;
+  QMenu* view_menu = nullptr;
+  for (QAction* action : window.menuBar()->actions()) {
+    if (action->menu() == nullptr) {
+      continue;
+    }
+    if (action->menu()->title() == QStringLiteral("&File")) {
+      file_menu = action->menu();
+    } else if (action->menu()->title() == QStringLiteral("&View")) {
+      view_menu = action->menu();
+    }
+  }
+  QVERIFY(file_menu != nullptr);
+  QVERIFY(view_menu != nullptr);
+
+  const auto action_by_name = [](QMenu* menu, const QString& name) {
+    for (QAction* action : menu->actions()) {
+      if (action->objectName() == name) {
+        return action;
+      }
+    }
+    return static_cast<QAction*>(nullptr);
+  };
+  QVERIFY(action_by_name(file_menu, QStringLiteral("exitAction")) != nullptr);
+  QAction* chunk_action =
+      action_by_name(view_menu, QStringLiteral("showChunkList"));
+  QAction* hex_action = action_by_name(view_menu, QStringLiteral("showHexView"));
+  QAction* inspector_action =
+      action_by_name(view_menu, QStringLiteral("showInspector"));
+  QVERIFY(chunk_action != nullptr);
+  QVERIFY(hex_action != nullptr);
+  QVERIFY(inspector_action != nullptr);
+  QVERIFY(chunk_action->isChecked());
+  QVERIFY(hex_action->isChecked());
+  QVERIFY(inspector_action->isChecked());
+
+  chunk_action->trigger();
+  hex_action->trigger();
+  inspector_action->trigger();
+  QCoreApplication::processEvents();
+  QVERIFY(!chunks->isVisible());
+  QVERIFY(!hex_panel->isVisible());
+  QVERIFY(!inspector->isVisible());
+
+  chunk_action->trigger();
+  hex_action->trigger();
+  inspector_action->trigger();
+  QCoreApplication::processEvents();
+  QVERIFY(chunks->isVisible());
+  QVERIFY(hex_panel->isVisible());
+  QVERIFY(inspector->isVisible());
 }
 
 QTEST_MAIN(MainWindowLayoutTest)

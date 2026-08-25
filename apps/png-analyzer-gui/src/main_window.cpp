@@ -631,11 +631,32 @@ MainWindow::MainWindow(QWidget* parent,
   connect(recent_files_menu_, &QMenu::aboutToShow, this,
           &MainWindow::refreshRecentFilesMenu);
   refreshRecentFilesMenu();
+  fileMenu->addSeparator();
+  QAction* exitAction = fileMenu->addAction(QStringLiteral("E&xit"));
+  exitAction->setObjectName(QStringLiteral("exitAction"));
+  exitAction->setShortcut(QKeySequence::Quit);
+  connect(exitAction, &QAction::triggered, this, [this] { close(); });
 
   QMenu* viewMenu = menuBar()->addMenu(QStringLiteral("&View"));
   QAction* resetAction =
       viewMenu->addAction(QStringLiteral("&Reset Layout"));
   connect(resetAction, &QAction::triggered, this, &MainWindow::resetLayout);
+  viewMenu->addSeparator();
+  QAction* chunkListAction = chunks_dock_->toggleViewAction();
+  viewMenu->addAction(chunkListAction);
+  chunkListAction->setText(QStringLiteral("Chunk List"));
+  chunkListAction->setObjectName(QStringLiteral("showChunkList"));
+  QAction* hexViewAction = viewMenu->addAction(QStringLiteral("Hex View"));
+  hexViewAction->setObjectName(QStringLiteral("showHexView"));
+  hexViewAction->setCheckable(true);
+  hexViewAction->setChecked(true);
+  connect(hexViewAction, &QAction::toggled, this,
+          [this](bool visible) { hex_panel_->setVisible(visible); });
+  QAction* inspectorAction = inspector_dock_->toggleViewAction();
+  viewMenu->addAction(inspectorAction);
+  inspectorAction->setText(QStringLiteral("Inspector"));
+  inspectorAction->setObjectName(QStringLiteral("showInspector"));
+  viewMenu->addSeparator();
   if (theme_ != nullptr) {
     QMenu* themeMenu = viewMenu->addMenu(QStringLiteral("Theme"));
     themeMenu->setObjectName(QStringLiteral("themeMenu"));
