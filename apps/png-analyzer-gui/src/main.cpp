@@ -17,6 +17,14 @@
 
 int main(int argc, char** argv) {
   QApplication app(argc, argv);
+  // QSettings (recent files, workspace, numeric base) requires an explicit
+  // organization name/domain. On Windows it stores in the registry under
+  // HKCU\Software\<org>\<app>; without an organization name the registry key
+  // cannot be resolved reliably and settings silently fail (AccessError).
+  // macOS and Linux tolerate the missing name, which is why the Open Recent
+  // list worked there but not on Windows.
+  app.setOrganizationName(QStringLiteral("PNG-Analyzer"));
+  app.setOrganizationDomain(QStringLiteral("github.com/babybandf"));
   app.setApplicationName(QStringLiteral("png-analyzer"));
   app.setWindowIcon(pnga::ui::qt::application_icon());
 

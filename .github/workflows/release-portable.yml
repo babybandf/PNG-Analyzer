@@ -83,7 +83,17 @@ jobs:
 
       - name: Configure release
         shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
+          # Version is the single source for the binary, About dialog, CLI and
+          # package names; derive it from the release tag so they all match.
+          release_tag="${INPUT_TAG:-$GITHUB_REF_NAME}"
+          release_version="${release_tag#v}"
+          if ! [[ "$release_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "release tag must look like vX.Y.Z, got: $release_tag"
+            exit 1
+          fi
           # The GUI target is added when Qt is found; the portable package is
           # self-contained only where the Qt deployment tool exists
           # (macdeployqt/windeployqt). Linux Qt bundling (linuxdeployqt) is a
@@ -94,6 +104,7 @@ jobs:
             deploy_flags="-DPNGA_ENABLE_QT_DEPLOYMENT=ON"
           fi
           cmake --preset release \
+            -DPNGA_PROJECT_VERSION="$release_version" \
             -DCMAKE_PREFIX_PATH="${{ steps.install-qt.outputs.qtpath }}" \
             $deploy_flags
 

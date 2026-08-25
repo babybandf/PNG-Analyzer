@@ -1,13 +1,11 @@
 #ifndef PNGA_CORE_VERSION_H
 #define PNGA_CORE_VERSION_H
 
-// Single version source shared by CLI and GUI (layout contract §5.1: build
-// version information lives in libs/core). project() derives the CMake version
-// from these; keep the two in sync.
-#define PNGA_VERSION_MAJOR 0
-#define PNGA_VERSION_MINOR 1
-#define PNGA_VERSION_PATCH 0
-#define PNGA_VERSION_STR "0.1.0"
+// Single version source is the CMake project version. The version macros live
+// in the build-tree generated header so the released binary always matches the
+// release tag (layout contract §5.1, §6: generated headers stay out of
+// include/).
+#include "pnga/core/generated_version.h"
 
 namespace pnga {
 

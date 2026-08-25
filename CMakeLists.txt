@@ -4,7 +4,13 @@ cmake_minimum_required(VERSION 3.28)
 # configure time (GUI is added only when a Qt 6.8+ kit is found); core, CLI and
 # the unit tests build and verify without it. See CMakeUserPresets.example.json
 # for pointing the dev/asan/release presets at a Qt kit via CMAKE_PREFIX_PATH.
-project(png-analyzer VERSION 0.1.0 LANGUAGES CXX)
+#
+# The version is the single source for the binary, About dialog, CLI output and
+# package names. Release builds pass -DPNGA_PROJECT_VERSION=<tag-version> so
+# the released program always matches the release tag; dev builds default here.
+set(PNGA_PROJECT_VERSION "0.1.0" CACHE STRING
+    "PNG Analyzer version (x.y.z); release builds set this to the tag version")
+project(png-analyzer VERSION ${PNGA_PROJECT_VERSION} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

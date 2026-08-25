@@ -1,0 +1,12 @@
+// Generated at configure time from the CMake project version so the released
+// binary, About dialog, CLI output and package names all match the release
+// tag. Do not edit; see libs/core/CMakeLists.txt.
+#ifndef PNGA_CORE_GENERATED_VERSION_H
+#define PNGA_CORE_GENERATED_VERSION_H
+
+#define PNGA_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
+#define PNGA_VERSION_MINOR @PROJECT_VERSION_MINOR@
+#define PNGA_VERSION_PATCH @PROJECT_VERSION_PATCH@
+#define PNGA_VERSION_STR "@PROJECT_VERSION@"
+
+#endif  // PNGA_CORE_GENERATED_VERSION_H
