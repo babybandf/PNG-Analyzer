@@ -14,6 +14,7 @@
 #include <QVector>
 
 class QPushButton;
+class QShowEvent;
 class QTableWidget;
 
 namespace pnga::ui::qt {
@@ -47,7 +48,11 @@ class BlockInspector final : public CompressionInspectorPage {
   void showSelectedInHex();
   void showSelectedInDeflate();
 
+ protected:
+  void showEvent(QShowEvent* event) override;
+
  private:
+  void scrollAssociatedRowIntoView();
   std::optional<std::size_t> activeRow() const noexcept;
   void updateButtons();
   void updateDetails();
@@ -59,6 +64,7 @@ class BlockInspector final : public CompressionInspectorPage {
   bool has_fast_index_ = false;
   QPushButton* hex_button_ = nullptr;
   QPushButton* deflate_button_ = nullptr;
+  int associated_table_row_ = -1;
 };
 
 }  // namespace pnga::ui::qt
