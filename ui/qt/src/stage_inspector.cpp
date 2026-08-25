@@ -224,9 +224,17 @@ void StageInspector::refreshReport() {
   const auto selected = formula.events[reconstruction.selected_byte];
   const auto channels = effective_channels;
   html += section(QStringLiteral("Filtered data"));
-  html += QStringLiteral("<p>filter: %1 (%2), selected source byte: %3<br>raw filtered X: %4</p>")
-      .arg(QLatin1String(pnga::png_reconstruction::filter_type_text(filter)))
-      .arg(static_cast<int>(filter))
+  const QString filter_label = QStringLiteral("%1 (%2)")
+                                   .arg(QLatin1String(
+                                       pnga::png_reconstruction::filter_type_text(
+                                           filter)))
+                                   .arg(static_cast<int>(filter));
+  const QString filter_chip =
+      QStringLiteral("<span style=\"background-color:#FFF4CC;color:#4A3B00;"
+                     "padding:2px 5px;font-weight:bold;\">%1</span>")
+          .arg(esc(filter_label));
+  html += QStringLiteral("<p>filter: %1, selected source byte: %2<br>raw filtered X: %3</p>")
+      .arg(filter_chip)
       .arg(number(reconstruction.selected_byte, hexadecimal_))
       .arg(value8(selected.raw, hexadecimal_));
 
@@ -368,14 +376,68 @@ void StageInspector::refreshReport() {
   html += section(QStringLiteral("Per-channel reconstruction"));
   if (stages.header.bit_depth == 8 && stages.header.color_type != 3) {
     for (std::uint8_t channel = 0; channel < channels; ++channel) {
+      if (channel > std::numeric_limits<std::uint64_t>::max() -
+                         reconstruction.selected_byte) {
+        break;
+      }
       const auto offset = reconstruction.selected_byte + channel;
       if (offset >= formula.events.size()) break;
       const auto& event = formula.events[offset];
-      html += QStringLiteral("<div>channel %1: X=%2, a=%3, b=%4, c=%5, predictor=%6; recon=(X + predictor) mod 256 = %7</div>")
-          .arg(number(channel, hexadecimal_), value8(event.raw, hexadecimal_),
-               value8(event.a, hexadecimal_), value8(event.b, hexadecimal_),
-               value8(event.c, hexadecimal_), value8(event.predictor, hexadecimal_),
-               value8(event.recon, hexadecimal_));
+      QString predictor_formula;
+      QString predictor_values;
+      switch (filter) {
+        case pnga::png_reconstruction::FilterType::kNone:
+          predictor_formula = QStringLiteral("0");
+          predictor_values = QStringLiteral("0 = %1")
+                                 .arg(value8(event.predictor, hexadecimal_));
+          break;
+        case pnga::png_reconstruction::FilterType::kSub:
+          predictor_formula = QStringLiteral("a");
+          predictor_values = QStringLiteral("%1 = %2")
+                                 .arg(value8(event.a, hexadecimal_),
+                                      value8(event.predictor, hexadecimal_));
+          break;
+        case pnga::png_reconstruction::FilterType::kUp:
+          predictor_formula = QStringLiteral("b");
+          predictor_values = QStringLiteral("%1 = %2")
+                                 .arg(value8(event.b, hexadecimal_),
+                                      value8(event.predictor, hexadecimal_));
+          break;
+        case pnga::png_reconstruction::FilterType::kAverage:
+          predictor_formula = QStringLiteral("floor((a + b) / 2)");
+          predictor_values = QStringLiteral("floor((%1 + %2) / 2) = %3")
+                                 .arg(value8(event.a, hexadecimal_),
+                                      value8(event.b, hexadecimal_),
+                                      value8(event.predictor, hexadecimal_));
+          break;
+        case pnga::png_reconstruction::FilterType::kPaeth:
+          predictor_formula = QStringLiteral("Paeth(a, b, c)");
+          predictor_values = QStringLiteral("Paeth(%1, %2, %3) = %4")
+                                 .arg(value8(event.a, hexadecimal_),
+                                      value8(event.b, hexadecimal_),
+                                      value8(event.c, hexadecimal_),
+                                      value8(event.predictor, hexadecimal_));
+          break;
+      }
+      html += QStringLiteral("<h4>%1 (channel %2)</h4>")
+                  .arg(esc(channel_name(channel)),
+                       number(channel, hexadecimal_));
+      html += QStringLiteral(
+          "<p><b>Neighbor pixels</b>: a (left)=%1, b (up)=%2, "
+          "c (up-left)=%3</p>")
+                  .arg(value8(event.a, hexadecimal_),
+                       value8(event.b, hexadecimal_),
+                       value8(event.c, hexadecimal_));
+      html += QStringLiteral(
+          "<p><b>Predictor formula</b>: %1<br>"
+          "<b>Substituted values</b>: %2</p>")
+                  .arg(esc(predictor_formula), predictor_values);
+      html += QStringLiteral(
+          "<p><b>Filter calculation</b>: recon = (X + predictor) mod 256<br>"
+          "<b>Substituted values</b>: (%1 + %2) mod 256 = %3</p>")
+                  .arg(value8(event.raw, hexadecimal_),
+                       value8(event.predictor, hexadecimal_),
+                       value8(event.recon, hexadecimal_));
     }
   } else {
     html += QStringLiteral("<p>Source-byte reconstruction is available for this sample; logical per-channel mapping is unsupported for packed, indexed, 16-bit, or Adam7 data.</p>");

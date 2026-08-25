@@ -174,6 +174,13 @@ void StageInspectorModelTest::reconstructReportUsesViewModel() {
   QVERIFY(!text.contains(QStringLiteral("y (current)")));
   QVERIFY(text.contains(QStringLiteral("Filter / predictor / bounds")));
   QVERIFY(text.contains(QStringLiteral("Per-channel reconstruction")));
+  QCOMPARE(text.count(QStringLiteral("Neighbor pixels")), 4);
+  QVERIFY(text.contains(QStringLiteral("Predictor formula")));
+  QVERIFY(text.contains(QStringLiteral("Substituted values")));
+  QVERIFY(text.contains(QStringLiteral("Filter calculation")));
+  QVERIFY(text.contains(QStringLiteral("mod 256")));
+  QVERIFY(report->toHtml().contains(QStringLiteral("FFF4CC"),
+                                    Qt::CaseInsensitive));
   QVERIFY(text.contains(QStringLiteral("Final RGBA")));
   QVERIFY(!text.contains(QStringLiteral("row query:")));
   inspector.setNumericBase(true);
