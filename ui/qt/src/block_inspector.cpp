@@ -177,6 +177,7 @@ void BlockInspector::renderView() {
   }
   QTableWidget* table = masterTable();
   table->setRowCount(0);
+  associated_table_row_.reset();
   std::size_t rendered = 0;
   for (const auto& row : view_.rows) {
     if (rendered++ >= static_cast<std::size_t>(kMaxVisibleRows)) {
@@ -207,6 +208,7 @@ void BlockInspector::renderView() {
                                  .arg(static_cast<qulonglong>(row.output_end))));
     if (row.current_output_position.has_value()) {
       markAssociatedRow(table, table_row);
+      associated_table_row_ = table_row;
     }
   }
   if (view_.rows.size() > static_cast<std::size_t>(kMaxVisibleRows)) {
@@ -221,6 +223,33 @@ void BlockInspector::renderView() {
   }
   updateButtons();
   updateDetails();
+  // A committed pixel (trace update) selects a new associated block; keep the
+  // corresponding Current row visible so it follows the click instead of
+  // staying off-screen. Scrolling never changes the manual row selection.
+  if (isVisible()) {
+    scrollToAssociatedRow();
+  }
+}
+
+void BlockInspector::scrollToAssociatedRow() {
+  if (!associated_table_row_.has_value()) {
+    return;
+  }
+  QTableWidget* table = masterTable();
+  const int row = *associated_table_row_;
+  QTableWidgetItem* item = row >= 0 && row < table->rowCount()
+                               ? table->item(row, 0)
+                               : nullptr;
+  if (item != nullptr) {
+    table->scrollToItem(item, QAbstractItemView::PositionAtCenter);
+  }
+}
+
+void BlockInspector::showEvent(QShowEvent* event) {
+  CompressionInspectorPage::showEvent(event);
+  // The bundle may have updated while this page was hidden (the user clicked a
+  // pixel elsewhere); reveal the associated Current row on display.
+  scrollToAssociatedRow();
 }
 
 void BlockInspector::setExternalStatus(const QString& /*text*/) {
