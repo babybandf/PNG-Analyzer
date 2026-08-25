@@ -27,6 +27,7 @@
 #include <utility>
 
 class QLabel;
+class QAction;
 class QCheckBox;
 class QCloseEvent;
 class QDockWidget;
@@ -199,6 +200,7 @@ class MainWindow final : public QMainWindow {
 
  private slots:
   void onOpenTriggered();
+  void onCloseTriggered();
   void onChunkSelectionChanged(const QModelIndex& current,
                                const QModelIndex& previous);
   void onDecodeDone(std::uint64_t generation);
@@ -277,6 +279,7 @@ class MainWindow final : public QMainWindow {
   QCheckBox* lock_check_ = nullptr;
   QPushButton* base_button_ = nullptr;
   QTreeView* tree_ = nullptr;
+  QAction* close_action_ = nullptr;
   QMenu* recent_files_menu_ = nullptr;
   DecodeWorker* decode_worker_ = nullptr;
   StageWorker* stage_worker_ = nullptr;

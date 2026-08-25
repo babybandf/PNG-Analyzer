@@ -624,6 +624,12 @@ MainWindow::MainWindow(QWidget* parent,
   QAction* openAction = fileMenu->addAction(QStringLiteral("&Open..."));
   openAction->setShortcut(QKeySequence::Open);
   connect(openAction, &QAction::triggered, this, &MainWindow::onOpenTriggered);
+  close_action_ = fileMenu->addAction(QStringLiteral("&Close Image"));
+  close_action_->setObjectName(QStringLiteral("closeImageAction"));
+  close_action_->setShortcut(QKeySequence::Close);
+  close_action_->setEnabled(false);
+  connect(close_action_, &QAction::triggered, this,
+          &MainWindow::onCloseTriggered);
   fileMenu->addSeparator();
   recent_files_menu_ = fileMenu->addMenu(QStringLiteral("Open Recent"));
   recent_files_menu_->setObjectName(QStringLiteral("recentFilesMenu"));
@@ -1408,6 +1414,9 @@ bool MainWindow::openFile(const QString& path) {
   }
   setWindowTitle(QStringLiteral("%1 — %2").arg(windowTitle(), absolute_path));
   current_file_path_ = absolute_path;
+  if (close_action_ != nullptr) {
+    close_action_->setEnabled(true);
+  }
   default_pixel_status_ = QStringLiteral("Loading image…");
   pixel_label_->setText(default_pixel_status_);
   source_ = source;
@@ -1454,6 +1463,71 @@ bool MainWindow::openFile(const QString& path) {
   startDecode();
   startStageAnalysis();
   return true;
+}
+
+void MainWindow::onCloseTriggered() {
+  if (source_ == nullptr && current_file_path_.isEmpty()) {
+    return;
+  }
+
+  ++generation_;
+  bus_->setDocumentGeneration(generation_);
+  view_state_.set_document_generation(generation_);
+  source_.reset();
+  index_ = {};
+  stage_set_.reset();
+  query_.reset();
+  trace_.reset();
+  trace_handle_.reset();
+  trace_result_.reset();
+  pending_trace_coordinate_.reset();
+  trace_scanline_.reset();
+  trace_selected_output_offset_.reset();
+  trace_interval_.reset();
+  trace_request_generation_ = 0;
+  trace_deflate_data_begin_ = 0;
+  decode_worker_ = nullptr;
+  stage_worker_ = nullptr;
+  validation_worker_ = nullptr;
+  chunk_detail_worker_ = nullptr;
+  if (trace_state_ != nullptr) {
+    trace_state_->replaceDocument(generation_);
+  }
+  if (trace_binding_ != nullptr) {
+    trace_binding_->clear();
+    trace_binding_->setHasDocument(false);
+  }
+
+  inspector_->clear();
+  pixel_view_->clear();
+  filtered_view_->clear();
+  defiltered_view_->clear();
+  image_view_->setImage(QImage());
+  image_view_->clearHoverPixel();
+  image_view_->clearLockedPixel();
+  {
+    const QSignalBlocker lock_blocker(lock_check_);
+    lock_check_->setChecked(false);
+  }
+  view_state_.clear_hover();
+  view_state_.clear_locked();
+  resetDocument();
+  preview_tabs_->setCurrentIndex(0);
+  inspector_tabs_->setCurrentIndex(0);
+  default_pixel_status_ = QStringLiteral("No image");
+  pixel_label_->setText(default_pixel_status_);
+  validation_report_ = {};
+  validation_label_->setText(QStringLiteral("Validation: not loaded"));
+  validation_label_->setToolTip(QString());
+
+  const QString path_suffix = QStringLiteral(" — %1").arg(current_file_path_);
+  if (!current_file_path_.isEmpty() && windowTitle().endsWith(path_suffix)) {
+    setWindowTitle(windowTitle().left(windowTitle().size() - path_suffix.size()));
+  }
+  current_file_path_.clear();
+  if (close_action_ != nullptr) {
+    close_action_->setEnabled(false);
+  }
 }
 
 void MainWindow::onOpenTriggered() {

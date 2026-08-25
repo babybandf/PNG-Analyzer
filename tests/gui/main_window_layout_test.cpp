@@ -49,6 +49,7 @@ class MainWindowLayoutTest : public QObject {
   void dockSeparatorsShowThreeDotAffordance();
   void chunkDockStaysResizableAndRedockableAfterOpen();
   void openingFileResetsPrimaryViewsAndStoresLastTarget();
+  void closeImageClearsDocumentAndDisablesAction();
   void hexHighlightsSelectedChunkAfterStageCompletes();
   void recentFilesMenuPersistsAndCapsHistory();
   void viewMenuTogglesCoreViewsAndFileHasExit();
@@ -530,10 +531,12 @@ void MainWindowLayoutTest::recentFilesMenuPersistsAndCapsHistory() {
   auto* recent = window.findChild<QMenu*>(QStringLiteral("recentFilesMenu"));
   QVERIFY(recent != nullptr);
   const auto file_actions = file_menu->actions();
-  QVERIFY(file_actions.size() >= 3);
+  QVERIFY(file_actions.size() >= 4);
   QCOMPARE(file_actions.at(0)->text(), QStringLiteral("&Open..."));
-  QVERIFY(file_actions.at(1)->isSeparator());
-  QCOMPARE(file_actions.at(2)->menu(), recent);
+  QCOMPARE(file_actions.at(1)->objectName(),
+           QStringLiteral("closeImageAction"));
+  QVERIFY(file_actions.at(2)->isSeparator());
+  QCOMPARE(file_actions.at(3)->menu(), recent);
 
   for (const QString& path : paths) {
     QVERIFY(window.openFile(path));
@@ -588,6 +591,41 @@ void MainWindowLayoutTest::openingFileResetsPrimaryViewsAndStoresLastTarget() {
   QSettings settings;
   QCOMPARE(settings.value(QStringLiteral("file/lastOpenFile")).toString(),
            QFileInfo(path).absoluteFilePath());
+}
+
+void MainWindowLayoutTest::closeImageClearsDocumentAndDisablesAction() {
+  QTemporaryFile png;
+  QVERIFY(png.open());
+  const QByteArray bytes = QByteArray::fromBase64(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+  QCOMPARE(png.write(bytes), bytes.size());
+  png.flush();
+
+  MainWindow window;
+  auto* close_action = window.findChild<QAction*>(
+      QStringLiteral("closeImageAction"));
+  auto* image = window.findChild<pnga::ui::qt::DeliveredImageView*>();
+  auto* tree = window.findChild<QTreeView*>();
+  QVERIFY(close_action != nullptr);
+  QVERIFY(image != nullptr);
+  QVERIFY(tree != nullptr);
+  QVERIFY(!close_action->isEnabled());
+
+  QVERIFY(window.openFile(png.fileName()));
+  QVERIFY(close_action->isEnabled());
+  QVERIFY(window.windowTitle().contains(QFileInfo(png.fileName()).absoluteFilePath()));
+  QVERIFY(tree->model()->rowCount() > 0);
+
+  close_action->trigger();
+  QCoreApplication::processEvents();
+  QVERIFY(!close_action->isEnabled());
+  QVERIFY(image->image().isNull());
+  QCOMPARE(tree->model()->rowCount(), 0);
+  QVERIFY(!window.windowTitle().contains(
+      QFileInfo(png.fileName()).absoluteFilePath()));
+  auto* status = window.findChild<QLabel*>(QStringLiteral("pixelStatus"));
+  QVERIFY(status != nullptr);
+  QCOMPARE(status->text(), QStringLiteral("No image"));
 }
 
 void MainWindowLayoutTest::hexHighlightsSelectedChunkAfterStageCompletes() {
