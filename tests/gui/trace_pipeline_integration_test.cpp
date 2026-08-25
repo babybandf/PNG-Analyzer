@@ -23,6 +23,8 @@
 #include <QTableWidget>
 #include <QTemporaryFile>
 
+#include <algorithm>
+
 class TracePipelineIntegrationTest : public QObject {
   Q_OBJECT
  private slots:
@@ -85,7 +87,7 @@ void TracePipelineIntegrationTest::committedPixelPublishesReadyBundleToAllPages(
   QVERIFY(decode != nullptr);
   QVERIFY(lock->isChecked());
   QCOMPARE(block->view().selected_output_offset,
-           std::optional<std::uint64_t>{0});
+           std::optional<std::uint64_t>{1});
   QCOMPARE(block->view().generation, huffman->view().generation);
   QCOMPARE(huffman->view().generation, decode->view().generation);
   QVERIFY(block->view().generation != 0);
@@ -241,7 +243,11 @@ void TracePipelineIntegrationTest::decodeShowInHexNavigatesInflatedSource() {
       QStringLiteral("decodeTraceInspector"));
   QVERIFY(decode != nullptr);
   QVERIFY(!decode->view().steps.empty());
-  const std::uint64_t expected_begin = decode->view().steps.front().output_begin;
+  const auto selected_step = std::find_if(
+      decode->view().steps.begin(), decode->view().steps.end(),
+      [](const auto& step) { return step.selected_output_byte.has_value(); });
+  QVERIFY(selected_step != decode->view().steps.end());
+  const std::uint64_t expected_begin = selected_step->output_begin;
 
   auto* hex_source = window.findChild<pnga::ui::qt::HexSourceTabBar*>(
       QStringLiteral("hexSourceTabs"));

@@ -97,7 +97,9 @@ std::filesystem::path filesystemPath(const QString& path) {
 // Bounded Deep Trace budgets (WP-5U13). max_tokens is the primary row bound;
 // the output budget caps how much of the deflate stream a replay decodes.
 constexpr std::uint64_t kMaxTraceTokens = 4096;
-constexpr std::uint64_t kTraceOutputBudgetBytes = 1ull << 22;   // 4 MiB
+// Keep enough bounded replay budget for wide RGB rows near the end of a
+// moderately large image while retaining a hard upper bound.
+constexpr std::uint64_t kTraceOutputBudgetBytes = 1ull << 23;   // 8 MiB
 constexpr std::uint64_t kTraceIndexOutputBytes = 1ull << 26;    // 64 MiB
 
 QString previewPageId(int index) {
@@ -113,6 +115,73 @@ QString previewPageId(int index) {
     default:
       return QString();
   }
+}
+
+std::optional<std::uint64_t> filtered_output_offset_for_pixel(
+    const pnga::analysis_engine::ScanlineAnchorIndexResult& anchors,
+    const pnga::trace_model::ImageCoordinate& coordinate,
+    std::uint64_t stream_row) {
+  const auto channels = pnga::png_reconstruction::channels_for_color_type(
+      anchors.header.color_type);
+  if (channels == 0 || anchors.layout.pass_count == 0 ||
+      stream_row >= anchors.scanlines.size()) {
+    return std::nullopt;
+  }
+
+  std::uint64_t row_cursor = 0;
+  for (std::size_t pass_index = 0;
+       pass_index < anchors.layout.pass_count; ++pass_index) {
+    const auto& pass = anchors.layout.passes[pass_index];
+    if (pass.height == 0) {
+      continue;
+    }
+    std::uint64_t pass_end = 0;
+    if (pass.height > std::numeric_limits<std::uint64_t>::max() - row_cursor) {
+      return std::nullopt;
+    }
+    pass_end = row_cursor + pass.height;
+    if (stream_row < row_cursor || stream_row >= pass_end) {
+      row_cursor = pass_end;
+      continue;
+    }
+    if (coordinate.x < pass.x_start || coordinate.y < pass.y_start ||
+        pass.x_step == 0 || pass.y_step == 0 ||
+        (coordinate.x - pass.x_start) % pass.x_step != 0 ||
+        (coordinate.y - pass.y_start) % pass.y_step != 0) {
+      return std::nullopt;
+    }
+    const std::uint64_t local_x =
+        (coordinate.x - pass.x_start) / pass.x_step;
+    const std::uint64_t row_in_pass =
+        (coordinate.y - pass.y_start) / pass.y_step;
+    if (local_x >= pass.width || row_in_pass >= pass.height ||
+        row_cursor + row_in_pass != stream_row) {
+      return std::nullopt;
+    }
+
+    std::uint64_t sample_bits = 0;
+    if (local_x != 0 &&
+        static_cast<std::uint64_t>(channels) >
+            std::numeric_limits<std::uint64_t>::max() / local_x) {
+      return std::nullopt;
+    }
+    sample_bits = local_x * static_cast<std::uint64_t>(channels);
+    if (anchors.header.bit_depth != 0 &&
+        sample_bits > std::numeric_limits<std::uint64_t>::max() /
+                          anchors.header.bit_depth) {
+      return std::nullopt;
+    }
+    sample_bits *= anchors.header.bit_depth;
+    const std::uint64_t sample_byte = sample_bits / 8;
+    const auto& scanline = anchors.scanlines[stream_row];
+    if (scanline.offset > std::numeric_limits<std::uint64_t>::max() - 1 ||
+        scanline.offset + 1 >
+            std::numeric_limits<std::uint64_t>::max() - sample_byte) {
+      return std::nullopt;
+    }
+    return scanline.offset + 1 + sample_byte;
+  }
+  return std::nullopt;
 }
 
 std::optional<std::pair<std::uint64_t, std::uint64_t>> byte_range_for_bits(
@@ -1317,12 +1386,14 @@ bool MainWindow::openFile(const QString& path) {
   bus_->setDocumentGeneration(generation_);
   view_state_.set_document_generation(generation_);
   trace_.reset();
+  trace_result_.reset();
   if (trace_state_ != nullptr) {
     trace_state_->replaceDocument(generation_);
   }
   trace_handle_.reset();
   pending_trace_coordinate_.reset();
   trace_scanline_.reset();
+  trace_selected_output_offset_.reset();
   trace_interval_.reset();
   trace_request_generation_ = 0;
   trace_deflate_data_begin_ = 0;
@@ -1642,8 +1713,12 @@ void MainWindow::onTraceResult(
     return;  // stale result; never publish for an older document
   }
   trace_deflate_data_begin_ = result.deflate_data_begin;
+  trace_result_ = std::make_shared<const pnga::analysis_engine::TraceQueryResult>(
+      result);
+  const std::uint64_t selected_output_offset =
+      trace_selected_output_offset_.value_or(result.inflated_begin);
   const bool accepted = trace_state_->publish(
-      result, std::nullopt, result.inflated_begin, trace_scanline_);
+      result, std::nullopt, selected_output_offset, trace_scanline_);
   if (accepted) {
     trace_binding_->publishState(trace_state_->state());
   }
@@ -1674,12 +1749,29 @@ void MainWindow::requestTraceFor(
     return;
   }
   const std::uint64_t begin = scanlines[*row].offset;
-  const std::uint64_t end = begin + scanlines[*row].length;
-  if (end <= begin) {
+  if (scanlines[*row].length >
+      std::numeric_limits<std::uint64_t>::max() - begin) {
+    trace_selected_output_offset_.reset();
     return;
   }
+  const std::uint64_t end = begin + scanlines[*row].length;
+  if (end <= begin) {
+    trace_selected_output_offset_.reset();
+    return;
+  }
+  trace_selected_output_offset_ = filtered_output_offset_for_pixel(
+      query_->anchors(), coordinate, *row);
   if (trace_interval_.has_value() && trace_request_generation_ == generation_ &&
       trace_interval_->first == begin && trace_interval_->second == end) {
+    if (trace_result_ != nullptr) {
+      const bool accepted = trace_state_->publish(
+          *trace_result_, std::nullopt,
+          trace_selected_output_offset_.value_or(trace_result_->inflated_begin),
+          trace_scanline_);
+      if (accepted) {
+        trace_binding_->publishState(trace_state_->state());
+      }
+    }
     return;  // identical committed interval already requested (dedup)
   }
   pending_trace_coordinate_.reset();

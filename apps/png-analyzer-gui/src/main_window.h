@@ -285,8 +285,12 @@ class MainWindow final : public QMainWindow {
   std::unique_ptr<pnga::analysis_engine::TraceOrchestrator> trace_;
   std::unique_ptr<pnga::analysis_engine::TraceInspectorStateMachine> trace_state_;
   std::unique_ptr<pnga::analysis_engine::TraceTaskHandle> trace_handle_;
+  std::shared_ptr<const pnga::analysis_engine::TraceQueryResult> trace_result_;
   std::optional<pnga::trace_model::ImageCoordinate> pending_trace_coordinate_;
   std::optional<std::uint64_t> trace_scanline_;
+  // Absolute inflated byte corresponding to the selected pixel's sample
+  // (the scanline filter byte is intentionally excluded).
+  std::optional<std::uint64_t> trace_selected_output_offset_;
   std::optional<std::pair<std::uint64_t, std::uint64_t>> trace_interval_;
   std::uint64_t trace_request_generation_ = 0;
   std::uint64_t trace_deflate_data_begin_ = 0;

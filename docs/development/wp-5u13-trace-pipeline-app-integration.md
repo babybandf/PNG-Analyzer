@@ -260,7 +260,7 @@ Wired in `apps/png-analyzer-gui/src/main_window.*` and verified by
 - Committed pixel/X-Y maps through `stream_row_for_pixel` + the anchor
   `scanlines` spans to a half-open inflated-output interval; identical
   intervals are deduplicated and an in-flight task is cancelled before a new
-  submit (`kMaxTraceTokens = 4096`, `kTraceOutputBudgetBytes = 4 MiB`).
+  submit (`kMaxTraceTokens = 4096`, `kTraceOutputBudgetBytes = 8 MiB`).
 - `TraceInspectorStateMachine` + `TraceInspectorBinding` publish one
   generation-coherent bundle to all three pages; stale generations never
   publish.
