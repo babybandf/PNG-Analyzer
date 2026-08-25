@@ -399,35 +399,29 @@ void StageInspector::refreshReport() {
       const auto offset = reconstruction.selected_byte + channel;
       if (offset >= formula.events.size()) break;
       const auto& event = formula.events[offset];
-      QString predictor_formula;
       QString predictor_values;
       switch (filter) {
         case pnga::png_reconstruction::FilterType::kNone:
-          predictor_formula = QStringLiteral("0");
           predictor_values = QStringLiteral("0 = %1")
                                  .arg(value8(event.predictor, hexadecimal_));
           break;
         case pnga::png_reconstruction::FilterType::kSub:
-          predictor_formula = QStringLiteral("a");
-          predictor_values = QStringLiteral("%1 = %2")
+          predictor_values = QStringLiteral("a=%1 = %2")
                                  .arg(value8(event.a, hexadecimal_),
                                       value8(event.predictor, hexadecimal_));
           break;
         case pnga::png_reconstruction::FilterType::kUp:
-          predictor_formula = QStringLiteral("b");
-          predictor_values = QStringLiteral("%1 = %2")
+          predictor_values = QStringLiteral("b=%1 = %2")
                                  .arg(value8(event.b, hexadecimal_),
                                       value8(event.predictor, hexadecimal_));
           break;
         case pnga::png_reconstruction::FilterType::kAverage:
-          predictor_formula = QStringLiteral("floor((a + b) / 2)");
           predictor_values = QStringLiteral("floor((%1 + %2) / 2) = %3")
                                  .arg(value8(event.a, hexadecimal_),
                                       value8(event.b, hexadecimal_),
                                       value8(event.predictor, hexadecimal_));
           break;
         case pnga::png_reconstruction::FilterType::kPaeth:
-          predictor_formula = QStringLiteral("Paeth(a, b, c)");
           predictor_values = QStringLiteral("Paeth(%1, %2, %3) = %4")
                                  .arg(value8(event.a, hexadecimal_),
                                       value8(event.b, hexadecimal_),
@@ -439,19 +433,10 @@ void StageInspector::refreshReport() {
                   .arg(esc(channel_name(channel)),
                        number(channel, hexadecimal_));
       html += QStringLiteral(
-          "<p><b>Neighbor pixels</b>: a (left)=%1, b (up)=%2, "
-          "c (upleft)=%3</p>")
-                  .arg(value8(event.a, hexadecimal_),
-                       value8(event.b, hexadecimal_),
-                       value8(event.c, hexadecimal_));
-      html += QStringLiteral(
-          "<p><b>Predictor formula</b>: %1<br>"
-          "<b>Substituted values</b>: %2</p>")
-                  .arg(esc(predictor_formula), predictor_values);
-      html += QStringLiteral(
-          "<p><b>Filter calculation</b>: recon = (X + predictor) mod 256<br>"
-          "<b>Substituted values</b>: (%1 + %2) mod 256 = %3</p>")
-                  .arg(value8(event.raw, hexadecimal_),
+          "<table cellspacing=\"20\"><tr><th>Step</th><th>Calculation</th></tr>"
+          "<tr><td><b>Predictor:</b></td><td>%1</td></tr>"
+          "<tr><td><b>Recon:</b></td><td>(%2 + %3) mod 256 = <b>%4</b></td></tr></table>")
+                  .arg(predictor_values, value8(event.raw, hexadecimal_),
                        value8(event.predictor, hexadecimal_),
                        value8(event.recon, hexadecimal_));
     }
