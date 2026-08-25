@@ -113,6 +113,7 @@ void BlockInspectorTest::rendersViewAndExposesNavigationSignals() {
 void BlockInspectorTest::scrollsAssociatedBlockIntoView() {
   pnga::ui::qt::BlockInspector widget;
   widget.resize(420, 260);
+  widget.show();
 
   pnga::analysis_engine::BlockInspectorView view;
   view.status = pnga::analysis_engine::BlockInspectorStatus::kReady;
@@ -130,7 +131,6 @@ void BlockInspectorTest::scrollsAssociatedBlockIntoView() {
     view.rows.push_back(std::move(row));
   }
   widget.setView(view);
-  widget.show();
   QTest::qWait(100);
 
   const auto* table = widget.findChild<QTableWidget*>(
