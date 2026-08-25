@@ -1312,6 +1312,14 @@ void MainWindow::onStageDone(std::uint64_t generation) {
   filtered_view_->setStageSet(stage);
   defiltered_view_->setStageSet(stage);
   updateHexSource();
+  // updateHexSource() clears the hex highlight; restore the selected chunk's
+  // physical highlight (e.g. the default IHDR) so the hex view keeps showing
+  // it after the stage worker refreshes the source.
+  const QModelIndex current_chunk = tree_->selectionModel()->currentIndex();
+  if (current_chunk.isValid() &&
+      view_state_.hex_source == pnga::ui::qt::HexSource::kFile) {
+    applyChunkHexHighlight(model_->chunkAt(current_chunk.row()));
+  }
   stage_worker_ = nullptr;
   openQueryCoordinator(header);
   openTraceCoordinator();
@@ -1566,16 +1574,7 @@ void MainWindow::onChunkSelectionChanged(const QModelIndex& current,
     detail_worker->start();
   }
 
-  std::vector<pnga::ui::qt::HexHighlightSpan> spans;
-  spans.push_back({node.header_offset, kHeaderSpanLength,
-                   QColor(0x9E, 0x9E, 0x9E)});  // header: gray
-  spans.push_back({node.data_offset, node.data_length,
-                   QColor(0x42, 0xA5, 0xF5)});  // data: blue
-  spans.push_back({node.crc_offset, kCrcSpanLength,
-                   QColor(0x66, 0xBB, 0x6A)});  // CRC: green
-  hex_->setHighlight(std::move(spans));
-
-  hex_->navigateTo(node.header_offset);
+  applyChunkHexHighlight(node);
 
   // Publish the canonical selection through the bus (single controller).
   pnga::trace_model::Selection sel;
@@ -1586,6 +1585,22 @@ void MainWindow::onChunkSelectionChanged(const QModelIndex& current,
       pnga::trace_model::BitSpan{node.crc_offset, kCrcSpanLength}};
   sel.stage = pnga::trace_model::Stage::kChunk;
   bus_->publishMerged(kChunkPanelOrigin, generation_, sel);
+}
+
+void MainWindow::applyChunkHexHighlight(
+    const pnga::png_format::ChunkNode& node) {
+  if (hex_ == nullptr) {
+    return;
+  }
+  std::vector<pnga::ui::qt::HexHighlightSpan> spans;
+  spans.push_back({node.header_offset, kHeaderSpanLength,
+                   QColor(0x9E, 0x9E, 0x9E)});  // header: gray
+  spans.push_back({node.data_offset, node.data_length,
+                   QColor(0x42, 0xA5, 0xF5)});  // data: blue
+  spans.push_back({node.crc_offset, kCrcSpanLength,
+                   QColor(0x66, 0xBB, 0x6A)});  // CRC: green
+  hex_->setHighlight(std::move(spans));
+  hex_->navigateTo(node.header_offset);
 }
 
 void MainWindow::onChunkDetailDone(std::uint64_t generation,

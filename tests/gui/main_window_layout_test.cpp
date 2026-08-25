@@ -5,6 +5,7 @@
 
 #include <pnga/ui/qt/delivered_image_view.h>
 #include <pnga/ui/qt/hex_source_tab_bar.h>
+#include <pnga/ui/qt/hex_view.h>
 #include <pnga/ui/qt/selection_bus.h>
 
 #include <QtTest/QtTest>
@@ -48,6 +49,7 @@ class MainWindowLayoutTest : public QObject {
   void dockSeparatorsShowThreeDotAffordance();
   void chunkDockStaysResizableAndRedockableAfterOpen();
   void openingFileResetsPrimaryViewsAndStoresLastTarget();
+  void hexHighlightsSelectedChunkAfterStageCompletes();
   void recentFilesMenuPersistsAndCapsHistory();
 };
 
@@ -585,6 +587,46 @@ void MainWindowLayoutTest::openingFileResetsPrimaryViewsAndStoresLastTarget() {
   QSettings settings;
   QCOMPARE(settings.value(QStringLiteral("file/lastOpenFile")).toString(),
            QFileInfo(path).absoluteFilePath());
+}
+
+void MainWindowLayoutTest::hexHighlightsSelectedChunkAfterStageCompletes() {
+  MainWindow window;
+  window.resize(1200, 760);
+  window.show();
+  QCoreApplication::processEvents();
+
+  QTemporaryFile png;
+  QVERIFY(png.open());
+  const QByteArray bytes = QByteArray::fromBase64(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+  QCOMPARE(png.write(bytes), bytes.size());
+  png.flush();
+  QVERIFY(window.openFile(png.fileName()));
+  QCoreApplication::processEvents();
+
+  auto* hex =
+      window.findChild<pnga::ui::qt::HexView*>(QStringLiteral("hexView"));
+  QVERIFY(hex != nullptr);
+  // The default IHDR chunk is selected and highlighted synchronously on open.
+  QCOMPARE(hex->highlightCount(), std::size_t{3});
+  QVERIFY(hex->currentLocation().has_value());
+  QCOMPARE(*hex->currentLocation(), std::uint64_t{8});  // IHDR header offset
+
+  // Wait until the async stage/query workers have completed. The Compression
+  // trace context leaves its initial state only after onStageDone opens the
+  // trace pipeline, so this guarantees onStageDone's hex-source refresh (which
+  // previously cleared the highlight) has run.
+  auto* context = window.findChild<QLabel*>(
+      QStringLiteral("compressionContextStatus"));
+  QVERIFY(context != nullptr);
+  QTRY_VERIFY_WITH_TIMEOUT(
+      !context->text().contains(QStringLiteral("Select and lock a pixel")) &&
+          !context->text().contains(QStringLiteral("not indexed")) &&
+          !context->text().contains(QStringLiteral("Open a PNG")),
+      5000);
+  QCOMPARE(hex->highlightCount(), std::size_t{3});
+  QVERIFY(hex->currentLocation().has_value());
+  QCOMPARE(*hex->currentLocation(), std::uint64_t{8});
 }
 
 QTEST_MAIN(MainWindowLayoutTest)

@@ -220,6 +220,7 @@ class MainWindow final : public QMainWindow {
   void openTraceCoordinator();
   void requestTraceFor(const pnga::trace_model::ImageCoordinate& coordinate);
   void setHexSource(pnga::ui::qt::HexSource source);
+  void applyChunkHexHighlight(const pnga::png_format::ChunkNode& node);
   void restoreWorkspace();
   void saveWorkspace() const;
   void applyDefaultWorkspace();
