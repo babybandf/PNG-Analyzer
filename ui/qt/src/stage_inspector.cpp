@@ -223,6 +223,15 @@ void StageInspector::refreshReport() {
   const auto filter = formula.filter;
   const auto selected = formula.events[reconstruction.selected_byte];
   const auto channels = effective_channels;
+  const auto channel_name = [&](std::uint8_t channel) {
+    if (stages.header.color_type == 0) return QStringLiteral("Gray");
+    if (stages.header.color_type == 3) return QStringLiteral("Index");
+    if (stages.header.color_type == 4)
+      return channel == 0 ? QStringLiteral("Gray") : QStringLiteral("Alpha");
+    const QStringList names{QStringLiteral("R"), QStringLiteral("G"),
+                            QStringLiteral("B"), QStringLiteral("A")};
+    return names.at(channel);
+  };
   html += section(QStringLiteral("Filtered data"));
   const QString filter_label = QStringLiteral("%1 (%2)")
                                    .arg(QLatin1String(
@@ -233,10 +242,43 @@ void StageInspector::refreshReport() {
       QStringLiteral("<span style=\"background-color:#FFF4CC;color:#4A3B00;"
                      "padding:2px 5px;font-weight:bold;\">%1</span>")
           .arg(esc(filter_label));
-  html += QStringLiteral("<p>filter: %1, selected source byte: %2<br>raw filtered X: %3</p>")
+  const auto filtered_x_for_channel = [&](std::uint8_t channel) {
+    const std::uint64_t bytes_per_sample =
+        stages.header.bit_depth >= 8 ? stages.header.bit_depth / 8 : 1;
+    if (bytes_per_sample == 0 ||
+        channel > std::numeric_limits<std::uint64_t>::max() /
+                       bytes_per_sample) {
+      return QStringLiteral("—");
+    }
+    const auto channel_offset =
+        static_cast<std::uint64_t>(channel) * bytes_per_sample;
+    if (reconstruction.selected_byte >
+        std::numeric_limits<std::uint64_t>::max() - channel_offset) {
+      return QStringLiteral("—");
+    }
+    const auto begin = reconstruction.selected_byte + channel_offset;
+    if (begin >= formula.events.size() ||
+        bytes_per_sample > formula.events.size() - begin) {
+      return QStringLiteral("—");
+    }
+    QStringList values;
+    for (std::uint64_t byte = 0; byte < bytes_per_sample; ++byte) {
+      values.push_back(value8(
+          formula.events[begin + byte].raw, hexadecimal_));
+    }
+    return values.join(QStringLiteral(" "));
+  };
+  QStringList filtered_x_values;
+  for (std::uint8_t channel = 0; channel < channels; ++channel) {
+    filtered_x_values.push_back(
+        QStringLiteral("%1=%2")
+            .arg(channel_name(channel), filtered_x_for_channel(channel)));
+  }
+  html += QStringLiteral(
+      "<p>filter: %1, selected source byte: %2<br>raw filtered X: %3</p>")
       .arg(filter_chip)
       .arg(number(reconstruction.selected_byte, hexadecimal_))
-      .arg(value8(selected.raw, hexadecimal_));
+      .arg(filtered_x_values.join(QStringLiteral(", ")));
 
   // For byte-addressable non-interlaced images map a/b/c back to logical
   // pixels. Packed, indexed, 16-bit and Adam7 data stays source-byte-only.
@@ -296,15 +338,6 @@ void StageInspector::refreshReport() {
   }
 
   html += section(QStringLiteral("Pixel neighborhood"));
-  const auto channel_name = [&](std::uint8_t channel) {
-    if (stages.header.color_type == 0) return QStringLiteral("Gray");
-    if (stages.header.color_type == 3) return QStringLiteral("Index");
-    if (stages.header.color_type == 4)
-      return channel == 0 ? QStringLiteral("Gray") : QStringLiteral("Alpha");
-    const QStringList names{QStringLiteral("R"), QStringLiteral("G"),
-                            QStringLiteral("B"), QStringLiteral("A")};
-    return names.at(channel);
-  };
   for (std::uint8_t channel = 0; channel < channels; ++channel) {
     html += QStringLiteral("<h4>%1</h4><table cellspacing=\"2\"><tr><th></th>")
         .arg(channel_name(channel));
@@ -344,6 +377,9 @@ void StageInspector::refreshReport() {
               }
             }
           }
+        }
+        if (current) {
+          sample = filtered_x_for_channel(channel);
         }
         const auto found = dependencies.find(SourceKey{sx, sy});
         const QString role = found == dependencies.end() ? QString() : role_text(found->second);
@@ -424,7 +460,7 @@ void StageInspector::refreshReport() {
                        number(channel, hexadecimal_));
       html += QStringLiteral(
           "<p><b>Neighbor pixels</b>: a (left)=%1, b (up)=%2, "
-          "c (up-left)=%3</p>")
+          "c (upleft)=%3</p>")
                   .arg(value8(event.a, hexadecimal_),
                        value8(event.b, hexadecimal_),
                        value8(event.c, hexadecimal_));

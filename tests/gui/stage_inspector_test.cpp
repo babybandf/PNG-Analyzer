@@ -169,6 +169,10 @@ void StageInspectorModelTest::reconstructReportUsesViewModel() {
   QVERIFY(text.contains(QStringLiteral("Target pixel")));
   QVERIFY(text.contains(QStringLiteral("Scanline location")));
   QVERIFY(text.contains(QStringLiteral("Filtered data")));
+  QVERIFY(text.contains(QStringLiteral("raw filtered X: R=")));
+  QVERIFY(text.contains(QStringLiteral(", G=")));
+  QVERIFY(text.contains(QStringLiteral(", B=")));
+  QVERIFY(text.contains(QStringLiteral(", A=")));
   QVERIFY(text.contains(QStringLiteral("Pixel neighborhood")));
   QVERIFY(!text.contains(QStringLiteral("y-1")));
   QVERIFY(!text.contains(QStringLiteral("y (current)")));
@@ -179,6 +183,8 @@ void StageInspectorModelTest::reconstructReportUsesViewModel() {
   QVERIFY(text.contains(QStringLiteral("Substituted values")));
   QVERIFY(text.contains(QStringLiteral("Filter calculation")));
   QVERIFY(text.contains(QStringLiteral("mod 256")));
+  QVERIFY(text.contains(QStringLiteral("upleft")));
+  QVERIFY(!text.contains(QStringLiteral("up-left")));
   QVERIFY(report->toHtml().contains(QStringLiteral("FFF4CC"),
                                     Qt::CaseInsensitive));
   QVERIFY(text.contains(QStringLiteral("Final RGBA")));
