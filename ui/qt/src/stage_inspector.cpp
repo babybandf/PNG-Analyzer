@@ -221,7 +221,6 @@ void StageInspector::refreshReport() {
     return;
   }
   const auto filter = formula.filter;
-  const auto selected = formula.events[reconstruction.selected_byte];
   const auto channels = effective_channels;
   const auto channel_name = [&](std::uint8_t channel) {
     if (stages.header.color_type == 0) return QStringLiteral("Gray");
@@ -268,17 +267,9 @@ void StageInspector::refreshReport() {
     }
     return values.join(QStringLiteral(" "));
   };
-  QStringList filtered_x_values;
-  for (std::uint8_t channel = 0; channel < channels; ++channel) {
-    filtered_x_values.push_back(
-        QStringLiteral("%1=%2")
-            .arg(channel_name(channel), filtered_x_for_channel(channel)));
-  }
-  html += QStringLiteral(
-      "<p>filter: %1, selected source byte: %2<br>raw filtered X: %3</p>")
+  html += QStringLiteral("<p>filter: %1, selected source byte: %2</p>")
       .arg(filter_chip)
-      .arg(number(reconstruction.selected_byte, hexadecimal_))
-      .arg(filtered_x_values.join(QStringLiteral(", ")));
+      .arg(number(reconstruction.selected_byte, hexadecimal_));
 
   // For byte-addressable non-interlaced images map a/b/c back to logical
   // pixels. Packed, indexed, 16-bit and Adam7 data stays source-byte-only.
@@ -398,17 +389,6 @@ void StageInspector::refreshReport() {
     }
     html += QStringLiteral("</table>");
   }
-  html += QStringLiteral("<p>Legend: current; a/b/c = filter dependencies.");
-  if (!logical_highlight) {
-    html += QStringLiteral("<br>Source-byte dependence is shown; logical-pixel highlighting is unavailable for packed, indexed, 16-bit, or Adam7 data.");
-  }
-  html += QStringLiteral("</p>");
-
-  html += section(QStringLiteral("Filter / predictor / bounds"));
-  html += QStringLiteral("<p>filter: %1; a=%2, b=%3, c=%4; boundary neighbors are zero.<br>scanline materialization: %5</p>")
-      .arg(QLatin1String(pnga::png_reconstruction::filter_type_text(filter)),
-           value8(selected.a, hexadecimal_), value8(selected.b, hexadecimal_),
-           value8(selected.c, hexadecimal_), esc(query_status_));
   html += section(QStringLiteral("Per-channel reconstruction"));
   if (stages.header.bit_depth == 8 && stages.header.color_type != 3) {
     for (std::uint8_t channel = 0; channel < channels; ++channel) {
