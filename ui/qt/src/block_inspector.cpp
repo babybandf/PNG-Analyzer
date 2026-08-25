@@ -10,12 +10,9 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
-#include <QScrollBar>
 #include <QTableWidget>
 #include <QTableWidgetItem>
-#include <QTimer>
 
-#include <algorithm>
 #include <limits>
 #include <utility>
 
@@ -181,7 +178,6 @@ void BlockInspector::renderView() {
   QTableWidget* table = masterTable();
   table->setRowCount(0);
   std::size_t rendered = 0;
-  int associated_table_row = -1;
   for (const auto& row : view_.rows) {
     if (rendered++ >= static_cast<std::size_t>(kMaxVisibleRows)) {
       break;
@@ -211,7 +207,6 @@ void BlockInspector::renderView() {
                                  .arg(static_cast<qulonglong>(row.output_end))));
     if (row.current_output_position.has_value()) {
       markAssociatedRow(table, table_row);
-      associated_table_row = table_row;
     }
   }
   if (view_.rows.size() > static_cast<std::size_t>(kMaxVisibleRows)) {
@@ -223,27 +218,6 @@ void BlockInspector::renderView() {
                                                     .arg(static_cast<qulonglong>(
                                                         view_.rows.size() -
                                                         kMaxVisibleRows))));
-  }
-  if (associated_table_row >= 0 &&
-      associated_table_row < table->rowCount()) {
-    // Keep the block associated with the committed pixel in view even when
-    // the fast index contains many blocks. Do not select the row: selection
-    // remains a user action, while the pale associated-row highlight is the
-    // non-invasive current-pixel marker.
-    QTimer::singleShot(0, table, [table, associated_table_row] {
-      if (associated_table_row < table->rowCount()) {
-        table->scrollToItem(table->item(associated_table_row, 0),
-                            QAbstractItemView::PositionAtCenter);
-        const int row_height = table->rowHeight(associated_table_row);
-        if (row_height > 0) {
-          const int visible_rows = std::max(
-              1, table->viewport()->height() / row_height);
-          const int centered = associated_table_row - visible_rows / 2;
-          table->verticalScrollBar()->setValue(std::clamp(
-              centered, 0, table->verticalScrollBar()->maximum()));
-        }
-      }
-    });
   }
   updateButtons();
   updateDetails();

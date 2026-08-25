@@ -8,13 +8,10 @@
 #include <QPushButton>
 #include <QTableWidget>
 
-#include <utility>
-
 class BlockInspectorTest : public QObject {
   Q_OBJECT
  private slots:
   void rendersViewAndExposesNavigationSignals();
-  void scrollsAssociatedBlockIntoView();
 };
 
 void BlockInspectorTest::rendersViewAndExposesNavigationSignals() {
@@ -108,36 +105,6 @@ void BlockInspectorTest::rendersViewAndExposesNavigationSignals() {
   }
   QCOMPARE(deflate_spy.count(), 1);
   QCOMPARE(deflate_spy.takeFirst().at(0).toULongLong(), qulonglong{16});
-}
-
-void BlockInspectorTest::scrollsAssociatedBlockIntoView() {
-  pnga::ui::qt::BlockInspector widget;
-  widget.resize(420, 260);
-  widget.show();
-
-  pnga::analysis_engine::BlockInspectorView view;
-  view.status = pnga::analysis_engine::BlockInspectorStatus::kReady;
-  for (std::uint64_t index = 0; index < 64; ++index) {
-    pnga::analysis_engine::BlockInspectorRow row;
-    row.block_index = index;
-    row.type = pnga::deflate_index::BlockType::kFixed;
-    row.input_bit_begin = index * 8;
-    row.input_bit_end = row.input_bit_begin + 8;
-    row.output_begin = index * 16;
-    row.output_end = row.output_begin + 16;
-    if (index == 48) {
-      row.current_output_position = row.output_begin + 2;
-    }
-    view.rows.push_back(std::move(row));
-  }
-  widget.setView(view);
-  QTest::qWait(100);
-
-  const auto* table = widget.findChild<QTableWidget*>(
-      QStringLiteral("blockInspectorTable"));
-  QVERIFY(table != nullptr);
-  const auto rect = table->visualItemRect(table->item(48, 0));
-  QVERIFY(rect.intersects(table->viewport()->rect()));
 }
 
 QTEST_MAIN(BlockInspectorTest)
