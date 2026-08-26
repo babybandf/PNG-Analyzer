@@ -31,6 +31,9 @@
 #include <QCheckBox>
 #include <QCloseEvent>
 #include <QDir>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
 #include <QFileInfo>
 #include <QFrame>
 #include <QMetaObject>
@@ -47,6 +50,7 @@
 #include <QLabel>
 #include <QMenu>
 #include <QMenuBar>
+#include <QMimeData>
 #include <QMessageBox>
 #include <QPainter>
 #include <QPushButton>
@@ -62,6 +66,7 @@
 #include <QTreeView>
 #include <QVBoxLayout>
 #include <QVector>
+#include <QUrl>
 #include <QWidget>
 #include <QSettings>
 
@@ -93,6 +98,24 @@ std::filesystem::path filesystemPath(const QString& path) {
 #else
   return std::filesystem::path(path.toStdString());
 #endif
+}
+
+bool hasLocalPngUrl(const QMimeData* mime_data) {
+  if (mime_data == nullptr || !mime_data->hasUrls()) {
+    return false;
+  }
+  for (const QUrl& url : mime_data->urls()) {
+    if (!url.isLocalFile()) {
+      continue;
+    }
+    const QFileInfo file_info(url.toLocalFile());
+    if (file_info.isFile() &&
+        file_info.suffix().compare(QStringLiteral("png"),
+                                   Qt::CaseInsensitive) == 0) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // Bounded Deep Trace budgets (WP-5U13). max_tokens is the primary row bound;
@@ -325,6 +348,7 @@ MainWindow::MainWindow(QWidget* parent,
                        pnga::ui::qt::ApplicationTheme* theme)
     : QMainWindow(parent), theme_(theme) {
   setWindowTitle(QStringLiteral("PNG Analyzer"));
+  setAcceptDrops(true);
   // Standalone layout tests construct MainWindow without the application
   // controller. Keep their separator contract while the product build uses
   // the centralized stylesheet installed by ApplicationTheme.
@@ -1281,6 +1305,52 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
 void MainWindow::closeEvent(QCloseEvent* event) {
   saveWorkspace();
   QMainWindow::closeEvent(event);
+}
+
+void MainWindow::dragEnterEvent(QDragEnterEvent* event) {
+  if (hasLocalPngUrl(event->mimeData())) {
+    event->acceptProposedAction();
+    return;
+  }
+  event->ignore();
+}
+
+void MainWindow::dragMoveEvent(QDragMoveEvent* event) {
+  if (hasLocalPngUrl(event->mimeData())) {
+    event->acceptProposedAction();
+    return;
+  }
+  event->ignore();
+}
+
+void MainWindow::dropEvent(QDropEvent* event) {
+  const QMimeData* mime_data = event->mimeData();
+  if (!hasLocalPngUrl(mime_data)) {
+    event->ignore();
+    return;
+  }
+
+  for (const QUrl& url : mime_data->urls()) {
+    if (!url.isLocalFile()) {
+      continue;
+    }
+    const QFileInfo file_info(url.toLocalFile());
+    if (!file_info.isFile() ||
+        file_info.suffix().compare(QStringLiteral("png"),
+                                   Qt::CaseInsensitive) != 0) {
+      continue;
+    }
+    if (openFile(file_info.absoluteFilePath())) {
+      event->acceptProposedAction();
+      return;
+    }
+    QMessageBox::warning(this, QStringLiteral("PNG Analyzer"),
+                         QStringLiteral("Could not open file:\n%1")
+                             .arg(file_info.absoluteFilePath()));
+    event->ignore();
+    return;
+  }
+  event->ignore();
 }
 
 void MainWindow::openQueryCoordinator(

@@ -14,6 +14,8 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDockWidget>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QFile>
 #include <QFileInfo>
 #include <QHeaderView>
@@ -21,6 +23,7 @@
 #include <QLabel>
 #include <QMenu>
 #include <QMenuBar>
+#include <QMimeData>
 #include <QPushButton>
 #include <QSettings>
 #include <QScrollArea>
@@ -32,6 +35,7 @@
 #include <QTemporaryFile>
 #include <QTemporaryDir>
 #include <QTreeView>
+#include <QUrl>
 
 class MainWindowLayoutTest : public QObject {
   Q_OBJECT
@@ -50,6 +54,7 @@ class MainWindowLayoutTest : public QObject {
   void chunkDockStaysResizableAndRedockableAfterOpen();
   void openingFileResetsPrimaryViewsAndStoresLastTarget();
   void closeImageClearsDocumentAndDisablesAction();
+  void dragAndDropOpensLocalPng();
   void hexHighlightsSelectedChunkAfterStageCompletes();
   void recentFilesMenuPersistsAndCapsHistory();
   void viewMenuTogglesCoreViewsAndFileHasExit();
@@ -626,6 +631,50 @@ void MainWindowLayoutTest::closeImageClearsDocumentAndDisablesAction() {
   auto* status = window.findChild<QLabel*>(QStringLiteral("pixelStatus"));
   QVERIFY(status != nullptr);
   QCOMPARE(status->text(), QStringLiteral("No image"));
+}
+
+void MainWindowLayoutTest::dragAndDropOpensLocalPng() {
+  QTemporaryDir directory;
+  QVERIFY(directory.isValid());
+  const QString png_path =
+      directory.filePath(QStringLiteral("拖放文件.PNG"));
+  QFile png(png_path);
+  QVERIFY(png.open(QIODevice::WriteOnly));
+  const QByteArray bytes = QByteArray::fromBase64(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+  QCOMPARE(png.write(bytes), bytes.size());
+  png.close();
+
+  MainWindow window;
+  window.show();
+  QCoreApplication::processEvents();
+
+  QMimeData png_mime_data;
+  png_mime_data.setUrls({QUrl::fromLocalFile(png_path)});
+  QDragEnterEvent png_enter_event(QPoint(12, 12), Qt::CopyAction,
+                                  &png_mime_data, Qt::LeftButton,
+                                  Qt::NoModifier);
+  QCoreApplication::sendEvent(&window, &png_enter_event);
+  QVERIFY(png_enter_event.isAccepted());
+
+  QDropEvent png_drop_event(QPointF(12, 12), Qt::CopyAction,
+                            &png_mime_data, Qt::LeftButton, Qt::NoModifier);
+  QCoreApplication::sendEvent(&window, &png_drop_event);
+  QVERIFY(png_drop_event.isAccepted());
+  QVERIFY(window.windowTitle().contains(QFileInfo(png_path).absoluteFilePath()));
+
+  const QString text_path = directory.filePath(QStringLiteral("other.txt"));
+  QFile text_file(text_path);
+  QVERIFY(text_file.open(QIODevice::WriteOnly));
+  QVERIFY(text_file.write("not a PNG") > 0);
+  text_file.close();
+  QMimeData text_mime_data;
+  text_mime_data.setUrls({QUrl::fromLocalFile(text_path)});
+  QDragEnterEvent text_enter_event(QPoint(12, 12), Qt::CopyAction,
+                                   &text_mime_data, Qt::LeftButton,
+                                   Qt::NoModifier);
+  QCoreApplication::sendEvent(&window, &text_enter_event);
+  QVERIFY(!text_enter_event.isAccepted());
 }
 
 void MainWindowLayoutTest::hexHighlightsSelectedChunkAfterStageCompletes() {

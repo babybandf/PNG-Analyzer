@@ -31,6 +31,8 @@ class QAction;
 class QCheckBox;
 class QCloseEvent;
 class QDockWidget;
+class QDragEnterEvent;
+class QDragMoveEvent;
 class QEvent;
 class QMenu;
 class QModelIndex;
@@ -41,6 +43,7 @@ class QSplitter;
 class QTabWidget;
 class QTreeView;
 class QWidget;
+class QDropEvent;
 
 namespace pnga::analysis_engine {
 class TraceOrchestrator;
@@ -244,6 +247,9 @@ class MainWindow final : public QMainWindow {
  protected:
   void paintEvent(QPaintEvent* event) override;
   void closeEvent(QCloseEvent* event) override;
+  void dragEnterEvent(QDragEnterEvent* event) override;
+  void dragMoveEvent(QDragMoveEvent* event) override;
+  void dropEvent(QDropEvent* event) override;
   bool eventFilter(QObject* watched, QEvent* event) override;
 
  private:
