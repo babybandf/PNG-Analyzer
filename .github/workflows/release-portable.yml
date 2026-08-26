@@ -110,7 +110,15 @@ jobs:
 
       - name: Build release
         shell: bash
-        run: cmake --build --preset release --parallel 4
+        run: |
+          jobs=4
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            # vcpkg z-applocal copies shared DLLs (z.dll) into every test
+            # output directory; high parallelism can race the copies and fail
+            # a link with "file is being used by another process".
+            jobs=2
+          fi
+          cmake --build --preset release --parallel $jobs
 
       - name: Create portable package
         shell: bash
