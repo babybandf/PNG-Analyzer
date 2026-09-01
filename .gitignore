@@ -1,5 +1,5 @@
 # Generated / local paths that must never be tracked (REPOSITORY_LAYOUT.md §12)
-.deps/
+.deps
 build/
 .worktrees/
 _CPack_Packages/
