@@ -30,6 +30,7 @@ endif()
 set(PNGA_GUI_APP_SOURCES
   src/main_window.cpp
   src/document_workers.cpp
+  src/main_window_ui.cpp
 )
 
 add_executable(pnga_analyzer_gui

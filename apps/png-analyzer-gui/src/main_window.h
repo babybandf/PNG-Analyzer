@@ -77,6 +77,7 @@ constexpr int kHexPanelOrigin = 3;
 
 // WP-5U15: worker/bridge types live in document_workers.h (moved verbatim).
 #include "document_workers.h"
+#include "main_window_ui.h"
 
 class MainWindow final : public QMainWindow {
   Q_OBJECT
@@ -141,6 +142,7 @@ class MainWindow final : public QMainWindow {
   bool eventFilter(QObject* watched, QEvent* event) override;
 
  private:
+  MainWindowWidgets widgets_;
   std::shared_ptr<pnga::io::IByteSource> source_;
   std::shared_ptr<const pnga::analysis_engine::StageSet> stage_set_;
   pnga::png_format::ChunkIndex index_;

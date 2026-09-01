@@ -288,227 +288,39 @@ int migrateInspectorIndexV1(int index) {
 MainWindow::MainWindow(QWidget* parent,
                        pnga::ui::qt::ApplicationTheme* theme)
     : QMainWindow(parent), theme_(theme) {
-  setWindowTitle(QStringLiteral("PNG Analyzer"));
-  setAcceptDrops(true);
-  // Standalone layout tests construct MainWindow without the application
-  // controller. Keep their separator contract while the product build uses
-  // the centralized stylesheet installed by ApplicationTheme.
-  if (qApp == nullptr || qApp->styleSheet().isEmpty()) {
-    setStyleSheet(QStringLiteral(
-        "QMainWindow::separator { width: 8px; height: 8px; "
-        "background: transparent; }"
-        "QMainWindow::separator:hover, QMainWindow::separator:pressed { "
-        "background: palette(highlight); }"));
-  }
-  // QMainWindow creates its dock separators lazily when the window is laid
-  // out.  Keep the hit target wide enough for a mouse even when a native
-  // style would otherwise expose only a one-pixel separator.
-  setDockOptions(QMainWindow::AnimatedDocks | QMainWindow::AllowNestedDocks |
-                 QMainWindow::AllowTabbedDocks |
-                 QMainWindow::GroupedDragging);
-  setDockNestingEnabled(true);
-  // Keep the side areas as the primary drop targets for the two inspector
-  // docks.  Without explicit corner ownership, a native floating dock can
-  // cross the main-window edge without the right-side drop indicator being
-  // activated on some platform styles.
-  setCorner(Qt::TopLeftCorner, Qt::LeftDockWidgetArea);
-  setCorner(Qt::BottomLeftCorner, Qt::LeftDockWidgetArea);
-  setCorner(Qt::TopRightCorner, Qt::RightDockWidgetArea);
-  setCorner(Qt::BottomRightCorner, Qt::RightDockWidgetArea);
+  widgets_ = buildMainWindowUi(*this, theme);
+  center_splitter_ = widgets_.center_splitter;
+  preview_tabs_ = widgets_.preview_tabs;
+  image_view_ = widgets_.image_view;
+  pixel_view_ = widgets_.pixel_view;
+  filtered_view_ = widgets_.filtered_view;
+  defiltered_view_ = widgets_.defiltered_view;
+  hex_panel_ = widgets_.hex_panel;
+  hex_source_tabs_ = widgets_.hex_source_tabs;
+  hex_ = widgets_.hex;
+  chunks_dock_ = widgets_.chunks_dock;
+  chunks_splitter_ = widgets_.chunks_splitter;
+  tree_ = widgets_.tree;
+  chunk_detail_ = widgets_.chunk_detail;
+  bus_ = widgets_.bus;
+  inspector_dock_ = widgets_.inspector_dock;
+  x_spin_ = widgets_.x_spin;
+  y_spin_ = widgets_.y_spin;
+  lock_check_ = widgets_.lock_check;
+  base_button_ = widgets_.base_button;
+  inspector_tabs_ = widgets_.inspector_tabs;
+  inspector_ = widgets_.inspector;
+  compression_inspector_tabs_ = widgets_.compression_inspector_tabs;
+  block_inspector_ = widgets_.block_inspector;
+  huffman_inspector_ = widgets_.huffman_inspector;
+  decode_trace_inspector_ = widgets_.decode_trace_inspector;
+  compression_context_ = widgets_.compression_context;
+  trace_binding_ = widgets_.trace_binding;
+  pixel_label_ = widgets_.pixel_label;
+  validation_label_ = widgets_.validation_label;
+  close_action_ = widgets_.close_action;
+  recent_files_menu_ = widgets_.recent_files_menu;
 
-  center_splitter_ = new QSplitter(Qt::Vertical, this);
-  center_splitter_->setObjectName(QStringLiteral("previewHexSplitter"));
-  center_splitter_->setChildrenCollapsible(false);
-
-  preview_tabs_ = new QTabWidget(center_splitter_);
-  preview_tabs_->setObjectName(QStringLiteral("previewTabs"));
-  preview_tabs_->setAccessibleName(QStringLiteral("Preview stages"));
-  preview_tabs_->setUsesScrollButtons(true);
-  image_view_ = new pnga::ui::qt::DeliveredImageView(preview_tabs_);
-  preview_tabs_->addTab(image_view_, QStringLiteral("Image"));
-  pixel_view_ = new pnga::ui::qt::StagePixelProcessView(
-      pnga::analysis_engine::StagePixelProcessStage::kNative, preview_tabs_);
-  preview_tabs_->addTab(pixel_view_, QStringLiteral("Pixels"));
-  filtered_view_ = new pnga::ui::qt::StagePixelProcessView(
-      pnga::analysis_engine::StagePixelProcessStage::kFiltered, preview_tabs_);
-  preview_tabs_->addTab(filtered_view_, QStringLiteral("Filtered"));
-  defiltered_view_ = new pnga::ui::qt::StagePixelProcessView(
-      pnga::analysis_engine::StagePixelProcessStage::kDefiltered, preview_tabs_);
-  preview_tabs_->addTab(defiltered_view_, QStringLiteral("Unfiltered"));
-
-  hex_panel_ = new QWidget(center_splitter_);
-  hex_panel_->setObjectName(QStringLiteral("hexPanel"));
-  hex_panel_->setAccessibleName(QStringLiteral("Hex panel"));
-  auto* hex_layout = new QHBoxLayout(hex_panel_);
-  hex_layout->setContentsMargins(0, 0, 0, 0);
-  hex_source_tabs_ = new pnga::ui::qt::HexSourceTabBar(hex_panel_);
-  hex_layout->addWidget(hex_source_tabs_);
-  hex_ = new pnga::ui::qt::HexView(hex_panel_);
-  hex_->setObjectName(QStringLiteral("hexView"));
-  hex_->setAccessibleName(QStringLiteral("Hex view"));
-  hex_layout->addWidget(hex_, 1);
-  center_splitter_->addWidget(preview_tabs_);
-  center_splitter_->addWidget(hex_panel_);
-  center_splitter_->setStretchFactor(0, 3);
-  center_splitter_->setStretchFactor(1, 2);
-  setCentralWidget(center_splitter_);
-
-  chunks_dock_ = new QDockWidget(QStringLiteral("Chunks"), this);
-  chunks_dock_->setObjectName(QStringLiteral("chunksDock"));
-  // A floated dock must be able to re-enter through any visible dock area.
-  // The default placement remains on the left; allowing all areas avoids a
-  // platform-specific failure to recognize the docking target while dragging
-  // the native floating title bar back over the main window.
-  chunks_dock_->setAllowedAreas(Qt::AllDockWidgetAreas);
-  chunks_dock_->setFeatures(QDockWidget::DockWidgetMovable |
-                            QDockWidget::DockWidgetFloatable |
-                            QDockWidget::DockWidgetClosable);
-  chunks_splitter_ = new QSplitter(Qt::Vertical, chunks_dock_);
-  chunks_splitter_->setObjectName(QStringLiteral("chunksDetailSplitter"));
-  chunks_splitter_->setChildrenCollapsible(false);
-  chunks_splitter_->setHandleWidth(8);
-  tree_ = new QTreeView(chunks_splitter_);
-  tree_->setSelectionBehavior(QAbstractItemView::SelectRows);
-  tree_->setSelectionMode(QAbstractItemView::SingleSelection);
-  tree_->setUniformRowHeights(true);
-  // Do not let a newly loaded model turn its largest offset/type cell into a
-  // dock minimum width.  The view is allowed to shrink and uses a horizontal
-  // scrollbar for long values; users can still resize columns interactively.
-  tree_->setMinimumWidth(0);
-  tree_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Expanding);
-  tree_->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-  tree_->header()->setSectionResizeMode(QHeaderView::Interactive);
-  tree_->header()->setStretchLastSection(true);
-  tree_->setMinimumHeight(80);
-  chunks_splitter_->addWidget(tree_);
-  chunk_detail_ = new pnga::ui::qt::ChunkDetailPanel(chunks_splitter_);
-  chunk_detail_->setMinimumHeight(80);
-  chunks_splitter_->addWidget(chunk_detail_);
-  chunks_splitter_->setStretchFactor(0, 3);
-  chunks_splitter_->setStretchFactor(1, 2);
-  chunks_splitter_->setSizes({360, 180});
-  chunks_dock_->setWidget(chunks_splitter_);
-  addDockWidget(Qt::LeftDockWidgetArea, chunks_dock_);
-
-  bus_ = new pnga::ui::qt::SelectionBus(this);
-
-  inspector_dock_ = new QDockWidget(QStringLiteral("Inspector"), this);
-  inspector_dock_->setObjectName(QStringLiteral("inspectorDock"));
-  inspector_dock_->setAllowedAreas(Qt::AllDockWidgetAreas);
-  inspector_dock_->setFeatures(QDockWidget::DockWidgetMovable |
-                               QDockWidget::DockWidgetFloatable |
-                               QDockWidget::DockWidgetClosable);
-  auto* inspector_container = new QWidget(inspector_dock_);
-  auto* inspector_layout = new QVBoxLayout(inspector_container);
-  inspector_layout->setContentsMargins(6, 6, 6, 6);
-  auto* coordinate_bar = new QWidget(inspector_container);
-  coordinate_bar->setObjectName(QStringLiteral("coordinateToolbar"));
-  coordinate_bar->setAccessibleName(QStringLiteral("Coordinate toolbar"));
-  auto* coordinate_layout = new QHBoxLayout(coordinate_bar);
-  coordinate_layout->setContentsMargins(0, 0, 0, 0);
-  coordinate_layout->addWidget(new QLabel(QStringLiteral("X"), coordinate_bar));
-  x_spin_ = new QSpinBox(coordinate_bar);
-  x_spin_->setObjectName(QStringLiteral("xCoordinate"));
-  x_spin_->setAccessibleName(QStringLiteral("X coordinate"));
-  x_spin_->setRange(0, std::numeric_limits<int>::max());
-  x_spin_->setFixedWidth(std::max(1, x_spin_->sizeHint().width() * 2 / 3));
-  coordinate_layout->addWidget(x_spin_);
-  coordinate_layout->addWidget(new QLabel(QStringLiteral("Y"), coordinate_bar));
-  y_spin_ = new QSpinBox(coordinate_bar);
-  y_spin_->setObjectName(QStringLiteral("yCoordinate"));
-  y_spin_->setAccessibleName(QStringLiteral("Y coordinate"));
-  y_spin_->setRange(0, std::numeric_limits<int>::max());
-  y_spin_->setFixedWidth(std::max(1, y_spin_->sizeHint().width() * 2 / 3));
-  coordinate_layout->addWidget(y_spin_);
-  lock_check_ = new QCheckBox(QStringLiteral("Lock"), coordinate_bar);
-  lock_check_->setObjectName(QStringLiteral("lockCoordinate"));
-  lock_check_->setAccessibleName(QStringLiteral("Lock coordinate"));
-  coordinate_layout->addWidget(lock_check_);
-  base_button_ = new QPushButton(QStringLiteral("HEX"), coordinate_bar);
-  base_button_->setObjectName(QStringLiteral("numericBase"));
-  base_button_->setAccessibleName(QStringLiteral("Numeric base toggle"));
-  base_button_->setFlat(true);
-  base_button_->setAutoDefault(false);
-  base_button_->setCursor(Qt::PointingHandCursor);
-  base_button_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
-  base_button_->setFixedWidth(base_button_->sizeHint().width());
-  coordinate_layout->addWidget(base_button_);
-  coordinate_layout->addStretch(1);
-  // Keep the toolbar controls on one stable row without allowing their
-  // combined size hint to become the Inspector's minimum width.  The toolbar
-  // itself scrolls horizontally when the dock is narrower than its controls;
-  // the report and page tabs remain independently scrollable below it.
-  coordinate_bar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
-  auto* coordinate_scroll = new QScrollArea(inspector_container);
-  coordinate_scroll->setObjectName(QStringLiteral("coordinateToolbarScroll"));
-  coordinate_scroll->setAccessibleName(QStringLiteral("Coordinate toolbar scroll area"));
-  coordinate_scroll->setFrameShape(QFrame::NoFrame);
-  coordinate_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-  coordinate_scroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-  coordinate_scroll->setWidgetResizable(false);
-  coordinate_scroll->setMinimumWidth(0);
-  coordinate_scroll->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-  coordinate_scroll->setWidget(coordinate_bar);
-  coordinate_scroll->setFixedHeight(
-      coordinate_bar->sizeHint().height() +
-      coordinate_scroll->horizontalScrollBar()->sizeHint().height());
-  inspector_layout->addWidget(coordinate_scroll);
-
-  // Inspector uses stable primary groups with contextual secondary pages.
-  // Pages are created once and only the selected group/page changes, so
-  // switching context never changes the dock width.
-  inspector_tabs_ = new QTabWidget(inspector_container);
-  inspector_tabs_->setObjectName(QStringLiteral("inspectorTabs"));
-  inspector_tabs_->setAccessibleName(QStringLiteral("Inspector groups"));
-  inspector_tabs_->setUsesScrollButtons(true);
-
-  compression_inspector_tabs_ = new QTabWidget(inspector_container);
-  compression_inspector_tabs_->setObjectName(
-      QStringLiteral("compressionInspectorPages"));
-  compression_inspector_tabs_->setAccessibleName(
-      QStringLiteral("Compression inspector pages"));
-  compression_inspector_tabs_->setUsesScrollButtons(true);
-
-  inspector_ = new pnga::ui::qt::StageInspector(inspector_tabs_);
-  inspector_->setObjectName(QStringLiteral("reconstructInspector"));
-  inspector_->setAccessibleName(QStringLiteral("Reconstruct inspector"));
-  inspector_tabs_->addTab(inspector_, QStringLiteral("Reconstruction"));
-  block_inspector_ = new pnga::ui::qt::BlockInspector(compression_inspector_tabs_);
-  block_inspector_->setObjectName(QStringLiteral("blockInspector"));
-  block_inspector_->setAccessibleName(QStringLiteral("DEFLATE block inspector"));
-  compression_inspector_tabs_->addTab(block_inspector_, QStringLiteral("DEFLATE Blocks"));
-  huffman_inspector_ = new pnga::ui::qt::HuffmanInspector(compression_inspector_tabs_);
-  huffman_inspector_->setObjectName(QStringLiteral("huffmanInspector"));
-  huffman_inspector_->setAccessibleName(
-      QStringLiteral("DEFLATE Huffman table inspector"));
-  compression_inspector_tabs_->addTab(huffman_inspector_, QStringLiteral("Huffman"));
-  decode_trace_inspector_ =
-      new pnga::ui::qt::DecodeTraceInspector(compression_inspector_tabs_);
-  decode_trace_inspector_->setObjectName(QStringLiteral("decodeTraceInspector"));
-  decode_trace_inspector_->setAccessibleName(
-      QStringLiteral("DEFLATE decode trace inspector"));
-  compression_inspector_tabs_->addTab(decode_trace_inspector_, QStringLiteral("Decode Trace"));
-  // WP-5U12: the shared Compression context sits above the page stack so the
-  // trace state is stated once, not repeated on every page.
-  auto* compression_container = new QWidget(inspector_container);
-  compression_container->setObjectName(QStringLiteral("compressionContainer"));
-  compression_container->setAccessibleName(
-      QStringLiteral("Compression inspector"));
-  auto* compression_layout = new QVBoxLayout(compression_container);
-  compression_layout->setContentsMargins(4, 2, 4, 2);
-  compression_layout->setSpacing(2);
-  compression_context_ = new pnga::ui::qt::CompressionContext(compression_container);
-  compression_layout->addWidget(compression_context_);
-  compression_layout->addWidget(compression_inspector_tabs_, 1);
-  inspector_tabs_->addTab(compression_container, QStringLiteral("Compression"));
-  // WP-5U13: bind the bounded trace pipeline to the three Compression pages.
-  // The binding publishes one generation-coherent bundle; navigation keeps the
-  // WP-5U11 source semantics (physical File for block spans, Inflated for
-  // output bytes, IDAT for logical Deflate bits).
-  trace_binding_ = new pnga::ui::qt::TraceInspectorBinding(
-      block_inspector_, huffman_inspector_, decode_trace_inspector_, this);
-  trace_binding_->setContext(compression_context_);
-  trace_binding_->setHasDocument(false);
   trace_state_ =
       std::make_unique<pnga::analysis_engine::TraceInspectorStateMachine>();
   connect(block_inspector_,
@@ -566,103 +378,42 @@ MainWindow::MainWindow(QWidget* parent,
                                  QColor(0x42, 0xA5, 0xF5)}});
             hex_->navigateTo(range->first);
           });
-  inspector_layout->addWidget(inspector_tabs_, 1);
-  QWidget::setTabOrder(x_spin_, y_spin_);
-  QWidget::setTabOrder(y_spin_, lock_check_);
-  QWidget::setTabOrder(lock_check_, base_button_);
-  QWidget::setTabOrder(base_button_, preview_tabs_);
-  QWidget::setTabOrder(preview_tabs_, hex_source_tabs_);
-  QWidget::setTabOrder(hex_source_tabs_, hex_);
-  QWidget::setTabOrder(hex_, inspector_tabs_);
-  inspector_dock_->setWidget(inspector_container);
-  addDockWidget(Qt::RightDockWidgetArea, inspector_dock_);
 
-  pixel_label_ = new QLabel(QStringLiteral("No image"), this);
-  pixel_label_->setObjectName(QStringLiteral("pixelStatus"));
-  statusBar()->addWidget(pixel_label_);
-  validation_label_ = new QLabel(QStringLiteral("Validation: not loaded"), this);
-  validation_label_->setObjectName(QStringLiteral("validationStatus"));
-  validation_label_->setAccessibleName(QStringLiteral("Validation status"));
-  statusBar()->addPermanentWidget(validation_label_);
-
-  QMenu* fileMenu = menuBar()->addMenu(QStringLiteral("&File"));
-  QAction* openAction = fileMenu->addAction(QStringLiteral("&Open..."));
-  openAction->setShortcut(QKeySequence::Open);
-  connect(openAction, &QAction::triggered, this, &MainWindow::onOpenTriggered);
-  close_action_ = fileMenu->addAction(QStringLiteral("&Close Image"));
-  close_action_->setObjectName(QStringLiteral("closeImageAction"));
-  close_action_->setShortcut(QKeySequence::Close);
-  close_action_->setEnabled(false);
+  connect(widgets_.open_action, &QAction::triggered, this,
+          &MainWindow::onOpenTriggered);
   connect(close_action_, &QAction::triggered, this,
           &MainWindow::onCloseTriggered);
-  fileMenu->addSeparator();
-  recent_files_menu_ = fileMenu->addMenu(QStringLiteral("Open Recent"));
-  recent_files_menu_->setObjectName(QStringLiteral("recentFilesMenu"));
-  recent_files_menu_->setToolTipsVisible(true);
   connect(recent_files_menu_, &QMenu::aboutToShow, this,
           &MainWindow::refreshRecentFilesMenu);
   refreshRecentFilesMenu();
-  fileMenu->addSeparator();
-  QAction* exitAction = fileMenu->addAction(QStringLiteral("E&xit"));
-  exitAction->setObjectName(QStringLiteral("exitAction"));
-  exitAction->setShortcut(QKeySequence::Quit);
-  connect(exitAction, &QAction::triggered, this, [this] { close(); });
+  connect(widgets_.exit_action, &QAction::triggered, this,
+          [this] { close(); });
 
-  QMenu* viewMenu = menuBar()->addMenu(QStringLiteral("&View"));
-  QAction* resetAction =
-      viewMenu->addAction(QStringLiteral("&Reset Layout"));
-  connect(resetAction, &QAction::triggered, this, &MainWindow::resetLayout);
-  viewMenu->addSeparator();
-  QAction* chunkListAction = chunks_dock_->toggleViewAction();
-  viewMenu->addAction(chunkListAction);
-  chunkListAction->setText(QStringLiteral("Chunk List"));
-  chunkListAction->setObjectName(QStringLiteral("showChunkList"));
-  QAction* hexViewAction = viewMenu->addAction(QStringLiteral("Hex View"));
-  hexViewAction->setObjectName(QStringLiteral("showHexView"));
-  hexViewAction->setCheckable(true);
-  hexViewAction->setChecked(true);
-  connect(hexViewAction, &QAction::toggled, this,
+  connect(widgets_.reset_layout_action, &QAction::triggered, this,
+          &MainWindow::resetLayout);
+  connect(widgets_.show_hex_view_action, &QAction::toggled, this,
           [this](bool visible) { hex_panel_->setVisible(visible); });
-  QAction* inspectorAction = inspector_dock_->toggleViewAction();
-  viewMenu->addAction(inspectorAction);
-  inspectorAction->setText(QStringLiteral("Inspector"));
-  inspectorAction->setObjectName(QStringLiteral("showInspector"));
-  viewMenu->addSeparator();
   if (theme_ != nullptr) {
-    QMenu* themeMenu = viewMenu->addMenu(QStringLiteral("Theme"));
-    themeMenu->setObjectName(QStringLiteral("themeMenu"));
-    auto* group = new QActionGroup(themeMenu);
-    group->setExclusive(true);
-    const auto addThemeAction = [this, themeMenu, group](
-                                    const QString& text,
-                                    const QString& object_name,
-                                    pnga::ui::qt::ApplicationTheme::ThemeMode mode) {
-      QAction* action = themeMenu->addAction(text);
-      action->setObjectName(object_name);
-      action->setCheckable(true);
-      action->setData(static_cast<int>(mode));
-      group->addAction(action);
+    const auto connectThemeAction = [this](QAction* action) {
+      const auto mode = static_cast<pnga::ui::qt::ApplicationTheme::ThemeMode>(
+          action->data().toInt());
       connect(action, &QAction::triggered, this, [this, mode] {
         theme_->setMode(mode);
       });
-      return action;
     };
-    QAction* systemTheme = addThemeAction(
-        QStringLiteral("Follow System"), QStringLiteral("themeSystem"),
-        pnga::ui::qt::ApplicationTheme::ThemeMode::kSystem);
-    QAction* lightTheme = addThemeAction(
-        QStringLiteral("Light"), QStringLiteral("themeLight"),
-        pnga::ui::qt::ApplicationTheme::ThemeMode::kLight);
-    QAction* darkTheme = addThemeAction(
-        QStringLiteral("Dark"), QStringLiteral("themeDark"),
-        pnga::ui::qt::ApplicationTheme::ThemeMode::kDark);
-    const auto updateThemeActions = [this, systemTheme, lightTheme, darkTheme] {
-      systemTheme->setChecked(theme_->requestedMode() ==
-                              pnga::ui::qt::ApplicationTheme::ThemeMode::kSystem);
-      lightTheme->setChecked(theme_->requestedMode() ==
-                             pnga::ui::qt::ApplicationTheme::ThemeMode::kLight);
-      darkTheme->setChecked(theme_->requestedMode() ==
-                            pnga::ui::qt::ApplicationTheme::ThemeMode::kDark);
+    connectThemeAction(widgets_.theme_system_action);
+    connectThemeAction(widgets_.theme_light_action);
+    connectThemeAction(widgets_.theme_dark_action);
+    const auto updateThemeActions = [this] {
+      widgets_.theme_system_action->setChecked(
+          theme_->requestedMode() ==
+          pnga::ui::qt::ApplicationTheme::ThemeMode::kSystem);
+      widgets_.theme_light_action->setChecked(
+          theme_->requestedMode() ==
+          pnga::ui::qt::ApplicationTheme::ThemeMode::kLight);
+      widgets_.theme_dark_action->setChecked(
+          theme_->requestedMode() ==
+          pnga::ui::qt::ApplicationTheme::ThemeMode::kDark);
     };
     connect(theme_, &pnga::ui::qt::ApplicationTheme::themeChanged, this,
             updateThemeActions);
