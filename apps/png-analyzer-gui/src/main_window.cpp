@@ -1,74 +1,42 @@
-// WP-104/204 MainWindow: docks, menu, file open, chunk->hex selection and the
-// background reference decode into the delivered image view.
+// WP-104/204 facade, decomposed by WP-5U15: a thin QMainWindow composition
+// root wiring MainWindowWidgets to the workspace, session, selection and
+// trace controllers. Decoding stays off the UI thread; stale results are
+// generation-gated.
 
 #include "main_window.h"
 
 #include <pnga/ui/qt/about_dialog.h>
 #include <pnga/ui/qt/application_theme.h>
-#include <pnga/ui/qt/block_inspector.h>
 #include <pnga/ui/qt/chunk_detail_panel.h>
-#include <pnga/ui/qt/chunk_model.h>
-#include <pnga/ui/qt/compression_context.h>
 #include <pnga/ui/qt/delivered_image_view.h>
-#include <pnga/ui/qt/decode_trace_inspector.h>
-#include <pnga/ui/qt/hex_view.h>
-#include <pnga/ui/qt/hex_data_source.h>
 #include <pnga/ui/qt/hex_source_tab_bar.h>
-#include <pnga/ui/qt/huffman_inspector.h>
 #include <pnga/ui/qt/selection_bus.h>
 #include <pnga/ui/qt/stage_inspector.h>
 #include <pnga/ui/qt/stage_pixel_process_view.h>
-#include <pnga/ui/qt/stage_preview_view.h>
-#include <pnga/ui/qt/trace_inspector_binding.h>
-#include <pnga/analysis-engine/trace_inspector_state.h>
-#include <pnga/analysis-engine/trace_orchestrator.h>
 
-#include <QAbstractItemView>
 #include <QAction>
-#include <QActionGroup>
 #include <QApplication>
-#include <QColor>
 #include <QCheckBox>
 #include <QCloseEvent>
-#include <QDir>
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
 #include <QDropEvent>
-#include <QFileInfo>
-#include <QFrame>
-#include <QMetaObject>
-#include <QDockWidget>
 #include <QEvent>
 #include <QFileDialog>
 #include <QFileSystemModel>
-#include <QHeaderView>
-#include <QHBoxLayout>
+#include <QFileInfo>
 #include <QImage>
-#include <QItemSelectionModel>
 #include <QKeyEvent>
-#include <QKeySequence>
-#include <QLabel>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMimeData>
 #include <QMessageBox>
 #include <QPainter>
 #include <QPushButton>
-#include <QPair>
-#include <QSignalBlocker>
-#include <QScrollArea>
-#include <QSpinBox>
-#include <QSplitter>
-#include <QScrollBar>
-#include <QStatusBar>
-#include <QStyle>
-#include <QTabWidget>
-#include <QTreeView>
-#include <QVBoxLayout>
-#include <QVector>
-#include <QUrl>
-#include <QWidget>
 #include <QSettings>
+#include <QSignalBlocker>
+#include <QSpinBox>
+#include <QStyle>
 
 #include <algorithm>
 #include <cstdint>
@@ -104,45 +72,11 @@ bool hasLocalPngUrl(const QMimeData* mime_data) {
 }  // namespace
 
 // ---------------------------------------------------------------------------
-// MainWindow
-// ---------------------------------------------------------------------------
 
 MainWindow::MainWindow(QWidget* parent,
                        pnga::ui::qt::ApplicationTheme* theme)
-    : QMainWindow(parent), theme_(theme) {
+    : QMainWindow(parent) {
   widgets_ = buildMainWindowUi(*this, theme);
-  center_splitter_ = widgets_.center_splitter;
-  preview_tabs_ = widgets_.preview_tabs;
-  image_view_ = widgets_.image_view;
-  pixel_view_ = widgets_.pixel_view;
-  filtered_view_ = widgets_.filtered_view;
-  defiltered_view_ = widgets_.defiltered_view;
-  hex_panel_ = widgets_.hex_panel;
-  hex_source_tabs_ = widgets_.hex_source_tabs;
-  hex_ = widgets_.hex;
-  chunks_dock_ = widgets_.chunks_dock;
-  chunks_splitter_ = widgets_.chunks_splitter;
-  tree_ = widgets_.tree;
-  chunk_detail_ = widgets_.chunk_detail;
-  bus_ = widgets_.bus;
-  inspector_dock_ = widgets_.inspector_dock;
-  x_spin_ = widgets_.x_spin;
-  y_spin_ = widgets_.y_spin;
-  lock_check_ = widgets_.lock_check;
-  base_button_ = widgets_.base_button;
-  inspector_tabs_ = widgets_.inspector_tabs;
-  inspector_ = widgets_.inspector;
-  compression_inspector_tabs_ = widgets_.compression_inspector_tabs;
-  block_inspector_ = widgets_.block_inspector;
-  huffman_inspector_ = widgets_.huffman_inspector;
-  decode_trace_inspector_ = widgets_.decode_trace_inspector;
-  compression_context_ = widgets_.compression_context;
-  trace_binding_ = widgets_.trace_binding;
-  pixel_label_ = widgets_.pixel_label;
-  validation_label_ = widgets_.validation_label;
-  close_action_ = widgets_.close_action;
-  recent_files_menu_ = widgets_.recent_files_menu;
-
   workspace_ = std::make_unique<WorkspaceController>(
       *this, widgets_,
       [this](const QString& path) { openRecentFile(path); });
@@ -161,7 +95,7 @@ MainWindow::MainWindow(QWidget* parent,
       widgets_,
       SelectionNavigationCallbacks{
           [this](const pnga::trace_model::ImageCoordinate& coordinate) {
-            trace_controller_->requestFor(coordinate);
+            trace_->requestFor(coordinate);
           },
           [this](std::uint64_t row) {
             // Selection-priority replay for the freshly committed pixel; the
@@ -172,7 +106,7 @@ MainWindow::MainWindow(QWidget* parent,
                 query->query_scanline(row,
                                       pnga::analysis_engine::JobPriority::
                                           kSelection);
-            inspector_->setRowQueryStatus(QLatin1String(
+            widgets_.inspector->setRowQueryStatus(QLatin1String(
                 pnga::analysis_engine::query_status_text(result.status)));
           },
           [this](const pnga::png_format::ChunkNode& node,
@@ -180,14 +114,14 @@ MainWindow::MainWindow(QWidget* parent,
             session_->requestChunkDetail(node, selection_serial);
           }},
       this, &workspace_->viewState());
-  trace_controller_ = std::make_unique<TraceController>(widgets_, this);
-  connect(trace_controller_.get(), &TraceController::hexSourceRequested,
+  trace_ = std::make_unique<TraceController>(widgets_, this);
+  connect(trace_.get(), &TraceController::hexSourceRequested,
           selection_.get(), &SelectionNavigationController::setHexSource);
   connect(widgets_.open_action, &QAction::triggered, this,
           &MainWindow::onOpenTriggered);
-  connect(close_action_, &QAction::triggered, this,
+  connect(widgets_.close_action, &QAction::triggered, this,
           &MainWindow::onCloseTriggered);
-  connect(recent_files_menu_, &QMenu::aboutToShow, this,
+  connect(widgets_.recent_files_menu, &QMenu::aboutToShow, this,
           [this] { workspace_->refreshRecentFilesMenu(); });
   workspace_->refreshRecentFilesMenu();
   connect(widgets_.exit_action, &QAction::triggered, this,
@@ -196,30 +130,30 @@ MainWindow::MainWindow(QWidget* parent,
   connect(widgets_.reset_layout_action, &QAction::triggered, this,
           &MainWindow::resetLayout);
   connect(widgets_.show_hex_view_action, &QAction::toggled, this,
-          [this](bool visible) { hex_panel_->setVisible(visible); });
-  if (theme_ != nullptr) {
-    const auto connectThemeAction = [this](QAction* action) {
+          [this](bool visible) { widgets_.hex_panel->setVisible(visible); });
+  if (theme != nullptr) {
+    const auto connectThemeAction = [this, theme](QAction* action) {
       const auto mode = static_cast<pnga::ui::qt::ApplicationTheme::ThemeMode>(
           action->data().toInt());
-      connect(action, &QAction::triggered, this, [this, mode] {
-        theme_->setMode(mode);
+      connect(action, &QAction::triggered, this, [this, theme, mode] {
+        theme->setMode(mode);
       });
     };
     connectThemeAction(widgets_.theme_system_action);
     connectThemeAction(widgets_.theme_light_action);
     connectThemeAction(widgets_.theme_dark_action);
-    const auto updateThemeActions = [this] {
+    const auto updateThemeActions = [this, theme] {
       widgets_.theme_system_action->setChecked(
-          theme_->requestedMode() ==
+          theme->requestedMode() ==
           pnga::ui::qt::ApplicationTheme::ThemeMode::kSystem);
       widgets_.theme_light_action->setChecked(
-          theme_->requestedMode() ==
+          theme->requestedMode() ==
           pnga::ui::qt::ApplicationTheme::ThemeMode::kLight);
       widgets_.theme_dark_action->setChecked(
-          theme_->requestedMode() ==
+          theme->requestedMode() ==
           pnga::ui::qt::ApplicationTheme::ThemeMode::kDark);
     };
-    connect(theme_, &pnga::ui::qt::ApplicationTheme::themeChanged, this,
+    connect(theme, &pnga::ui::qt::ApplicationTheme::themeChanged, this,
             updateThemeActions);
     updateThemeActions();
   }
@@ -235,49 +169,49 @@ MainWindow::MainWindow(QWidget* parent,
   // start; the controller reconnects after each real setModel.
   selection_->replaceChunkModel(&session_->index());
 
-  connect(image_view_, &pnga::ui::qt::DeliveredImageView::pixelSelected,
+  connect(widgets_.image_view, &pnga::ui::qt::DeliveredImageView::pixelSelected,
           selection_.get(), &SelectionNavigationController::onPixelSelected);
-  connect(image_view_, &pnga::ui::qt::DeliveredImageView::pixelHovered,
+  connect(widgets_.image_view, &pnga::ui::qt::DeliveredImageView::pixelHovered,
           selection_.get(), &SelectionNavigationController::onPixelHovered);
-  connect(image_view_, &pnga::ui::qt::DeliveredImageView::pixelHoverLeft,
+  connect(widgets_.image_view, &pnga::ui::qt::DeliveredImageView::pixelHoverLeft,
           selection_.get(), &SelectionNavigationController::onPixelHoverLeft);
-  connect(image_view_,
+  connect(widgets_.image_view,
           &pnga::ui::qt::DeliveredImageView::pixelNudgeRequested,
           selection_.get(), &SelectionNavigationController::nudgeLockedCoordinate);
-  connect(image_view_,
+  connect(widgets_.image_view,
           &pnga::ui::qt::DeliveredImageView::selectionCancelled,
           selection_.get(),
           &SelectionNavigationController::clearLockedCoordinate);
-  x_spin_->installEventFilter(this);
-  y_spin_->installEventFilter(this);
-  lock_check_->installEventFilter(this);
-  base_button_->installEventFilter(this);
-  preview_tabs_->installEventFilter(this);
-  hex_source_tabs_->installEventFilter(this);
-  inspector_tabs_->installEventFilter(this);
+  widgets_.x_spin->installEventFilter(this);
+  widgets_.y_spin->installEventFilter(this);
+  widgets_.lock_check->installEventFilter(this);
+  widgets_.base_button->installEventFilter(this);
+  widgets_.preview_tabs->installEventFilter(this);
+  widgets_.hex_source_tabs->installEventFilter(this);
+  widgets_.inspector_tabs->installEventFilter(this);
 
-  connect(x_spin_, qOverload<int>(&QSpinBox::valueChanged), this,
+  connect(widgets_.x_spin, qOverload<int>(&QSpinBox::valueChanged), this,
           [this](int) {
-            if (lock_check_->isChecked()) {
+            if (widgets_.lock_check->isChecked()) {
               selection_->publishLockedCoordinate();
             }
           });
-  connect(y_spin_, qOverload<int>(&QSpinBox::valueChanged), this,
+  connect(widgets_.y_spin, qOverload<int>(&QSpinBox::valueChanged), this,
           [this](int) {
-            if (lock_check_->isChecked()) {
+            if (widgets_.lock_check->isChecked()) {
               selection_->publishLockedCoordinate();
             }
           });
-  connect(lock_check_, &QCheckBox::toggled, this, [this](bool locked) {
+  connect(widgets_.lock_check, &QCheckBox::toggled, this, [this](bool locked) {
     if (locked) {
       selection_->publishLockedCoordinate();
     } else {
       selection_->clearLockedCoordinate();
     }
   });
-  connect(base_button_, &QPushButton::clicked, selection_.get(),
+  connect(widgets_.base_button, &QPushButton::clicked, selection_.get(),
           &SelectionNavigationController::toggleNumericBase);
-  connect(hex_source_tabs_, &pnga::ui::qt::HexSourceTabBar::sourceChanged,
+  connect(widgets_.hex_source_tabs, &pnga::ui::qt::HexSourceTabBar::sourceChanged,
           selection_.get(),
           &SelectionNavigationController::onHexSourceTabChanged);
 
@@ -337,14 +271,14 @@ void MainWindow::paintEvent(QPaintEvent* event) {
     painter.restore();
   };
 
-  drawDots(chunks_dock_);
-  drawDots(inspector_dock_);
+  drawDots(widgets_.chunks_dock);
+  drawDots(widgets_.inspector_dock);
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
-  if ((watched == x_spin_ || watched == y_spin_ || watched == lock_check_ ||
-       watched == base_button_ || watched == preview_tabs_ ||
-       watched == hex_source_tabs_ || watched == inspector_tabs_) &&
+  if ((watched == widgets_.x_spin || watched == widgets_.y_spin || watched == widgets_.lock_check ||
+       watched == widgets_.base_button || watched == widgets_.preview_tabs ||
+       watched == widgets_.hex_source_tabs || watched == widgets_.inspector_tabs) &&
       event->type() == QEvent::KeyPress) {
     auto* key_event = static_cast<QKeyEvent*>(event);
     if (key_event->key() == Qt::Key_Escape) {
@@ -437,7 +371,7 @@ void MainWindow::onStageDone(std::uint64_t generation) {
   // hand the non-null pointer to the selection controller first.
   selection_->setQueryCoordinator(session_->queryCoordinator());
   selection_->onStageSetPublished(session_->stageSet());
-  trace_controller_->setQueryCoordinator(session_->queryCoordinator());
+  trace_->setQueryCoordinator(session_->queryCoordinator());
 }
 
 void MainWindow::onDecodeDone(std::uint64_t generation) {
@@ -446,7 +380,7 @@ void MainWindow::onDecodeDone(std::uint64_t generation) {
   }
   const auto& result = session_->decodeResult();
   if (!result.success) {
-    image_view_->setImage(QImage());
+    widgets_.image_view->setImage(QImage());
     selection_->setDefaultPixelStatus(QStringLiteral("decode failed: %1")
                                           .arg(QString::fromStdString(
                                               result.error)));
@@ -456,9 +390,9 @@ void MainWindow::onDecodeDone(std::uint64_t generation) {
   QImage qimage(static_cast<int>(img.width), static_cast<int>(img.height),
                 QImage::Format_RGBA8888);
   std::memcpy(qimage.bits(), img.rgba.data(), img.rgba.size());
-  image_view_->setImage(qimage);
+  widgets_.image_view->setImage(qimage);
   // Feed the delivered RGBA to the stage inspector's Delivered stage.
-  inspector_->setDeliveredPixels(img.width, img.height, img.rgba);
+  widgets_.inspector->setDeliveredPixels(img.width, img.height, img.rgba);
   selection_->setDefaultPixelStatus(
       QStringLiteral("%1 x %2  (bit depth %3, color type %4)")
           .arg(img.width)
@@ -478,10 +412,10 @@ void MainWindow::onChunkDetailDone(std::uint64_t generation,
                                    std::uint64_t selection_serial) {
   if (generation != session_->generation() ||
       selection_serial != selection_->chunkSelectionSerial() ||
-      chunk_detail_ == nullptr) {
+      widgets_.chunk_detail == nullptr) {
     return;
   }
-  chunk_detail_->setDetail(session_->chunkDetail());
+  widgets_.chunk_detail->setDetail(session_->chunkDetail());
 }
 
 void MainWindow::onValidationDone(std::uint64_t generation) {
@@ -491,11 +425,11 @@ void MainWindow::onValidationDone(std::uint64_t generation) {
   const pnga::analysis_engine::DocumentValidationReport& validation_report =
       session_->validationReport();
   if (validation_report.issues.empty()) {
-    validation_label_->setText(QStringLiteral("Validation: OK"));
-    validation_label_->setToolTip(QStringLiteral("No validation issues"));
+    widgets_.validation_label->setText(QStringLiteral("Validation: OK"));
+    widgets_.validation_label->setToolTip(QStringLiteral("No validation issues"));
   } else {
     const auto& first = validation_report.issues.front();
-    validation_label_->setText(
+    widgets_.validation_label->setText(
         QStringLiteral("Validation: %1 issue(s), %2 @ %3")
             .arg(static_cast<qulonglong>(validation_report.issues.size()))
             .arg(QString::fromStdString(first.rule_id))
@@ -510,13 +444,13 @@ void MainWindow::onValidationDone(std::uint64_t generation) {
                      .arg(static_cast<qulonglong>(issue.offset))
                      .arg(QString::fromStdString(issue.message));
     }
-    validation_label_->setToolTip(tooltip);
+    widgets_.validation_label->setToolTip(tooltip);
   }
 }
 
 void MainWindow::onRowQueryStatus(std::uint64_t row, int status) {
   // Worker-thread callback bridged to the GUI thread; show the latest status.
-  inspector_->setRowQueryStatus(QLatin1String(
+  widgets_.inspector->setRowQueryStatus(QLatin1String(
       pnga::analysis_engine::query_status_text(
           static_cast<pnga::analysis_engine::QueryStatus>(status))));
   (void)row;
@@ -541,34 +475,34 @@ bool MainWindow::openFile(const QString& path) {
     }
   }
   setWindowTitle(QStringLiteral("%1 — %2").arg(windowTitle(), absolute_path));
-  if (close_action_ != nullptr) {
-    close_action_->setEnabled(true);
+  if (widgets_.close_action != nullptr) {
+    widgets_.close_action->setEnabled(true);
   }
   selection_->setDefaultPixelStatus(QStringLiteral("Loading image…"));
-  bus_->setDocumentGeneration(generation);
+  widgets_.bus->setDocumentGeneration(generation);
   selection_->setDocument(generation, session_->source(), &session_->index(),
                           session_->queryCoordinator());
-  trace_controller_->replaceDocument(generation, session_->source());
+  trace_->replaceDocument(generation, session_->source());
   // replace() cleared the session's query coordinator; drop the controller's
   // stale pointer immediately. onStageDone() supplies the fresh one.
-  trace_controller_->setQueryCoordinator(session_->queryCoordinator());
-  pixel_view_->clear();
-  filtered_view_->clear();
-  defiltered_view_->clear();
-  image_view_->clearHoverPixel();
-  image_view_->clearLockedPixel();
+  trace_->setQueryCoordinator(session_->queryCoordinator());
+  widgets_.pixel_view->clear();
+  widgets_.filtered_view->clear();
+  widgets_.defiltered_view->clear();
+  widgets_.image_view->clearHoverPixel();
+  widgets_.image_view->clearLockedPixel();
   {
-    const QSignalBlocker lock_blocker(lock_check_);
-    lock_check_->setChecked(false);
+    const QSignalBlocker lock_blocker(widgets_.lock_check);
+    widgets_.lock_check->setChecked(false);
   }
   selection_->replaceChunkModel(&session_->index());
   // A newly opened document always starts at the two primary views. This is
   // intentionally independent of the saved workspace tab from the previous
   // document, so Image and Reconstruction are visible immediately.
-  preview_tabs_->setCurrentIndex(0);
-  inspector_tabs_->setCurrentIndex(0);
-  validation_label_->setText(QStringLiteral("Validation: checking…"));
-  validation_label_->setToolTip(QString());
+  widgets_.preview_tabs->setCurrentIndex(0);
+  widgets_.inspector_tabs->setCurrentIndex(0);
+  widgets_.validation_label->setText(QStringLiteral("Validation: checking…"));
+  widgets_.validation_label->setToolTip(QString());
   // Start the primary workers only after the visual reset above.
   session_->startPrimaryWorkers();
   return true;
@@ -584,34 +518,34 @@ void MainWindow::onCloseTriggered() {
 
   session_->close();
   const std::uint64_t generation = session_->generation();
-  bus_->setDocumentGeneration(generation);
+  widgets_.bus->setDocumentGeneration(generation);
   selection_->clearDocument(generation);
-  trace_controller_->clearDocument(generation);
+  trace_->clearDocument(generation);
 
-  inspector_->clear();
-  pixel_view_->clear();
-  filtered_view_->clear();
-  defiltered_view_->clear();
-  image_view_->setImage(QImage());
-  image_view_->clearHoverPixel();
-  image_view_->clearLockedPixel();
+  widgets_.inspector->clear();
+  widgets_.pixel_view->clear();
+  widgets_.filtered_view->clear();
+  widgets_.defiltered_view->clear();
+  widgets_.image_view->setImage(QImage());
+  widgets_.image_view->clearHoverPixel();
+  widgets_.image_view->clearLockedPixel();
   {
-    const QSignalBlocker lock_blocker(lock_check_);
-    lock_check_->setChecked(false);
+    const QSignalBlocker lock_blocker(widgets_.lock_check);
+    widgets_.lock_check->setChecked(false);
   }
   selection_->replaceChunkModel(&session_->index());
-  preview_tabs_->setCurrentIndex(0);
-  inspector_tabs_->setCurrentIndex(0);
+  widgets_.preview_tabs->setCurrentIndex(0);
+  widgets_.inspector_tabs->setCurrentIndex(0);
   selection_->setDefaultPixelStatus(QStringLiteral("No image"));
-  validation_label_->setText(QStringLiteral("Validation: not loaded"));
-  validation_label_->setToolTip(QString());
+  widgets_.validation_label->setText(QStringLiteral("Validation: not loaded"));
+  widgets_.validation_label->setToolTip(QString());
 
   const QString path_suffix = QStringLiteral(" — %1").arg(closing_path);
   if (!closing_path.isEmpty() && windowTitle().endsWith(path_suffix)) {
     setWindowTitle(windowTitle().left(windowTitle().size() - path_suffix.size()));
   }
-  if (close_action_ != nullptr) {
-    close_action_->setEnabled(false);
+  if (widgets_.close_action != nullptr) {
+    widgets_.close_action->setEnabled(false);
   }
 }
 

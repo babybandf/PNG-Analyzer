@@ -215,6 +215,15 @@ target_compile_features(pnga_gui_main_window_layout_tests PRIVATE cxx_std_20)
 
 add_test(NAME gui_main_window_layout_tests COMMAND pnga_gui_main_window_layout_tests)
 
+# WP-5U15: enforce the facade line gates whenever the layout test builds.
+add_custom_command(TARGET pnga_gui_main_window_layout_tests POST_BUILD
+  COMMAND ${CMAKE_COMMAND}
+    -DMAIN_WINDOW_CPP=${CMAKE_SOURCE_DIR}/apps/png-analyzer-gui/src/main_window.cpp
+    -DMAIN_WINDOW_H=${CMAKE_SOURCE_DIR}/apps/png-analyzer-gui/src/main_window.h
+    -P ${CMAKE_SOURCE_DIR}/tests/gui/check_main_window_line_budget.cmake
+  VERBATIM
+)
+
 add_executable(pnga_gui_trace_pipeline_integration_tests
   trace_pipeline_integration_test.cpp
   ${PNGA_GUI_APP_TEST_SOURCES}

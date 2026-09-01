@@ -1,6 +1,6 @@
 # WP-5U15 — MainWindow Behavior-Preserving Decomposition
 
-Status: **design approved; pending written-package review** (2026-09-01)
+Status: **implemented and verified** (2026-09-01)
 
 ## Goal
 
@@ -154,3 +154,39 @@ Report `PASS` only when:
 
 Report `BLOCKED` for an unavoidable public API/behavior change. Report `FAIL`
 for incomplete extraction or failed verification.
+
+## Verification record (2026-09-01)
+
+Implementation plan: `docs/superpowers/plans/2026-09-01-main-window-decomposition.md`
+(tasks 1–8, one commit per task: `6e42970`, `729aa60`, `57f5e06`, `4b08c3f`,
+`4497c4c`, `7a2b181`, `72218c8`, facade finish). Verification commands and
+results:
+
+```text
+python3 scripts/verify_repository_layout.py   # 0 failure(s), 0 warning(s)
+python3 scripts/verify_dependencies.py        # 0 failure(s), 0 warning(s)
+cmake --preset dev && cmake --build --preset dev --parallel 4   # 0 errors
+QT_QPA_PLATFORM=offscreen ctest --preset dev  # 100% tests passed out of 46
+python3 scripts/run_gui_gate.py               # GUI gate: PASS
+python3 scripts/run_package_smoke.py --preset release --jobs 2  # PASS
+wc -l main_window.cpp main_window.h           # 599 / 76 (gates 600 / 160)
+git diff --check                              # clean
+```
+
+Notes:
+
+- All seven responsibilities have a single owner; the facade composes
+  `MainWindowWidgets`, `WorkspaceController`, `DocumentSession`,
+  `SelectionNavigationController` and `TraceController`.
+- The line-budget gate is mechanized in
+  `tests/gui/check_main_window_line_budget.cmake` (POST_BUILD of the layout
+  test; reads lines with `ENCODING "UTF-8"` so multibyte status text does not
+  inflate the count).
+- Two plan-test harness defects were corrected during Task 4 (dock visibility
+  requires a shown top-level window; remembered files must exist on disk) and
+  one latent facade recursion (`setPixelStatus` ↔ `restorePixelStatus` with a
+  committed lock and no delivered image) was bounded in the extracted
+  selection controller; no observable product behavior changed.
+- The `SelectionViewState` is shared by reference between the workspace and
+  selection controllers (optional controller constructor parameter, default
+  null) so standalone tests can construct each unit without the facade.
