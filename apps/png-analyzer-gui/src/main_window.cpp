@@ -83,19 +83,6 @@
 
 namespace {
 
-constexpr std::uint64_t kHeaderSpanLength = 8;
-constexpr std::uint64_t kCrcSpanLength = 4;
-
-std::filesystem::path filesystemPath(const QString& path) {
-#if defined(Q_OS_WIN)
-  // std::filesystem::path's narrow constructor follows the active Windows
-  // code page. Preserve Qt's UTF-16 path losslessly for Unicode filenames.
-  return std::filesystem::path(path.toStdWString());
-#else
-  return std::filesystem::path(path.toStdString());
-#endif
-}
-
 bool hasLocalPngUrl(const QMimeData* mime_data) {
   if (mime_data == nullptr || !mime_data->hasUrls()) {
     return false;
@@ -121,73 +108,6 @@ constexpr std::uint64_t kMaxTraceTokens = 4096;
 // moderately large image while retaining a hard upper bound.
 constexpr std::uint64_t kTraceOutputBudgetBytes = 1ull << 23;   // 8 MiB
 constexpr std::uint64_t kTraceIndexOutputBytes = 1ull << 26;    // 64 MiB
-
-std::optional<std::uint64_t> filtered_output_offset_for_pixel(
-    const pnga::analysis_engine::ScanlineAnchorIndexResult& anchors,
-    const pnga::trace_model::ImageCoordinate& coordinate,
-    std::uint64_t stream_row) {
-  const auto channels = pnga::png_reconstruction::channels_for_color_type(
-      anchors.header.color_type);
-  if (channels == 0 || anchors.layout.pass_count == 0 ||
-      stream_row >= anchors.scanlines.size()) {
-    return std::nullopt;
-  }
-
-  std::uint64_t row_cursor = 0;
-  for (std::size_t pass_index = 0;
-       pass_index < anchors.layout.pass_count; ++pass_index) {
-    const auto& pass = anchors.layout.passes[pass_index];
-    if (pass.height == 0) {
-      continue;
-    }
-    std::uint64_t pass_end = 0;
-    if (pass.height > std::numeric_limits<std::uint64_t>::max() - row_cursor) {
-      return std::nullopt;
-    }
-    pass_end = row_cursor + pass.height;
-    if (stream_row < row_cursor || stream_row >= pass_end) {
-      row_cursor = pass_end;
-      continue;
-    }
-    if (coordinate.x < pass.x_start || coordinate.y < pass.y_start ||
-        pass.x_step == 0 || pass.y_step == 0 ||
-        (coordinate.x - pass.x_start) % pass.x_step != 0 ||
-        (coordinate.y - pass.y_start) % pass.y_step != 0) {
-      return std::nullopt;
-    }
-    const std::uint64_t local_x =
-        (coordinate.x - pass.x_start) / pass.x_step;
-    const std::uint64_t row_in_pass =
-        (coordinate.y - pass.y_start) / pass.y_step;
-    if (local_x >= pass.width || row_in_pass >= pass.height ||
-        row_cursor + row_in_pass != stream_row) {
-      return std::nullopt;
-    }
-
-    std::uint64_t sample_bits = 0;
-    if (local_x != 0 &&
-        static_cast<std::uint64_t>(channels) >
-            std::numeric_limits<std::uint64_t>::max() / local_x) {
-      return std::nullopt;
-    }
-    sample_bits = local_x * static_cast<std::uint64_t>(channels);
-    if (anchors.header.bit_depth != 0 &&
-        sample_bits > std::numeric_limits<std::uint64_t>::max() /
-                          anchors.header.bit_depth) {
-      return std::nullopt;
-    }
-    sample_bits *= anchors.header.bit_depth;
-    const std::uint64_t sample_byte = sample_bits / 8;
-    const auto& scanline = anchors.scanlines[stream_row];
-    if (scanline.offset > std::numeric_limits<std::uint64_t>::max() - 1 ||
-        scanline.offset + 1 >
-            std::numeric_limits<std::uint64_t>::max() - sample_byte) {
-      return std::nullopt;
-    }
-    return scanline.offset + 1 + sample_byte;
-  }
-  return std::nullopt;
-}
 
 std::optional<std::pair<std::uint64_t, std::uint64_t>> byte_range_for_bits(
     std::uint64_t bit_begin, std::uint64_t bit_end,
@@ -257,7 +177,6 @@ MainWindow::MainWindow(QWidget* parent,
   workspace_ = std::make_unique<WorkspaceController>(
       *this, widgets_,
       [this](const QString& path) { openRecentFile(path); });
-  view_state_ = &workspace_->viewState();
   session_ = std::make_unique<DocumentSession>(this);
   connect(session_.get(), &DocumentSession::decodePublished, this,
           &MainWindow::onDecodeDone);
@@ -269,13 +188,36 @@ MainWindow::MainWindow(QWidget* parent,
           &MainWindow::onChunkDetailDone);
   connect(session_.get(), &DocumentSession::rowQueryStatus, this,
           &MainWindow::onRowQueryStatus);
+  selection_ = std::make_unique<SelectionNavigationController>(
+      widgets_,
+      SelectionNavigationCallbacks{
+          [this](const pnga::trace_model::ImageCoordinate& coordinate) {
+            requestTraceFor(coordinate);
+          },
+          [this](std::uint64_t row) {
+            // Selection-priority replay for the freshly committed pixel; the
+            // controller only forwards rows while a query index exists.
+            pnga::analysis_engine::QueryCoordinator* query =
+                session_->queryCoordinator();
+            const auto result =
+                query->query_scanline(row,
+                                      pnga::analysis_engine::JobPriority::
+                                          kSelection);
+            inspector_->setRowQueryStatus(QLatin1String(
+                pnga::analysis_engine::query_status_text(result.status)));
+          },
+          [this](const pnga::png_format::ChunkNode& node,
+                 std::uint64_t selection_serial) {
+            session_->requestChunkDetail(node, selection_serial);
+          }},
+      this, &workspace_->viewState());
   connect(block_inspector_,
           &pnga::ui::qt::BlockInspector::showInHexSpansRequested, this,
           [this](const QVector<QPair<quint64, quint64>>& ranges) {
             if (ranges.isEmpty()) {
               return;
             }
-            setHexSource(pnga::ui::qt::HexSource::kFile);
+            selection_->setHexSource(pnga::ui::qt::HexSource::kFile);
             hex_->clearHighlight();
             std::vector<pnga::ui::qt::HexHighlightSpan> highlights;
             highlights.reserve(static_cast<std::size_t>(ranges.size()));
@@ -293,7 +235,7 @@ MainWindow::MainWindow(QWidget* parent,
           [this](quint64 bit_begin, quint64 bit_end) {
             // Block input bits are absolute logical (zlib/IDAT) stream bits,
             // including the zlib header.
-            setHexSource(pnga::ui::qt::HexSource::kIdatStream);
+            selection_->setHexSource(pnga::ui::qt::HexSource::kIdatStream);
             const auto range = byte_range_for_bits(bit_begin, bit_end);
             if (!range.has_value()) {
               return;
@@ -305,7 +247,7 @@ MainWindow::MainWindow(QWidget* parent,
   connect(decode_trace_inspector_,
           &pnga::ui::qt::DecodeTraceInspector::showInHexRequested, this,
           [this](quint64 output_begin, quint64 /*output_end*/) {
-            setHexSource(pnga::ui::qt::HexSource::kInflated);
+            selection_->setHexSource(pnga::ui::qt::HexSource::kInflated);
             hex_->navigateTo(output_begin);
           });
   connect(decode_trace_inspector_,
@@ -314,7 +256,7 @@ MainWindow::MainWindow(QWidget* parent,
             // Token input bits are relative to the start of the Deflate data
             // (after the zlib wrapper); add deflate_data_begin for the IDAT
             // byte offset.
-            setHexSource(pnga::ui::qt::HexSource::kIdatStream);
+            selection_->setHexSource(pnga::ui::qt::HexSource::kIdatStream);
             const auto range = byte_range_for_bits(
                 bit_begin, bit_end, trace_deflate_data_begin_);
             if (!range.has_value()) {
@@ -374,33 +316,22 @@ MainWindow::MainWindow(QWidget* parent,
   });
 
   // Initial empty model so the selection-model connection is valid from the
-  // start; resetDocument() reconnects after each real setModel.
-  model_ = new pnga::ui::qt::ChunkModel(&session_->index(), this);
-  tree_->setModel(model_);
-  connect(tree_->selectionModel(), &QItemSelectionModel::currentChanged,
-          this, &MainWindow::onChunkSelectionChanged);
+  // start; the controller reconnects after each real setModel.
+  selection_->replaceChunkModel(&session_->index());
 
   connect(image_view_, &pnga::ui::qt::DeliveredImageView::pixelSelected,
-          this, &MainWindow::onPixelSelected);
+          selection_.get(), &SelectionNavigationController::onPixelSelected);
   connect(image_view_, &pnga::ui::qt::DeliveredImageView::pixelHovered,
-          this, [this](int x, int y) {
-            const pnga::trace_model::ImageCoordinate coordinate{
-                0, 0, 0, static_cast<std::uint64_t>(x),
-                static_cast<std::uint64_t>(y)};
-            view_state_->set_hover(coordinate);
-            setPixelStatus(x, y);
-          });
+          selection_.get(), &SelectionNavigationController::onPixelHovered);
   connect(image_view_, &pnga::ui::qt::DeliveredImageView::pixelHoverLeft,
-          this, [this] {
-            view_state_->clear_hover();
-            restorePixelStatus();
-          });
+          selection_.get(), &SelectionNavigationController::onPixelHoverLeft);
   connect(image_view_,
-          &pnga::ui::qt::DeliveredImageView::pixelNudgeRequested, this,
-          &MainWindow::nudgeLockedCoordinate);
+          &pnga::ui::qt::DeliveredImageView::pixelNudgeRequested,
+          selection_.get(), &SelectionNavigationController::nudgeLockedCoordinate);
   connect(image_view_,
-          &pnga::ui::qt::DeliveredImageView::selectionCancelled, this,
-          &MainWindow::clearLockedCoordinate);
+          &pnga::ui::qt::DeliveredImageView::selectionCancelled,
+          selection_.get(),
+          &SelectionNavigationController::clearLockedCoordinate);
   x_spin_->installEventFilter(this);
   y_spin_->installEventFilter(this);
   lock_check_->installEventFilter(this);
@@ -412,179 +343,37 @@ MainWindow::MainWindow(QWidget* parent,
   connect(x_spin_, qOverload<int>(&QSpinBox::valueChanged), this,
           [this](int) {
             if (lock_check_->isChecked()) {
-              publishLockedCoordinate();
+              selection_->publishLockedCoordinate();
             }
           });
   connect(y_spin_, qOverload<int>(&QSpinBox::valueChanged), this,
           [this](int) {
             if (lock_check_->isChecked()) {
-              publishLockedCoordinate();
+              selection_->publishLockedCoordinate();
             }
           });
   connect(lock_check_, &QCheckBox::toggled, this, [this](bool locked) {
     if (locked) {
-      publishLockedCoordinate();
+      selection_->publishLockedCoordinate();
     } else {
-      clearLockedCoordinate();
+      selection_->clearLockedCoordinate();
     }
   });
-  connect(base_button_, &QPushButton::clicked, this, [this](bool) {
-    const bool hexadecimal =
-        view_state_->numeric_base != pnga::ui::qt::NumericBase::kHexadecimal;
-    view_state_->numeric_base =
-        hexadecimal ? pnga::ui::qt::NumericBase::kHexadecimal
-                    : pnga::ui::qt::NumericBase::kDecimal;
-    inspector_->setNumericBase(hexadecimal);
-    pixel_view_->setNumericBase(hexadecimal);
-    filtered_view_->setNumericBase(hexadecimal);
-    defiltered_view_->setNumericBase(hexadecimal);
-    updateNumericBaseButton();
-  });
+  connect(base_button_, &QPushButton::clicked, selection_.get(),
+          &SelectionNavigationController::toggleNumericBase);
   connect(hex_source_tabs_, &pnga::ui::qt::HexSourceTabBar::sourceChanged,
-          this, [this](pnga::ui::qt::HexSource source) {
-            view_state_->hex_source = source;
-            updateHexSource();
-          });
+          selection_.get(),
+          &SelectionNavigationController::onHexSourceTabChanged);
 
   resize(1200, 760);
   workspace_->applyDefaults();
   workspace_->restore();
-  updateHexSource();
+  selection_->refreshHexSource();
   workspace_->configureDockInteraction();
 }
 
 MainWindow::~MainWindow() = default;
 
-
-void MainWindow::updateHexSource() {
-  if (hex_source_tabs_ != nullptr) {
-    hex_source_tabs_->setSource(view_state_->hex_source);
-  }
-  const std::shared_ptr<const pnga::io::IByteSource> source = session_->source();
-  if (source == nullptr) {
-    hex_->setSource(nullptr);
-    return;
-  }
-  if (view_state_->hex_source == pnga::ui::qt::HexSource::kIdatStream) {
-    const pnga::png_format::VirtualIDATStream stream(session_->index());
-    hex_->setSource(pnga::ui::qt::make_idat_hex_source(source, stream));
-  } else if (view_state_->hex_source == pnga::ui::qt::HexSource::kInflated) {
-    hex_->setSource(pnga::ui::qt::make_inflated_hex_source(session_->stageSet()));
-  } else if (view_state_->hex_source ==
-             pnga::ui::qt::HexSource::kDefiltered) {
-    hex_->setSource(pnga::ui::qt::make_defiltered_hex_source(session_->stageSet()));
-  } else {
-    hex_->setSource(pnga::ui::qt::make_file_hex_source(source));
-  }
-  hex_->clearHighlight();
-}
-
-void MainWindow::resetLayout() {
-  QSettings settings;
-  settings.beginGroup(QStringLiteral("workspace"));
-  settings.clear();
-  settings.endGroup();
-  settings.beginGroup(QStringLiteral("view"));
-  settings.clear();
-  settings.endGroup();
-  workspace_->applyDefaults();
-  updateHexSource();
-}
-
-void MainWindow::openRecentFile(const QString& path) {
-  if (openFile(path)) {
-    return;
-  }
-  workspace_->refreshRecentFilesMenu();
-  QMessageBox::warning(
-      this, QStringLiteral("PNG Analyzer"),
-      QStringLiteral("Could not open recent file:\n%1").arg(path));
-}
-
-void MainWindow::updateNumericBaseButton() {
-  if (base_button_ == nullptr) {
-    return;
-  }
-  const bool hexadecimal =
-      view_state_->numeric_base == pnga::ui::qt::NumericBase::kHexadecimal;
-  const QString target = hexadecimal ? QStringLiteral("DEC")
-                                     : QStringLiteral("HEX");
-  base_button_->setText(target);
-  base_button_->setToolTip(QStringLiteral("Switch to %1").arg(target));
-}
-
-void MainWindow::publishLockedCoordinate() {
-  const pnga::trace_model::ImageCoordinate coordinate{
-      0, 0, 0, static_cast<std::uint64_t>(x_spin_->value()),
-      static_cast<std::uint64_t>(y_spin_->value())};
-  if (!view_state_->set_locked(coordinate)) {
-    return;
-  }
-  image_view_->setLockedPixel(
-      QPoint(static_cast<int>(coordinate.x), static_cast<int>(coordinate.y)));
-  pixel_view_->setCoordinate(coordinate.x, coordinate.y);
-  filtered_view_->setCoordinate(coordinate.x, coordinate.y);
-  defiltered_view_->setCoordinate(coordinate.x, coordinate.y);
-  inspector_->onPixelSelected(coordinate.x, coordinate.y);
-  pnga::trace_model::Selection update;
-  update.image = coordinate;
-  update.stage = pnga::trace_model::Stage::kDelivered;
-  bus_->publishMerged(kImagePanelOrigin, session_->generation(), update);
-  requestTraceFor(coordinate);
-}
-
-void MainWindow::clearLockedCoordinate() {
-  view_state_->clear_locked();
-  image_view_->clearLockedPixel();
-  {
-    const QSignalBlocker lock_blocker(lock_check_);
-    lock_check_->setChecked(false);
-  }
-  if (view_state_->hover.has_value()) {
-    setPixelStatus(static_cast<int>(view_state_->hover->x),
-                   static_cast<int>(view_state_->hover->y));
-  } else {
-    restorePixelStatus();
-  }
-  pnga::trace_model::Selection current = bus_->current();
-  current.image.reset();
-  if (current.stage == pnga::trace_model::Stage::kDelivered) {
-    current.stage = pnga::trace_model::Stage::kUnknown;
-  }
-  bus_->publish(kImagePanelOrigin, session_->generation(), current);
-}
-
-void MainWindow::nudgeLockedCoordinate(int dx, int dy) {
-  if (!view_state_->locked.has_value() || image_view_->image().isNull()) {
-    return;
-  }
-  const QImage image = image_view_->image();
-  std::uint64_t x = view_state_->locked->x;
-  std::uint64_t y = view_state_->locked->y;
-  if (dx < 0) {
-    if (x == 0) {
-      return;
-    }
-    --x;
-  } else if (dx > 0) {
-    if (x >= static_cast<std::uint64_t>(image.width() - 1)) {
-      return;
-    }
-    ++x;
-  }
-  if (dy < 0) {
-    if (y == 0) {
-      return;
-    }
-    --y;
-  } else if (dy > 0) {
-    if (y >= static_cast<std::uint64_t>(image.height() - 1)) {
-      return;
-    }
-    ++y;
-  }
-  onPixelSelected(static_cast<int>(x), static_cast<int>(y));
-}
 
 void MainWindow::paintEvent(QPaintEvent* event) {
   QMainWindow::paintEvent(event);
@@ -643,7 +432,7 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
       event->type() == QEvent::KeyPress) {
     auto* key_event = static_cast<QKeyEvent*>(event);
     if (key_event->key() == Qt::Key_Escape) {
-      clearLockedCoordinate();
+      selection_->clearLockedCoordinate();
       key_event->accept();
       return true;
     }
@@ -654,6 +443,28 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
 void MainWindow::closeEvent(QCloseEvent* event) {
   workspace_->save();
   QMainWindow::closeEvent(event);
+}
+
+void MainWindow::resetLayout() {
+  QSettings settings;
+  settings.beginGroup(QStringLiteral("workspace"));
+  settings.clear();
+  settings.endGroup();
+  settings.beginGroup(QStringLiteral("view"));
+  settings.clear();
+  settings.endGroup();
+  workspace_->applyDefaults();
+  selection_->refreshHexSource();
+}
+
+void MainWindow::openRecentFile(const QString& path) {
+  if (openFile(path)) {
+    return;
+  }
+  workspace_->refreshRecentFilesMenu();
+  QMessageBox::warning(
+      this, QStringLiteral("PNG Analyzer"),
+      QStringLiteral("Could not open recent file:\n%1").arg(path));
 }
 
 void MainWindow::dragEnterEvent(QDragEnterEvent* event) {
@@ -706,21 +517,55 @@ void MainWindow::onStageDone(std::uint64_t generation) {
   if (generation != session_->generation() || session_->stageSet() == nullptr) {
     return;  // stale stage analysis; never overwrite the current document
   }
-  const auto stage = session_->stageSet();
-  inspector_->setStageSet(stage);
-  pixel_view_->setStageSet(stage);
-  filtered_view_->setStageSet(stage);
-  defiltered_view_->setStageSet(stage);
-  updateHexSource();
-  // updateHexSource() clears the hex highlight; restore the selected chunk's
-  // physical highlight (e.g. the default IHDR) so the hex view keeps showing
-  // it after the stage worker refreshes the source.
-  const QModelIndex current_chunk = tree_->selectionModel()->currentIndex();
-  if (current_chunk.isValid() &&
-      view_state_->hex_source == pnga::ui::qt::HexSource::kFile) {
-    applyChunkHexHighlight(model_->chunkAt(current_chunk.row()));
-  }
+  // The session opened its query coordinator before publishing the stages;
+  // hand the non-null pointer to the selection controller first.
+  selection_->setQueryCoordinator(session_->queryCoordinator());
+  selection_->onStageSetPublished(session_->stageSet());
   openTraceCoordinator();
+}
+
+void MainWindow::onDecodeDone(std::uint64_t generation) {
+  if (generation != session_->generation()) {
+    return;  // stale decode; never overwrite the current document's image
+  }
+  const auto& result = session_->decodeResult();
+  if (!result.success) {
+    image_view_->setImage(QImage());
+    selection_->setDefaultPixelStatus(QStringLiteral("decode failed: %1")
+                                          .arg(QString::fromStdString(
+                                              result.error)));
+    return;
+  }
+  const auto& img = result.image;
+  QImage qimage(static_cast<int>(img.width), static_cast<int>(img.height),
+                QImage::Format_RGBA8888);
+  std::memcpy(qimage.bits(), img.rgba.data(), img.rgba.size());
+  image_view_->setImage(qimage);
+  // Feed the delivered RGBA to the stage inspector's Delivered stage.
+  inspector_->setDeliveredPixels(img.width, img.height, img.rgba);
+  selection_->setDefaultPixelStatus(
+      QStringLiteral("%1 x %2  (bit depth %3, color type %4)")
+          .arg(img.width)
+          .arg(img.height)
+          .arg(img.source_bit_depth)
+          .arg(img.source_color_type));
+  // Establish a deterministic initial provenance target as soon as the
+  // delivered image is available. The stage/query/trace workers may finish
+  // in either order; the trace request is recorded while they are pending
+  // and openTraceCoordinator() replays it once both indexes exist. This
+  // keeps Compression populated immediately after opening a document
+  // instead of requiring an incidental image click first.
+  selection_->onPixelSelected(0, 0);
+}
+
+void MainWindow::onChunkDetailDone(std::uint64_t generation,
+                                   std::uint64_t selection_serial) {
+  if (generation != session_->generation() ||
+      selection_serial != selection_->chunkSelectionSerial() ||
+      chunk_detail_ == nullptr) {
+    return;
+  }
+  chunk_detail_->setDetail(session_->chunkDetail());
 }
 
 void MainWindow::onValidationDone(std::uint64_t generation) {
@@ -783,10 +628,10 @@ bool MainWindow::openFile(const QString& path) {
   if (close_action_ != nullptr) {
     close_action_->setEnabled(true);
   }
-  default_pixel_status_ = QStringLiteral("Loading image…");
-  pixel_label_->setText(default_pixel_status_);
+  selection_->setDefaultPixelStatus(QStringLiteral("Loading image…"));
   bus_->setDocumentGeneration(generation);
-  view_state_->set_document_generation(generation);
+  selection_->setDocument(generation, session_->source(), &session_->index(),
+                          session_->queryCoordinator());
   trace_.reset();
   trace_result_.reset();
   if (trace_state_ != nullptr) {
@@ -812,7 +657,7 @@ bool MainWindow::openFile(const QString& path) {
     const QSignalBlocker lock_blocker(lock_check_);
     lock_check_->setChecked(false);
   }
-  resetDocument();
+  selection_->replaceChunkModel(&session_->index());
   // A newly opened document always starts at the two primary views. This is
   // intentionally independent of the saved workspace tab from the previous
   // document, so Image and Reconstruction are visible immediately.
@@ -836,7 +681,7 @@ void MainWindow::onCloseTriggered() {
   session_->close();
   const std::uint64_t generation = session_->generation();
   bus_->setDocumentGeneration(generation);
-  view_state_->set_document_generation(generation);
+  selection_->clearDocument(generation);
   trace_.reset();
   trace_handle_.reset();
   trace_result_.reset();
@@ -865,13 +710,10 @@ void MainWindow::onCloseTriggered() {
     const QSignalBlocker lock_blocker(lock_check_);
     lock_check_->setChecked(false);
   }
-  view_state_->clear_hover();
-  view_state_->clear_locked();
-  resetDocument();
+  selection_->replaceChunkModel(&session_->index());
   preview_tabs_->setCurrentIndex(0);
   inspector_tabs_->setCurrentIndex(0);
-  default_pixel_status_ = QStringLiteral("No image");
-  pixel_label_->setText(default_pixel_status_);
+  selection_->setDefaultPixelStatus(QStringLiteral("No image"));
   validation_label_->setText(QStringLiteral("Validation: not loaded"));
   validation_label_->setToolTip(QString());
 
@@ -931,194 +773,6 @@ void MainWindow::onOpenTriggered() {
     QMessageBox::warning(this, QStringLiteral("PNG Analyzer"),
                          QStringLiteral("Could not open file:\n%1").arg(path));
   }
-}
-
-void MainWindow::resetDocument() {
-  ++chunk_selection_serial_;
-  if (chunk_detail_ != nullptr) {
-    chunk_detail_->clear();
-  }
-  if (model_ != nullptr) {
-    delete model_;
-  }
-  model_ = new pnga::ui::qt::ChunkModel(&session_->index(), this);
-  tree_->setModel(model_);
-  // setModel() replaces the selection model; reconnect to the new one.
-  connect(tree_->selectionModel(), &QItemSelectionModel::currentChanged,
-          this, &MainWindow::onChunkSelectionChanged);
-  updateHexSource();
-
-  if (model_->rowCount() > 0) {
-    tree_->selectionModel()->setCurrentIndex(
-        model_->index(0, 0),
-        QItemSelectionModel::SelectCurrent | QItemSelectionModel::Rows);
-  }
-}
-
-
-void MainWindow::onDecodeDone(std::uint64_t generation) {
-  if (generation != session_->generation()) {
-    return;  // stale decode; never overwrite the current document's image
-  }
-  const auto& result = session_->decodeResult();
-  if (!result.success) {
-    image_view_->setImage(QImage());
-    default_pixel_status_ = QStringLiteral("decode failed: %1")
-                                .arg(QString::fromStdString(result.error));
-    pixel_label_->setText(default_pixel_status_);
-    return;
-  }
-  const auto& img = result.image;
-  QImage qimage(static_cast<int>(img.width), static_cast<int>(img.height),
-                QImage::Format_RGBA8888);
-  std::memcpy(qimage.bits(), img.rgba.data(), img.rgba.size());
-  image_view_->setImage(qimage);
-  // Feed the delivered RGBA to the stage inspector's Delivered stage.
-  inspector_->setDeliveredPixels(img.width, img.height, img.rgba);
-  default_pixel_status_ =
-      QStringLiteral("%1 x %2  (bit depth %3, color type %4)")
-          .arg(img.width)
-          .arg(img.height)
-          .arg(img.source_bit_depth)
-          .arg(img.source_color_type);
-  pixel_label_->setText(default_pixel_status_);
-  // Establish a deterministic initial provenance target as soon as the
-  // delivered image is available. The stage/query/trace workers may finish
-  // in either order; onPixelSelected() records the request while they are
-  // pending and openTraceCoordinator() replays it once both indexes exist.
-  // This keeps Compression populated immediately after opening a document
-  // instead of requiring an incidental image click first.
-  onPixelSelected(0, 0);
-}
-
-void MainWindow::onChunkSelectionChanged(const QModelIndex& current,
-                                         const QModelIndex& /*previous*/) {
-  const std::uint64_t selection_serial = ++chunk_selection_serial_;
-  if (!current.isValid()) {
-    hex_->clearHighlight();
-    if (chunk_detail_ != nullptr) {
-      chunk_detail_->clear();
-    }
-    return;
-  }
-  const auto& node = model_->chunkAt(current.row());
-
-  // Chunk offsets are physical file offsets; never apply them to a virtual
-  // IDAT or reconstructed stage address space.
-  view_state_->hex_source = pnga::ui::qt::HexSource::kFile;
-  updateHexSource();
-
-  if (chunk_detail_ != nullptr && session_->hasDocument()) {
-    chunk_detail_->setLoading();
-    session_->requestChunkDetail(node, selection_serial);
-  }
-
-  applyChunkHexHighlight(node);
-
-  // Publish the canonical selection through the bus (single controller).
-  pnga::trace_model::Selection sel;
-  sel.node = static_cast<pnga::trace_model::NodeId>(current.row());
-  sel.physical_spans = {
-      pnga::trace_model::BitSpan{node.header_offset, kHeaderSpanLength},
-      pnga::trace_model::BitSpan{node.data_offset, node.data_length},
-      pnga::trace_model::BitSpan{node.crc_offset, kCrcSpanLength}};
-  sel.stage = pnga::trace_model::Stage::kChunk;
-  bus_->publishMerged(kChunkPanelOrigin, session_->generation(), sel);
-}
-
-void MainWindow::applyChunkHexHighlight(
-    const pnga::png_format::ChunkNode& node) {
-  if (hex_ == nullptr) {
-    return;
-  }
-  std::vector<pnga::ui::qt::HexHighlightSpan> spans;
-  spans.push_back({node.header_offset, kHeaderSpanLength,
-                   QColor(0x9E, 0x9E, 0x9E)});  // header: gray
-  spans.push_back({node.data_offset, node.data_length,
-                   QColor(0x42, 0xA5, 0xF5)});  // data: blue
-  spans.push_back({node.crc_offset, kCrcSpanLength,
-                   QColor(0x66, 0xBB, 0x6A)});  // CRC: green
-  hex_->setHighlight(std::move(spans));
-  hex_->navigateTo(node.header_offset);
-}
-
-void MainWindow::onChunkDetailDone(std::uint64_t generation,
-                                   std::uint64_t selection_serial) {
-  if (generation != session_->generation() ||
-      selection_serial != chunk_selection_serial_ || chunk_detail_ == nullptr) {
-    return;
-  }
-  chunk_detail_->setDetail(session_->chunkDetail());
-}
-
-void MainWindow::setPixelStatus(int x, int y) {
-  const auto rgba = image_view_->rgbaAt(x, y);
-  if (!rgba.has_value()) {
-    restorePixelStatus();
-    return;
-  }
-  pixel_label_->setText(
-      QStringLiteral("pixel (%1, %2) RGBA(%3, %4, %5, %6)")
-          .arg(x)
-          .arg(y)
-          .arg((*rgba)[0])
-          .arg((*rgba)[1])
-          .arg((*rgba)[2])
-          .arg((*rgba)[3]));
-}
-
-void MainWindow::restorePixelStatus() {
-  if (view_state_->locked.has_value()) {
-    setPixelStatus(static_cast<int>(view_state_->locked->x),
-                   static_cast<int>(view_state_->locked->y));
-    return;
-  }
-  pixel_label_->setText(default_pixel_status_);
-}
-
-void MainWindow::onPixelSelected(int x, int y) {
-  {
-    const QSignalBlocker x_blocker(x_spin_);
-    const QSignalBlocker y_blocker(y_spin_);
-    const QSignalBlocker lock_blocker(lock_check_);
-    x_spin_->setValue(x);
-    y_spin_->setValue(y);
-    lock_check_->setChecked(true);
-  }
-  inspector_->onPixelSelected(static_cast<std::uint64_t>(x),
-                              static_cast<std::uint64_t>(y));
-  pnga::analysis_engine::QueryCoordinator* query = session_->queryCoordinator();
-  if (query != nullptr && query->has_index() &&
-      session_->stageSet() != nullptr) {
-    // Map the clicked pixel to its stream row and issue a selection-priority
-    // replay if the row's data is not materialized yet.
-    const auto& layout = query->anchors().layout;
-    const auto row = pnga::analysis_engine::stream_row_for_pixel(
-        layout, static_cast<std::uint64_t>(x), static_cast<std::uint64_t>(y));
-    if (row.has_value()) {
-      const auto result = query->query_scanline(
-          *row, pnga::analysis_engine::JobPriority::kSelection);
-      inspector_->setRowQueryStatus(QLatin1String(
-          pnga::analysis_engine::query_status_text(result.status)));
-    }
-  }
-  pnga::trace_model::Selection sel;
-  sel.image = pnga::trace_model::ImageCoordinate{
-      0, 0, 0, static_cast<std::uint64_t>(x), static_cast<std::uint64_t>(y)};
-  sel.stage = pnga::trace_model::Stage::kDelivered;
-  view_state_->set_locked(*sel.image);
-  image_view_->setLockedPixel(QPoint(x, y));
-  pixel_view_->setCoordinate(static_cast<std::uint64_t>(x),
-                             static_cast<std::uint64_t>(y));
-  filtered_view_->setCoordinate(static_cast<std::uint64_t>(x),
-                                static_cast<std::uint64_t>(y));
-  defiltered_view_->setCoordinate(static_cast<std::uint64_t>(x),
-                                  static_cast<std::uint64_t>(y));
-  bus_->publishMerged(kImagePanelOrigin, session_->generation(), sel);
-  requestTraceFor(
-      pnga::trace_model::ImageCoordinate{0, 0, 0, static_cast<std::uint64_t>(x),
-                                         static_cast<std::uint64_t>(y)});
-  setPixelStatus(x, y);
 }
 
 // ---------------------------------------------------------------------------
@@ -1254,12 +908,4 @@ void MainWindow::requestTraceFor(
                       ? std::make_unique<pnga::analysis_engine::TraceTaskHandle>(
                             handle)
                       : nullptr;
-}
-
-void MainWindow::setHexSource(pnga::ui::qt::HexSource source) {
-  view_state_->hex_source = source;
-  if (hex_source_tabs_ != nullptr) {
-    hex_source_tabs_->setSource(source);
-  }
-  updateHexSource();
 }
