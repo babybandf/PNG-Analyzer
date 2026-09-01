@@ -219,14 +219,62 @@ FastCompressionIndexView build_fast_compression_index(
     const pnga::png_format::VirtualIDATStream& stream) {
   FastCompressionIndexView view;
   view.generation = generation;
-  view.stream.stream_range = {
-      pnga::trace_model::ZlibByteOffset{0},
-      pnga::trace_model::ZlibByteOffset{stream.size()}};
-  view.stream.deflate_data_begin =
-      pnga::trace_model::ZlibBitOffset{block_index.zlib_header_bits};
-  view.stream.idat_segment_count = stream.segment_count();
-  view.stream.total_output_bytes = block_index.total_output_bytes;
-  view.stream.adler_ok = block_index.adler_ok;
+
+  // Stream summary: wrapper, byte-aligned payload origin, IDAT spans, checksum
+  // and stop facts, projected once per generation with checked arithmetic.
+  FastCompressionStreamSummary& summary = view.stream;
+  summary.wrapper = block_index.wrapper;
+  summary.adler = block_index.adler;
+  summary.total_output_bytes = block_index.total_output_bytes;
+  summary.adler_ok = block_index.adler.status ==
+                     pnga::deflate_index::Adler32Status::kMatch;
+  if (block_index.stop_input_bit.has_value()) {
+    summary.stop_input =
+        pnga::trace_model::ZlibBitOffset{*block_index.stop_input_bit};
+  }
+  if (block_index.stop_output_byte.has_value()) {
+    summary.stop_output =
+        pnga::trace_model::InflatedByteOffset{*block_index.stop_output_byte};
+  }
+
+  const auto stream_range =
+      make_range(pnga::trace_model::ZlibByteOffset{0}, stream.size());
+  if (stream_range.has_value()) {
+    summary.stream_range = *stream_range;
+  } else {
+    view.status = FastCompressionIndexStatus::kError;
+    view.error = "fast stream range overflowed";
+    return view;
+  }
+
+  if (block_index.zlib_header_bits % 8 != 0) {
+    view.status = FastCompressionIndexStatus::kError;
+    view.error = "DEFLATE payload origin is not byte-aligned";
+    return view;
+  }
+  summary.deflate_data_begin =
+      pnga::trace_model::ZlibByteOffset{block_index.zlib_header_bits / 8};
+
+  summary.idat_spans.reserve(stream.segment_count());
+  for (std::size_t i = 0; i < stream.segment_count(); ++i) {
+    const pnga::png_format::IdatSegment& segment = stream.segment(i);
+    const auto logical =
+        make_range(pnga::trace_model::ZlibByteOffset{segment.logical_start},
+                   segment.length);
+    const auto physical =
+        make_range(pnga::trace_model::FileByteOffset{segment.physical_offset},
+                   segment.length);
+    if (!logical.has_value() || !physical.has_value()) {
+      view.status = FastCompressionIndexStatus::kError;
+      view.error = "fast IDAT span mapping overflowed";
+      return view;
+    }
+    summary.idat_spans.push_back(
+        FastCompressionIdatSpan{*logical, *physical});
+  }
+  summary.idat_segment_count = summary.idat_spans.size();
+
+  // Complete Block list with every physical bit span.
   view.blocks.reserve(block_index.blocks.size());
   for (const auto& block : block_index.blocks) {
     FastCompressionBlockRow row;
@@ -243,13 +291,11 @@ FastCompressionIndexView build_fast_compression_index(
                                    &row.physical_spans)) {
       view.status = FastCompressionIndexStatus::kError;
       view.error = "fast block input provenance is unavailable";
+      return view;
     }
     view.blocks.push_back(std::move(row));
   }
 
-  if (view.status == FastCompressionIndexStatus::kError) {
-    return view;
-  }
   if (block_index.success) {
     view.status = FastCompressionIndexStatus::kReady;
   } else if (!block_index.blocks.empty()) {

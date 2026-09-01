@@ -7,6 +7,8 @@
 
 #include "pnga/analysis-engine/trace_query.h"
 
+#include <pnga/deflate-index/block_index.h>
+
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -75,11 +77,29 @@ enum class FastCompressionIndexStatus {
 const char* fast_compression_index_status_text(
     FastCompressionIndexStatus status) noexcept;
 
+// One physical IDAT data segment as part of the logical zlib stream. The
+// logical range and the physical file range are half-open and cover the same
+// number of bytes.
+struct FastCompressionIdatSpan {
+  pnga::trace_model::ZlibByteRange logical_range{};
+  pnga::trace_model::FileByteRange physical_range{};
+  bool operator==(const FastCompressionIdatSpan&) const = default;
+};
+
 struct FastCompressionStreamSummary {
   pnga::trace_model::ZlibByteRange stream_range{};
-  pnga::trace_model::ZlibBitOffset deflate_data_begin{};
-  std::uint64_t idat_segment_count = 0;
+  pnga::deflate_index::ZlibWrapperInfo wrapper;
+  // Byte-aligned start of the DEFLATE payload in the logical zlib stream:
+  // ZlibByteOffset{2} for an ordinary zlib stream, ZlibByteOffset{6} with FDICT.
+  pnga::trace_model::ZlibByteOffset deflate_data_begin{};
+  std::vector<FastCompressionIdatSpan> idat_spans;
   std::uint64_t total_output_bytes = 0;
+  pnga::deflate_index::Adler32Info adler;
+  std::optional<pnga::trace_model::ZlibBitOffset> stop_input;
+  std::optional<pnga::trace_model::InflatedByteOffset> stop_output;
+  // Legacy GUI-facing projections retained until the Compression Inspector UI
+  // stage rewrites the Qt binding; derived from idat_spans and adler.status.
+  std::uint64_t idat_segment_count = 0;
   bool adler_ok = false;
 
   bool operator==(const FastCompressionStreamSummary&) const = default;

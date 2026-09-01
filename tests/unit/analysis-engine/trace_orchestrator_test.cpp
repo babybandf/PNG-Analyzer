@@ -19,6 +19,7 @@ using pnga::analysis_engine::TraceOrchestrationRequest;
 using pnga::analysis_engine::TraceOrchestrator;
 using pnga::analysis_engine::TraceQueryStatus;
 using pnga::analysis_engine::TraceSubmitStatus;
+using pnga::deflate_index::Adler32Status;
 using pnga::io::MemoryByteSource;
 
 namespace {
@@ -29,6 +30,46 @@ std::shared_ptr<const pnga::io::IByteSource> shared_source(
 }
 
 }  // namespace
+
+TEST_CASE("Fast index publishes complete blocks without any trace job",
+          "[analysis-engine][wp5u12a]") {
+  const auto encoded =
+      pnga_test::encode_png(8, 8, 8, 0, /*interlace=*/false,
+                            /*all_none=*/true);
+  TraceOrchestrator orchestrator(/*worker_count=*/1, /*budget=*/1u << 20);
+  REQUIRE(orchestrator.open(shared_source(encoded.png_bytes), 1u << 20));
+  REQUIRE(orchestrator.has_index());
+  REQUIRE(orchestrator.queued_tasks() == 0);
+
+  const auto fast = orchestrator.fast_index();
+  REQUIRE(fast.status ==
+          pnga::analysis_engine::FastCompressionIndexStatus::kReady);
+  REQUIRE(fast.generation == orchestrator.document_generation());
+  REQUIRE(fast.stream.deflate_data_begin ==
+          pnga::trace_model::ZlibByteOffset{2});
+  REQUIRE(fast.stream.wrapper.compression_method == 8);
+  REQUIRE(fast.stream.wrapper.window_bits == 15);
+  REQUIRE(fast.stream.wrapper.header_valid);
+  REQUIRE_FALSE(fast.stream.wrapper.preset_dictionary);
+  REQUIRE(fast.stream.adler.status == Adler32Status::kMatch);
+  REQUIRE(fast.stream.adler.expected == fast.stream.adler.actual);
+  REQUIRE_FALSE(fast.stream.stop_input.has_value());
+  REQUIRE_FALSE(fast.stream.stop_output.has_value());
+  REQUIRE_FALSE(fast.stream.idat_spans.empty());
+
+  // The IDAT spans tile the whole logical stream without gaps.
+  std::uint64_t span_bytes = 0;
+  for (const auto& span : fast.stream.idat_spans) {
+    span_bytes += span.logical_range.end.raw_value() -
+                  span.logical_range.begin.raw_value();
+  }
+  REQUIRE(span_bytes == fast.stream.stream_range.end.raw_value());
+
+  // The complete Block list is available with no submitted work.
+  REQUIRE_FALSE(fast.blocks.empty());
+  REQUIRE(fast.blocks.back().last);
+  REQUIRE(orchestrator.queued_tasks() == 0);
+}
 
 TEST_CASE("Trace submit status text is stable", "[analysis-engine][wp5t0b]") {
   REQUIRE(std::string(pnga::analysis_engine::trace_submit_status_text(
