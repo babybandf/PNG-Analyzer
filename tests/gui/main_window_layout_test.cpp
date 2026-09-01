@@ -58,6 +58,9 @@ class MainWindowLayoutTest : public QObject {
   void hexHighlightsSelectedChunkAfterStageCompletes();
   void recentFilesMenuPersistsAndCapsHistory();
   void viewMenuTogglesCoreViewsAndFileHasExit();
+  // WP-5U15 Task 1 characterization: facade identities and replacement reset.
+  void facadeKeepsStableActionAndStatusIdentities();
+  void replacingOpenDocumentResetsVisiblePrimaryState();
 };
 
 void MainWindowLayoutTest::init() {
@@ -782,6 +785,57 @@ void MainWindowLayoutTest::viewMenuTogglesCoreViewsAndFileHasExit() {
   QVERIFY(chunks->isVisible());
   QVERIFY(hex_panel->isVisible());
   QVERIFY(inspector->isVisible());
+}
+
+void MainWindowLayoutTest::facadeKeepsStableActionAndStatusIdentities() {
+  MainWindow window;
+  QCOMPARE(window.windowTitle(), QStringLiteral("PNG Analyzer"));
+  QVERIFY(window.findChild<QAction*>(QStringLiteral("closeImageAction")));
+  QVERIFY(window.findChild<QAction*>(QStringLiteral("exitAction")));
+  QVERIFY(window.findChild<QAction*>(QStringLiteral("showHexView")));
+  QVERIFY(window.findChild<QAction*>(QStringLiteral("showChunkList")));
+  QVERIFY(window.findChild<QAction*>(QStringLiteral("showInspector")));
+  QCOMPARE(window.findChild<QLabel*>(QStringLiteral("pixelStatus"))->text(),
+           QStringLiteral("No image"));
+  QCOMPARE(window.findChild<QLabel*>(QStringLiteral("validationStatus"))->text(),
+           QStringLiteral("Validation: not loaded"));
+}
+
+void MainWindowLayoutTest::replacingOpenDocumentResetsVisiblePrimaryState() {
+  const QByteArray bytes = QByteArray::fromBase64(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+  QTemporaryFile first;
+  QVERIFY(first.open());
+  QCOMPARE(first.write(bytes), bytes.size());
+  first.flush();
+  QTemporaryFile second;
+  QVERIFY(second.open());
+  QCOMPARE(second.write(bytes), bytes.size());
+  second.flush();
+
+  MainWindow window;
+  auto* preview = window.findChild<QTabWidget*>(QStringLiteral("previewTabs"));
+  auto* inspector =
+      window.findChild<QTabWidget*>(QStringLiteral("inspectorTabs"));
+  auto* close_action =
+      window.findChild<QAction*>(QStringLiteral("closeImageAction"));
+  QVERIFY(preview != nullptr);
+  QVERIFY(inspector != nullptr);
+  QVERIFY(close_action != nullptr);
+
+  QVERIFY(window.openFile(first.fileName()));
+  QCoreApplication::processEvents();
+  preview->setCurrentIndex(1);
+  inspector->setCurrentIndex(1);
+  QVERIFY(close_action->isEnabled());
+
+  QVERIFY(window.openFile(second.fileName()));
+  QCoreApplication::processEvents();
+  QCOMPARE(preview->currentIndex(), 0);
+  QCOMPARE(inspector->currentIndex(), 0);
+  QVERIFY(close_action->isEnabled());
+  QVERIFY(window.windowTitle().contains(
+      QStringLiteral(" — %1").arg(QFileInfo(second.fileName()).absoluteFilePath())));
 }
 
 QTEST_MAIN(MainWindowLayoutTest)

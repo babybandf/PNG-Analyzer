@@ -138,9 +138,16 @@ target_compile_features(pnga_gui_selection_view_state_tests PRIVATE cxx_std_20)
 
 add_test(NAME gui_selection_view_state_tests COMMAND pnga_gui_selection_view_state_tests)
 
+# WP-5U15: normalized application-source list shared by the three MainWindow
+# test executables so extraction tasks keep source parity. Do not compile
+# src/main.cpp into tests.
+set(PNGA_GUI_APP_TEST_SOURCES
+  ../../apps/png-analyzer-gui/src/main_window.cpp
+)
+
 add_executable(pnga_gui_main_window_layout_tests
   main_window_layout_test.cpp
-  ../../apps/png-analyzer-gui/src/main_window.cpp
+  ${PNGA_GUI_APP_TEST_SOURCES}
 )
 set_target_properties(pnga_gui_main_window_layout_tests PROPERTIES AUTOMOC ON)
 target_include_directories(pnga_gui_main_window_layout_tests PRIVATE
@@ -160,7 +167,7 @@ add_test(NAME gui_main_window_layout_tests COMMAND pnga_gui_main_window_layout_t
 
 add_executable(pnga_gui_trace_pipeline_integration_tests
   trace_pipeline_integration_test.cpp
-  ../../apps/png-analyzer-gui/src/main_window.cpp
+  ${PNGA_GUI_APP_TEST_SOURCES}
 )
 set_target_properties(pnga_gui_trace_pipeline_integration_tests PROPERTIES AUTOMOC ON)
 target_include_directories(pnga_gui_trace_pipeline_integration_tests PRIVATE
@@ -195,7 +202,7 @@ add_test(NAME gui_compression_inspector_responsive_tests
 
 add_executable(pnga_gui_cross_platform_gate_tests
   cross_platform_gui_gate_test.cpp
-  ../../apps/png-analyzer-gui/src/main_window.cpp
+  ${PNGA_GUI_APP_TEST_SOURCES}
 )
 set_target_properties(pnga_gui_cross_platform_gate_tests PROPERTIES AUTOMOC ON)
 target_include_directories(pnga_gui_cross_platform_gate_tests PRIVATE

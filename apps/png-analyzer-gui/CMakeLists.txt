@@ -25,9 +25,15 @@ elseif(APPLE)
   list(APPEND PNGA_GUI_PLATFORM_SOURCES "${PNGA_MACOS_ICON}")
 endif()
 
+# WP-5U15: one application-source list shared by the executable and the
+# MainWindow test executables so extraction tasks keep source parity.
+set(PNGA_GUI_APP_SOURCES
+  src/main_window.cpp
+)
+
 add_executable(pnga_analyzer_gui
   src/main.cpp
-  src/main_window.cpp
+  ${PNGA_GUI_APP_SOURCES}
   ${PNGA_GUI_PLATFORM_SOURCES}
 )
 set_target_properties(pnga_analyzer_gui PROPERTIES

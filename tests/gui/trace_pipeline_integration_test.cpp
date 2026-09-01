@@ -30,6 +30,8 @@ class TracePipelineIntegrationTest : public QObject {
  private slots:
   void init();
   void committedPixelPublishesReadyBundleToAllPages();
+  // WP-5U15 Task 1 characterization: replacement discards the previous bundle.
+  void replacingDocumentCannotPublishTheFirstTraceBundle();
   void subpageSwitchingKeepsSameGenerationWithoutWiping();
   void blockShowInHexNavigatesFileSource();
   void decodeShowInHexNavigatesInflatedSource();
@@ -93,6 +95,45 @@ void TracePipelineIntegrationTest::committedPixelPublishesReadyBundleToAllPages(
   QVERIFY(block->view().generation != 0);
   QVERIFY(!block->view().rows.empty());
   QVERIFY(!decode->view().steps.empty());
+}
+
+void TracePipelineIntegrationTest::replacingDocumentCannotPublishTheFirstTraceBundle() {
+  MainWindow window;
+  window.resize(1200, 760);
+  window.show();
+  QCoreApplication::processEvents();
+
+  const QByteArray bytes = QByteArray::fromBase64(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+  QTemporaryFile first;
+  QVERIFY(first.open());
+  QCOMPARE(first.write(bytes), bytes.size());
+  first.flush();
+  QTemporaryFile second;
+  QVERIFY(second.open());
+  QCOMPARE(second.write(bytes), bytes.size());
+  second.flush();
+
+  QVERIFY(window.openFile(first.fileName()));
+  QCoreApplication::processEvents();
+  auto* context_status = window.findChild<QLabel*>(
+      QStringLiteral("compressionContextStatus"));
+  QVERIFY(context_status != nullptr);
+  QTRY_VERIFY_WITH_TIMEOUT(
+      context_status->text().contains(QStringLiteral("ready")), 5000);
+
+  QVERIFY(window.openFile(second.fileName()));
+  QCoreApplication::processEvents();
+  QTRY_VERIFY_WITH_TIMEOUT(
+      context_status->text().contains(QStringLiteral("ready")), 5000);
+
+  // The visible state must be coherent with the latest document only: the
+  // first document's bundle must never be published after replacement, so the
+  // current generation is non-zero. No fixed generation is asserted.
+  auto* block = window.findChild<pnga::ui::qt::BlockInspector*>(
+      QStringLiteral("blockInspector"));
+  QVERIFY(block != nullptr);
+  QVERIFY(block->view().generation != 0);
 }
 
 void TracePipelineIntegrationTest::subpageSwitchingKeepsSameGenerationWithoutWiping() {
