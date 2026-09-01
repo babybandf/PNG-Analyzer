@@ -21,7 +21,7 @@ namespace pnga::deflate_index {
 
 namespace {
 
-constexpr std::array<char, 8> kMagic = {'P', 'N', 'G', 'A', 'I', 'D', 'X', 1};
+constexpr std::array<char, 8> kMagic = {'P', 'N', 'G', 'A', 'I', 'D', 'X', 2};
 constexpr std::uint64_t kMaxCacheBytes = 64ULL * 1024ULL * 1024ULL;
 constexpr std::uint64_t kMaxEntries = 1'000'000;
 constexpr std::uint32_t kMaxStringBytes = 4096;
@@ -226,6 +226,22 @@ bool read_key(Reader& reader, IndexCacheKey& key) {
          reader.string(key.decode_options);
 }
 
+bool write_optional_u32(Writer& writer,
+                        const std::optional<std::uint32_t>& value) {
+  if (!writer.byte(value.has_value() ? 1 : 0)) {
+    return false;
+  }
+  return !value.has_value() || writer.u32(*value);
+}
+
+bool write_optional_u64(Writer& writer,
+                        const std::optional<std::uint64_t>& value) {
+  if (!writer.byte(value.has_value() ? 1 : 0)) {
+    return false;
+  }
+  return !value.has_value() || writer.u64(*value);
+}
+
 bool write_data(Writer& writer, const PersistentIndexData& data) {
   if (!data.blocks.success || !data.access.success ||
       data.blocks.blocks.size() > kMaxEntries ||
@@ -246,9 +262,22 @@ bool write_data(Writer& writer, const PersistentIndexData& data) {
       return false;
     }
   }
-  if (!writer.u64(data.blocks.zlib_header_bits) ||
+  const std::uint8_t adler_status =
+      static_cast<std::uint8_t>(data.blocks.adler.status);
+  if (adler_status > 2 ||
+      !writer.u64(data.blocks.zlib_header_bits) ||
       !writer.u64(data.blocks.total_output_bytes) ||
-      !writer.byte(data.blocks.adler_ok ? 1 : 0) ||
+      !writer.byte(data.blocks.wrapper.cmf) ||
+      !writer.byte(data.blocks.wrapper.flg) ||
+      !writer.byte(data.blocks.wrapper.compression_method) ||
+      !writer.byte(data.blocks.wrapper.window_bits) ||
+      !writer.byte(data.blocks.wrapper.preset_dictionary ? 1 : 0) ||
+      !writer.byte(data.blocks.wrapper.header_valid ? 1 : 0) ||
+      !writer.byte(adler_status) ||
+      !write_optional_u32(writer, data.blocks.adler.expected) ||
+      !write_optional_u32(writer, data.blocks.adler.actual) ||
+      !write_optional_u64(writer, data.blocks.stop_input_bit) ||
+      !write_optional_u64(writer, data.blocks.stop_output_byte) ||
       !writer.u64(data.access.points.size())) {
     return false;
   }
@@ -266,6 +295,40 @@ bool write_data(Writer& writer, const PersistentIndexData& data) {
   return writer.u64(data.access.total_output_bytes) &&
          writer.bytes(data.access.zlib_header) &&
          writer.byte(data.access.adler_ok ? 1 : 0);
+}
+
+bool read_optional_u32(Reader& reader, std::optional<std::uint32_t>& value) {
+  std::uint8_t present = 0;
+  std::uint32_t raw = 0;
+  if (!reader.byte(present) || present > 1) {
+    return false;
+  }
+  if (present == 0) {
+    value = std::nullopt;
+    return true;
+  }
+  if (!reader.u32(raw)) {
+    return false;
+  }
+  value = raw;
+  return true;
+}
+
+bool read_optional_u64(Reader& reader, std::optional<std::uint64_t>& value) {
+  std::uint8_t present = 0;
+  std::uint64_t raw = 0;
+  if (!reader.byte(present) || present > 1) {
+    return false;
+  }
+  if (present == 0) {
+    value = std::nullopt;
+    return true;
+  }
+  if (!reader.u64(raw)) {
+    return false;
+  }
+  value = raw;
+  return true;
 }
 
 bool read_data(Reader& reader, PersistentIndexData& data) {
@@ -295,16 +358,31 @@ bool read_data(Reader& reader, PersistentIndexData& data) {
     block.last = last != 0;
     data.blocks.blocks.push_back(std::move(block));
   }
-  std::uint8_t adler = 0;
+  std::uint8_t preset_dictionary = 0;
+  std::uint8_t header_valid = 0;
+  std::uint8_t adler_status = 0;
   if (!reader.u64(data.blocks.zlib_header_bits) ||
-      !reader.u64(data.blocks.total_output_bytes) || !reader.byte(adler) ||
-      adler > 1 || !reader.u64(count) || count == 0 ||
+      !reader.u64(data.blocks.total_output_bytes) ||
+      !reader.byte(data.blocks.wrapper.cmf) ||
+      !reader.byte(data.blocks.wrapper.flg) ||
+      !reader.byte(data.blocks.wrapper.compression_method) ||
+      !reader.byte(data.blocks.wrapper.window_bits) ||
+      !reader.byte(preset_dictionary) || !reader.byte(header_valid) ||
+      !reader.byte(adler_status) || preset_dictionary > 1 ||
+      header_valid > 1 || adler_status > 2 ||
+      !read_optional_u32(reader, data.blocks.adler.expected) ||
+      !read_optional_u32(reader, data.blocks.adler.actual) ||
+      !read_optional_u64(reader, data.blocks.stop_input_bit) ||
+      !read_optional_u64(reader, data.blocks.stop_output_byte) ||
+      !reader.u64(count) || count == 0 ||
       count > kMaxEntries || reader.remaining() < kAccessFooterBytes ||
       count > (reader.remaining() - kAccessFooterBytes) /
                   kMinimumAccessRecordBytes) {
     return false;
   }
-  data.blocks.adler_ok = adler != 0;
+  data.blocks.wrapper.preset_dictionary = preset_dictionary != 0;
+  data.blocks.wrapper.header_valid = header_valid != 0;
+  data.blocks.adler.status = static_cast<Adler32Status>(adler_status);
 
   data.access.points.reserve(static_cast<std::size_t>(count));
   std::uint64_t previous_output = 0;

@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <string>
 #include <system_error>
 #include <utility>
@@ -18,12 +19,14 @@ namespace {
 
 using pnga::deflate_index::AccessIndexResult;
 using pnga::deflate_index::AccessPoint;
+using pnga::deflate_index::Adler32Status;
 using pnga::deflate_index::BlockIndexResult;
 using pnga::deflate_index::BlockType;
 using pnga::deflate_index::IndexCache;
 using pnga::deflate_index::IndexCacheKey;
 using pnga::deflate_index::IndexCacheLookup;
 using pnga::deflate_index::PersistentIndexData;
+using pnga::deflate_index::ZlibWrapperInfo;
 
 std::byte B(unsigned int value) {
   return static_cast<std::byte>(value & 0xFFu);
@@ -55,7 +58,10 @@ PersistentIndexData index_data() {
   data.blocks.success = true;
   data.blocks.zlib_header_bits = 16;
   data.blocks.total_output_bytes = 100;
-  data.blocks.adler_ok = true;
+  data.blocks.wrapper = ZlibWrapperInfo{0x78, 0x9C, 8, 15, false, true};
+  data.blocks.adler.status = Adler32Status::kMatch;
+  data.blocks.adler.expected = 0x08962599u;
+  data.blocks.adler.actual = 0x08962599u;
   data.blocks.blocks = {
       {0, BlockType::kFixed, false, 16, 37, 0, 64},
       {1, BlockType::kDynamic, true, 37, 89, 64, 100},
@@ -84,7 +90,12 @@ void require_same_index(const PersistentIndexData& actual,
   REQUIRE(actual.blocks.zlib_header_bits == expected.blocks.zlib_header_bits);
   REQUIRE(actual.blocks.total_output_bytes ==
           expected.blocks.total_output_bytes);
-  REQUIRE(actual.blocks.adler_ok == expected.blocks.adler_ok);
+  REQUIRE(actual.blocks.wrapper == expected.blocks.wrapper);
+  REQUIRE(actual.blocks.adler.status == expected.blocks.adler.status);
+  REQUIRE(actual.blocks.adler.expected == expected.blocks.adler.expected);
+  REQUIRE(actual.blocks.adler.actual == expected.blocks.adler.actual);
+  REQUIRE(actual.blocks.stop_input_bit == expected.blocks.stop_input_bit);
+  REQUIRE(actual.blocks.stop_output_byte == expected.blocks.stop_output_byte);
   REQUIRE(actual.blocks.blocks.size() == expected.blocks.blocks.size());
   for (std::size_t i = 0; i < expected.blocks.blocks.size(); ++i) {
     REQUIRE(actual.blocks.blocks[i].index == expected.blocks.blocks[i].index);
@@ -202,4 +213,75 @@ TEST_CASE("Persistent index cache does not retain session snapshots",
   // session snapshot type is present in the public cache data.
   REQUIRE(loaded.data.blocks.blocks.size() == 2);
   REQUIRE(loaded.data.access.points.size() == 2);
+}
+
+TEST_CASE("Persistent index cache round-trips every structured block fact",
+          "[deflate-index][wp405]") {
+  TestCacheRoot temp;
+  const IndexCache cache(temp.root);
+  const auto cache_key = key();
+
+  // Mismatched checksum with both values and exact stop offsets.
+  PersistentIndexData mismatch = index_data();
+  mismatch.blocks.adler.status = Adler32Status::kMismatch;
+  mismatch.blocks.adler.expected = 0x11223344u;
+  mismatch.blocks.adler.actual = 0x55667788u;
+  mismatch.blocks.stop_input_bit = 89;
+  mismatch.blocks.stop_output_byte = 100;
+  REQUIRE(cache.store(cache_key, mismatch).success);
+  const auto loaded_mismatch = cache.load(cache_key);
+  REQUIRE(loaded_mismatch.status == IndexCacheLookup::kHit);
+  require_same_index(loaded_mismatch.data, mismatch);
+
+  // Not-computed checksum with absent values and absent stop offsets.
+  PersistentIndexData not_computed = index_data();
+  not_computed.blocks.adler.status = Adler32Status::kNotComputed;
+  not_computed.blocks.adler.expected = std::nullopt;
+  not_computed.blocks.adler.actual = std::nullopt;
+  not_computed.blocks.stop_input_bit = std::nullopt;
+  not_computed.blocks.stop_output_byte = std::nullopt;
+  not_computed.blocks.wrapper.preset_dictionary = true;
+  REQUIRE(cache.store(cache_key, not_computed).success);
+  const auto loaded_not_computed = cache.load(cache_key);
+  REQUIRE(loaded_not_computed.status == IndexCacheLookup::kHit);
+  require_same_index(loaded_not_computed.data, not_computed);
+}
+
+TEST_CASE("Persistent index cache rejects version 1 cache files",
+          "[deflate-index][wp405]") {
+  TestCacheRoot temp;
+  const IndexCache cache(temp.root);
+  const auto cache_key = key();
+  REQUIRE(cache.store(cache_key, index_data()).success);
+  const auto path = cache.path_for(cache_key);
+
+  // Handcrafted v1 magic suffix: the v2 reader must reject it without
+  // publishing any index data.
+  {
+    std::fstream file(path, std::ios::binary | std::ios::in | std::ios::out);
+    file.seekg(7);
+    char magic_suffix = '\0';
+    file.read(&magic_suffix, 1);
+    REQUIRE(magic_suffix == '\x02');
+    file.seekp(7);
+    file.put('\x01');
+    file.flush();
+  }
+  const auto v1_magic = cache.load(cache_key);
+  REQUIRE(v1_magic.status == IndexCacheLookup::kInvalid);
+  REQUIRE_FALSE(v1_magic.hit());
+  REQUIRE(v1_magic.data.blocks.blocks.empty());
+
+  // Handcrafted v1 schema number with the v2 magic: also rejected.
+  REQUIRE(cache.store(cache_key, index_data()).success);
+  {
+    std::fstream file(path, std::ios::binary | std::ios::in | std::ios::out);
+    file.seekp(8);
+    const std::array<char, 4> schema_one = {'\x01', '\x00', '\x00', '\x00'};
+    file.write(schema_one.data(), static_cast<std::streamsize>(schema_one.size()));
+    file.flush();
+  }
+  const auto v1_schema = cache.load(cache_key);
+  REQUIRE(v1_schema.status == IndexCacheLookup::kInvalid);
+  REQUIRE(v1_schema.data.blocks.blocks.empty());
 }

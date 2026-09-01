@@ -15,7 +15,10 @@
 
 namespace pnga::deflate_index {
 
-constexpr std::uint32_t kIndexCacheSchemaVersion = 1;
+// WP-5U12A: schema 2 adds the structured wrapper, Adler-32 and stop facts to
+// the durable Block Index payload. Version-1 files are invalid inputs and are
+// rebuilt; no compatibility reader invents absent checksum or stop facts.
+constexpr std::uint32_t kIndexCacheSchemaVersion = 2;
 
 struct IndexCacheKey {
   // The caller supplies a stable file identity or content hash. A path alone

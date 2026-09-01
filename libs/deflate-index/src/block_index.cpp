@@ -1,6 +1,8 @@
 // WP-401 block index implementation. One sequential inflate(Z_BLOCK) pass over
 // the logical zlib stream records block boundaries; block type and BFINAL are
-// read back from the 3-bit block header at each recorded boundary.
+// read back from the 3-bit block header at each recorded boundary. Structured
+// wrapper, Adler-32 and stop facts are extracted during the same pass with
+// public zlib APIs only (no second inflate pass, no private zlib state).
 
 #include "pnga/deflate-index/block_index.h"
 
@@ -9,6 +11,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
+#include <limits>
 #include <vector>
 
 namespace pnga::deflate_index {
@@ -28,6 +31,55 @@ const char* type_text(BlockType type) noexcept {
       return "dynamic";
   }
   return "invalid";
+}
+
+// Reads the two zlib header bytes with public byte-source reads and records
+// the structured RFC 1950 facts. An unreadable or absent header keeps the
+// default (invalid) wrapper; the inflate pass reports the failure.
+ZlibWrapperInfo read_wrapper(const pnga::io::IByteSource& source) {
+  ZlibWrapperInfo wrapper;
+  if (source.size() < 2) {
+    return wrapper;
+  }
+  std::byte header[2] = {};
+  if (!source.read(0, header, 2)) {
+    return wrapper;
+  }
+  wrapper.cmf = static_cast<std::uint8_t>(header[0]);
+  wrapper.flg = static_cast<std::uint8_t>(header[1]);
+  wrapper.compression_method = static_cast<std::uint8_t>(wrapper.cmf & 0x0Fu);
+  const unsigned cinfo = (wrapper.cmf >> 4) & 0x0Fu;
+  wrapper.window_bits = static_cast<std::uint8_t>(cinfo + 8);
+  wrapper.preset_dictionary = (wrapper.flg & 0x20u) != 0;
+  const unsigned fcheck =
+      ((static_cast<unsigned>(wrapper.cmf) << 8) | wrapper.flg) % 31u;
+  wrapper.header_valid = wrapper.compression_method == 8 && cinfo <= 7 &&
+                         fcheck == 0;
+  return wrapper;
+}
+
+// Reads the four-byte big-endian expected Adler-32 trailer at `offset`.
+bool read_expected_adler(const pnga::io::IByteSource& source,
+                         std::uint64_t offset, std::uint32_t& expected) {
+  if (offset > std::numeric_limits<std::uint64_t>::max() - 4) {
+    return false;
+  }
+  std::byte trailer[4] = {};
+  if (!source.read(offset, trailer, 4)) {
+    return false;
+  }
+  expected = (static_cast<std::uint32_t>(trailer[0]) << 24) |
+             (static_cast<std::uint32_t>(trailer[1]) << 16) |
+             (static_cast<std::uint32_t>(trailer[2]) << 8) |
+             static_cast<std::uint32_t>(trailer[3]);
+  return true;
+}
+
+// Records the latest verified boundary as the stop fact of a failed scan.
+void assign_stop(BlockIndexResult& result, bool have_prev,
+                 std::uint64_t prev_bit, std::uint64_t prev_output) noexcept {
+  result.stop_input_bit = have_prev ? prev_bit : 0;
+  result.stop_output_byte = have_prev ? prev_output : 0;
 }
 
 // Reads `count` (<= 16) bits at bit offset `bit_pos` from the logical stream in
@@ -75,9 +127,17 @@ BlockIndexResult index_blocks(const pnga::io::IByteSource& source,
                               std::uint64_t max_output_bytes) {
   BlockIndexResult out;
 
+  out.wrapper = read_wrapper(source);
+  if (out.wrapper.header_valid && out.wrapper.preset_dictionary) {
+    // FDICT: the DEFLATE payload starts after 2 header + 4 DICTID bytes,
+    // independent of whether a dictionary is available to decode it.
+    out.zlib_header_bits = 48;
+  }
+
   z_stream strm{};
   if (inflateInit(&strm) != Z_OK) {
     out.error = "inflateInit failed";
+    assign_stop(out, false, 0, 0);
     return out;
   }
 
@@ -91,6 +151,8 @@ BlockIndexResult index_blocks(const pnga::io::IByteSource& source,
   std::uint64_t prev_bit = 0;  // input bit where the current block starts
   std::uint64_t prev_output = 0;
   std::uint64_t output_total = 0;
+  std::uint32_t actual_adler = adler32(0L, Z_NULL, 0);
+  bool deflate_complete = false;  // a BFINAL block was fully verified
 
   // Refills zlib's input from the logical stream. Returns false on a read
   // failure or when no more input is available.
@@ -111,6 +173,7 @@ BlockIndexResult index_blocks(const pnga::io::IByteSource& source,
         std::min<std::uint64_t>(remaining, in_buf.size()));
     if (!source.read(logical_offset, in_buf.data(), want)) {
       out.error = "reading the logical stream failed";
+      assign_stop(out, have_prev, prev_bit, prev_output);
       return false;
     }
     logical_offset += want;
@@ -130,9 +193,16 @@ BlockIndexResult index_blocks(const pnga::io::IByteSource& source,
     strm.next_out = reinterpret_cast<Bytef*>(scratch.data());
     strm.avail_out = static_cast<uInt>(scratch.size());
     const int ret = inflate(&strm, Z_BLOCK);
-    output_total += scratch.size() - strm.avail_out;
+    const std::size_t produced = scratch.size() - strm.avail_out;
+    output_total += produced;
+    if (produced != 0) {
+      actual_adler = adler32(actual_adler,
+                             reinterpret_cast<const Bytef*>(scratch.data()),
+                             static_cast<uInt>(produced));
+    }
     if (output_total > max_output_bytes) {
       out.error = "inflate output cap exceeded";
+      assign_stop(out, have_prev, prev_bit, prev_output);
       inflateEnd(&strm);
       return out;
     }
@@ -171,6 +241,7 @@ BlockIndexResult index_blocks(const pnga::io::IByteSource& source,
           if (!read_bits(source, prev_bit, 3, header) ||
               prev_bit + 3 > source.size() * 8) {
             out.error = "block header out of range";
+            assign_stop(out, have_prev, prev_bit, prev_output);
             inflateEnd(&strm);
             return out;
           }
@@ -178,10 +249,12 @@ BlockIndexResult index_blocks(const pnga::io::IByteSource& source,
           const std::uint8_t type_bits = static_cast<std::uint8_t>((header >> 1) & 0x3);
           if (type_bits == 3) {
             out.error = "reserved deflate block type";
+            assign_stop(out, have_prev, prev_bit, prev_output);
             inflateEnd(&strm);
             return out;
           }
           block.type = static_cast<BlockType>(type_bits);
+          deflate_complete = block.last;
           out.blocks.push_back(block);
         }
         prev_bit = boundary_bit;
@@ -191,21 +264,62 @@ BlockIndexResult index_blocks(const pnga::io::IByteSource& source,
 
       if (ret == Z_STREAM_END) {
         out.total_output_bytes = output_total;
-        out.adler_ok = true;
+        out.adler.actual = actual_adler;
+        std::uint32_t expected = 0;
+        const std::uint64_t total_in =
+            static_cast<std::uint64_t>(strm.total_in);
+        if (total_in >= 4 &&
+            read_expected_adler(source, total_in - 4, expected)) {
+          out.adler.expected = expected;
+          out.adler.status = expected == actual_adler
+                                 ? Adler32Status::kMatch
+                                 : Adler32Status::kMismatch;
+        }
         done = true;
       }
     } else if (ret == Z_OK) {
       continue;  // mid-block; refill or flush more output
     } else {
       if (ret == Z_DATA_ERROR) {
-        out.error = "inflate data error (corrupt stream or bad Adler-32)";
-        out.adler_ok = false;
+        const bool invalid_block_type =
+            strm.msg != nullptr &&
+            std::strcmp(strm.msg, "invalid block type") == 0;
+        if (invalid_block_type) {
+          // zlib rejected the 3-bit block header itself; decoding stopped
+          // right after those three bits.
+          out.error = "reserved deflate block type";
+          out.stop_input_bit =
+              have_prev && prev_bit <=
+                               std::numeric_limits<std::uint64_t>::max() - 3
+                  ? prev_bit + 3
+                  : std::numeric_limits<std::uint64_t>::max();
+          out.stop_output_byte = have_prev ? prev_output : 0;
+        } else {
+          out.error = "inflate data error (corrupt stream or bad Adler-32)";
+          assign_stop(out, have_prev, prev_bit, prev_output);
+          if (deflate_complete) {
+            // Only the trailing Adler-32 remains after the BFINAL block, so
+            // this data error is the checksum comparison failing.
+            std::uint32_t expected = 0;
+            const std::uint64_t total_in =
+                static_cast<std::uint64_t>(strm.total_in);
+            if (total_in >= 4 &&
+                read_expected_adler(source, total_in - 4, expected)) {
+              out.adler.status = Adler32Status::kMismatch;
+              out.adler.expected = expected;
+              out.adler.actual = actual_adler;
+            }
+          }
+        }
       } else if (ret == Z_NEED_DICT) {
         out.error = "inflate needs a preset dictionary";
+        assign_stop(out, have_prev, prev_bit, prev_output);
       } else if (ret == Z_BUF_ERROR) {
         out.error = "inflate stalled without progress";
+        assign_stop(out, have_prev, prev_bit, prev_output);
       } else {
         out.error = "inflate failed";
+        assign_stop(out, have_prev, prev_bit, prev_output);
       }
       inflateEnd(&strm);
       return out;
@@ -217,6 +331,7 @@ BlockIndexResult index_blocks(const pnga::io::IByteSource& source,
     if (input_eof && out.error.empty()) {
       out.error = "truncated zlib stream (no end marker)";
     }
+    assign_stop(out, have_prev, prev_bit, prev_output);
     return out;
   }
   out.success = true;

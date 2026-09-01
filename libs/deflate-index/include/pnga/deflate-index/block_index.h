@@ -37,13 +37,41 @@ struct DeflateBlock {
   std::uint64_t output_end = 0;
 };
 
+// Structured zlib stream header facts (RFC 1950 §2.2), read with public byte
+// reads before any inflate work.
+struct ZlibWrapperInfo {
+  std::uint8_t cmf = 0;
+  std::uint8_t flg = 0;
+  std::uint8_t compression_method = 0;
+  std::uint8_t window_bits = 0;
+  bool preset_dictionary = false;
+  bool header_valid = false;
+  bool operator==(const ZlibWrapperInfo&) const = default;
+};
+
+enum class Adler32Status { kNotComputed = 0, kMatch = 1, kMismatch = 2 };
+
+// Expected (trailer) versus actual (computed) Adler-32. Both values are only
+// present when the corresponding side was actually computed.
+struct Adler32Info {
+  Adler32Status status = Adler32Status::kNotComputed;
+  std::optional<std::uint32_t> expected;
+  std::optional<std::uint32_t> actual;
+  bool operator==(const Adler32Info&) const = default;
+};
+
 struct BlockIndexResult {
   bool success = false;
   std::string error;  // stable message on failure
   std::vector<DeflateBlock> blocks;  // stream order
-  std::uint64_t zlib_header_bits = 0;  // logical bits before block 0 (2 bytes)
-  std::uint64_t total_output_bytes = 0;  // inflated bytes, Adler-verified
-  bool adler_ok = true;
+  std::uint64_t zlib_header_bits = 0;  // logical bits before block 0
+  std::uint64_t total_output_bytes = 0;  // inflated bytes
+  ZlibWrapperInfo wrapper;
+  Adler32Info adler;
+  // Input bit / output byte where the scan stopped, assigned from the latest
+  // verified boundary on every error return; empty on success.
+  std::optional<std::uint64_t> stop_input_bit;
+  std::optional<std::uint64_t> stop_output_byte;
 };
 
 // Scans the zlib stream exposed by `source` once and records every block.

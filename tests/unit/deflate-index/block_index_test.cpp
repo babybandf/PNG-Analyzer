@@ -17,6 +17,7 @@
 #include <vector>
 
 using pnga::deflate_index::block_for_output;
+using pnga::deflate_index::Adler32Status;
 using pnga::deflate_index::BlockIndexResult;
 using pnga::deflate_index::BlockType;
 using pnga::deflate_index::index_blocks;
@@ -66,6 +67,17 @@ void require_tiling(const BlockIndexResult& index, std::uint64_t raw_size) {
   REQUIRE(index.success);
   REQUIRE_FALSE(index.blocks.empty());
   REQUIRE(index.zlib_header_bits == 16);  // 2-byte zlib header
+  REQUIRE(index.wrapper.cmf == 0x78);
+  REQUIRE(index.wrapper.compression_method == 8);
+  REQUIRE(index.wrapper.window_bits == 15);
+  REQUIRE(index.wrapper.header_valid);
+  REQUIRE_FALSE(index.wrapper.preset_dictionary);
+  REQUIRE(index.adler.status == Adler32Status::kMatch);
+  REQUIRE(index.adler.expected.has_value());
+  REQUIRE(index.adler.actual.has_value());
+  REQUIRE(index.adler.expected == index.adler.actual);
+  REQUIRE_FALSE(index.stop_input_bit.has_value());
+  REQUIRE_FALSE(index.stop_output_byte.has_value());
   for (std::size_t i = 0; i < index.blocks.size(); ++i) {
     const auto& b = index.blocks[i];
     REQUIRE(b.index == i);
@@ -77,7 +89,7 @@ void require_tiling(const BlockIndexResult& index, std::uint64_t raw_size) {
   }
   REQUIRE(index.blocks.back().output_end == index.total_output_bytes);
   REQUIRE(index.total_output_bytes == raw_size);
-  REQUIRE(index.adler_ok);
+  REQUIRE(index.adler.status == Adler32Status::kMatch);
 }
 
 // Adapts a VirtualIDATStream to IByteSource (same pattern as the analysis
@@ -233,7 +245,8 @@ TEST_CASE("block_for_output locates the containing block",
   }
 }
 
-TEST_CASE("Bad Adler-32 is reported", "[deflate-index][wp401]") {
+TEST_CASE("Bad Adler-32 is reported as a structured mismatch",
+          "[deflate-index][wp401]") {
   const auto raw = make_compressible(1024);
   auto compressed = zlib_compress(raw, 6, Z_DEFAULT_STRATEGY);
   REQUIRE_FALSE(compressed.empty());
@@ -243,8 +256,76 @@ TEST_CASE("Bad Adler-32 is reported", "[deflate-index][wp401]") {
   MemoryByteSource source(compressed);
   const BlockIndexResult index = index_blocks(source, 1u << 20);
   REQUIRE_FALSE(index.success);
-  REQUIRE_FALSE(index.adler_ok);
   REQUIRE_FALSE(index.error.empty());
+  REQUIRE(index.adler.status == Adler32Status::kMismatch);
+  REQUIRE(index.adler.expected.has_value());
+  REQUIRE(index.adler.actual.has_value());
+  REQUIRE(index.adler.expected != index.adler.actual);
+}
+
+TEST_CASE("Truncated stream keeps verified blocks and exact stop facts",
+          "[deflate-index][wp401]") {
+  const auto raw = make_compressible(4096);
+  auto compressed = zlib_compress(raw, 6, Z_DEFAULT_STRATEGY);
+  REQUIRE_FALSE(compressed.empty());
+
+  // Truncated: drop the trailing Adler bytes.
+  auto truncated = compressed;
+  truncated.resize(truncated.size() - 4);
+  MemoryByteSource trunc_src(truncated);
+  const BlockIndexResult truncated_result = index_blocks(trunc_src, 1u << 20);
+  REQUIRE_FALSE(truncated_result.success);
+  REQUIRE_FALSE(truncated_result.error.empty());
+  REQUIRE(truncated_result.adler.status == Adler32Status::kNotComputed);
+  REQUIRE_FALSE(truncated_result.adler.expected.has_value());
+  REQUIRE_FALSE(truncated_result.adler.actual.has_value());
+  // Every verified block survives with the exact verified boundary.
+  REQUIRE_FALSE(truncated_result.blocks.empty());
+  REQUIRE(truncated_result.stop_input_bit ==
+          truncated_result.blocks.back().input_bit_end);
+  REQUIRE(truncated_result.stop_output_byte ==
+          truncated_result.blocks.back().output_end);
+}
+
+TEST_CASE("Reserved deflate block type fails with a stable stop bit",
+          "[deflate-index][wp401]") {
+  std::vector<std::byte> reserved;
+  reserved.push_back(B(0x78));
+  reserved.push_back(B(0x01));  // valid zlib header (FCHECK passes)
+  reserved.push_back(B(0x06));  // BFINAL=0, BTYPE=11 (reserved)
+  reserved.insert(reserved.end(), 4, std::byte{0});
+
+  MemoryByteSource source(reserved);
+  const BlockIndexResult index = index_blocks(source, 1u << 20);
+  REQUIRE_FALSE(index.success);
+  REQUIRE(index.error == "reserved deflate block type");
+  REQUIRE(index.blocks.empty());
+  REQUIRE(index.stop_input_bit == 19);  // 16 header bits + 3 block header bits
+  REQUIRE(index.stop_output_byte == 0);
+}
+
+TEST_CASE("FDICT wrapper is exposed with a byte-aligned deflate origin",
+          "[deflate-index][wp401]") {
+  std::vector<std::byte> fdict;
+  fdict.push_back(B(0x78));
+  fdict.push_back(B(0x20));  // FDICT set; 0x7820 passes the FCHECK modulo
+  fdict.push_back(B(0x12));  // DICTID bytes
+  fdict.push_back(B(0x34));
+  fdict.push_back(B(0x56));
+  fdict.push_back(B(0x78));
+  fdict.push_back(B(0x00));  // deflate payload start (never decoded)
+  fdict.insert(fdict.end(), 4, std::byte{0});
+
+  MemoryByteSource source(fdict);
+  const BlockIndexResult index = index_blocks(source, 1u << 20);
+  REQUIRE_FALSE(index.success);
+  REQUIRE_FALSE(index.error.empty());
+  REQUIRE(index.wrapper.cmf == 0x78);
+  REQUIRE(index.wrapper.compression_method == 8);
+  REQUIRE(index.wrapper.window_bits == 15);
+  REQUIRE(index.wrapper.header_valid);
+  REQUIRE(index.wrapper.preset_dictionary);
+  REQUIRE(index.zlib_header_bits == 48);  // 2 header + 4 DICTID bytes
 }
 
 TEST_CASE("Truncated stream and output cap are rejected",
