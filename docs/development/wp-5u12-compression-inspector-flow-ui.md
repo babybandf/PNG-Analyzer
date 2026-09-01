@@ -1374,3 +1374,50 @@ Current + Selection: Blocks 和 Trace 各一张
 
 任何规范性偏差必须在实现前记录原因、替代方案和影响，并经过产品评审；开发 Agent
 不能仅以“更符合 Qt 默认行为”或“实现更简单”为由自行改变。
+
+## 21. WP-5U12A 实现记录：偏移域契约与能力矩阵
+
+本节为 WP-5U12A 的已实现契约快照（2026-09-01），是 B–F 阶段消费的权威
+origin/换算表。四个坐标域永不隐式转换、永不跨域直接比较。
+
+### 21.1 偏移域表
+
+| 域 | C++ 类型 | origin (0 点) | 单位 | 允许的换算函数 | UI 标签 |
+|---|---|---|---|---|---|
+| PNG 文件字节 | `pnga::trace_model::FileByteOffset` / `FileByteRange` | 文件起始字节 | 字节 | 仅经 `VirtualIDATStream::logical_to_physical` / `physical_to_logical` | `File offset` |
+| zlib 流字节 | `pnga::trace_model::ZlibByteOffset` / `ZlibByteRange` | 逻辑 zlib 流第一个 IDAT 字节 | 字节 | `Offset::raw_value()`；位↔字节仅允许 `raw_value() * 8`（须 checked） | `zlib stream byte` |
+| zlib 流位 | `pnga::trace_model::ZlibBitOffset` / `ZlibBitRange` | 同上 | 位 | `Offset::raw_value()`；`raw_value() / 8`（字节对齐时） | `Input bits` |
+| DEFLATE 载荷位 | `pnga::trace_model::DeflateBitOffset` / `DeflateBitRange` | DEFLATE 载荷第一 bit（BFINAL 位） | 位 | `Offset::raw_value()`；归一化见 21.2 | `Input bits`（DEFLATE 域） |
+| Inflated 字节 | `pnga::trace_model::InflatedByteOffset` / `InflatedByteRange` | 解压输出第一字节 | 字节 | `Offset::raw_value()` | `Output bytes` |
+
+范围全部为半开区间 `[begin, end)`，由 checked `make_range` 构造；构造失败（溢出）
+必须报告错误，不得回退为无检查算术。
+
+### 21.2 DEFLATE 载荷 origin 归一化
+
+`FastCompressionStreamSummary::deflate_data_begin` 是 `pnga::trace_model::ZlibByteOffset`
+（字节单位）：普通 zlib 流为 `ZlibByteOffset{2}`，FDICT 为 `ZlibByteOffset{6}`。将
+`DeflateBitOffset` 归一化为 zlib 位域的唯一合法路径是：`DeflateBitOffset{0}` 对应
+`ZlibBitOffset{deflate_data_begin.raw_value() * 8}`，且乘法必须先经 checked
+multiplication 在 analysis-engine 内完成；跨域直接比较或未检查乘法一律禁止。
+zlib 位域不得再乘 8。
+
+### 21.3 已实现的 Fast Index 事实（能力矩阵）
+
+- `BlockIndexResult`（`libs/deflate-index/block_index.h`）在单次顺序 inflate 扫描内
+  产出：`ZlibWrapperInfo`（CMF/FLG、CM、window bits、FDICT、header_valid）、
+  `Adler32Info`（`kNotComputed`/`kMatch`/`kMismatch` + expected/actual）、
+  `stop_input_bit`/`stop_output_byte`（每次错误返回前由最新已验证边界赋值）。
+- `kIndexCacheSchemaVersion = 2`、magic 后缀 `2`；v1 缓存为无效输入，直接重建，
+  不提供兼容读取器。
+- `FastCompressionStreamSummary`（`libs/analysis-engine/block_inspector.h`）投影：
+  `stream_range`、`wrapper`、`deflate_data_begin`、`idat_spans`（每段 logical +
+  physical 半开范围，全部保留，不得只取首段）、`total_output_bytes`、`adler`、
+  `stop_input`（`ZlibBitOffset`）、`stop_output`（`InflatedByteOffset`）。
+- `FastCompressionIndexStatus::{kUnavailable,kReady,kPartial,kError}`：
+  Ready 仅在索引完全成功；错误后仍有已验证 Block 时为 Partial；映射溢出、
+  DEFLATE origin 非字节对齐等返回 Error。
+- `FastCompressionBlockRow::input_range` 保持 `ZlibBitRange`；token 范围保持
+  `DeflateBitRange`，二者未经 analysis-engine 归一化前不得比较。
+- Fast Index 构建不创建、不保留任何 token trace；Deep Trace 仅由显式 submit
+  触发并保持既有预算（4096 tokens / 8 MiB / 单 GUI worker）。
