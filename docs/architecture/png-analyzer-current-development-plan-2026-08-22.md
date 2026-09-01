@@ -11,6 +11,14 @@
 > renderer and Hex tab bar are documented in WP-5U9 and WP-5U11; older milestone
 > history below remains frozen for traceability.
 
+> Next-plan overlay (2026-09-01): the approved next execution sequence is
+> `WP-5U15 MainWindow decomposition` followed by independent Compression,
+> Statistics and APNG tracks plus native quality evidence. The full design is
+> [PNG Analyzer Next Work Packages Design](../superpowers/specs/2026-09-01-png-analyzer-next-work-packages-design.md).
+> Compare and First Difference remain deferred. Where the frozen history below
+> says WP-602B or APNG is deferred, this overlay and its linked Work Packages
+> are the newer scope authority.
+
 ## 1. 文档作用与范围
 
 本文件把仓库的实际实现状态与 2026-08-22 确认的 UI 调整合并成下一阶段的可执行计划。它只修订当前状态、未开始工作包和执行顺序，不改变已接受的 ADR、仓库布局、Qt 边界或安全规则。

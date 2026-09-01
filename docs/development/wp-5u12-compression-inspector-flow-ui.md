@@ -2,7 +2,8 @@
 
 > Work Package：`WP-5U12`
 > Milestone：M5 UI Refinement
-> Status：revised after live implementation audit (2026-08-24)
+> Status：normative audited UI contract; execution resumed by
+> [WP-5U12 Completion](wp-5u12-compression-inspector-completion.md) (2026-09-01)
 > Depends on：WP-5U2、WP-5U7、WP-5U10
 > Coordinates with：WP-5U9、WP-5U11
 > Product reference：用户提供的 2026-08-23 PNG Analyzer 截图

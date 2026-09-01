@@ -1,6 +1,9 @@
 # WP-602B — Statistics UI & Export
 
-Status: **deferred from the first single-file v1 surface** (2026-08-23)
+Status: **superseded by approved re-entry scope** (2026-09-01)
+
+The original v1 deferral below remains as decision history. Implementation now
+follows [WP-602B–H Statistics UI, CLI and Deterministic Export Re-entry](wp-602b-statistics-ui-export-reentry.md), approved after the single-file v1 release.
 
 ## Decision
 
