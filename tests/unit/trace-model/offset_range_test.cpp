@@ -17,6 +17,16 @@ using pnga::trace_model::ZlibBitOffset;
 using pnga::trace_model::ZlibBitRange;
 using pnga::trace_model::make_range;
 
+static_assert(!std::is_convertible_v<ZlibBitOffset, std::uint64_t>);
+static_assert(!std::is_convertible_v<DeflateBitOffset, std::uint64_t>);
+static_assert(!std::is_convertible_v<ZlibBitOffset, DeflateBitOffset>);
+static_assert(!std::is_constructible_v<ZlibBitRange,
+                                       DeflateBitOffset, DeflateBitOffset>);
+
+TEST_CASE("typed offset exposes raw value explicitly", "[wp5u12]") {
+  REQUIRE(ZlibBitOffset{16}.raw_value() == 16);
+}
+
 TEST_CASE("Compression ranges keep their coordinate domains", "[wp5u12]") {
   static_assert(!std::is_same_v<ZlibBitOffset, DeflateBitOffset>);
   static_assert(!std::is_same_v<ZlibBitRange, DeflateBitRange>);

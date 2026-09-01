@@ -26,11 +26,8 @@ struct Offset {
   std::uint64_t value = 0;
 
   constexpr Offset() noexcept = default;
-  constexpr Offset(std::uint64_t raw) noexcept : value(raw) {}
-  // Transitional scalar access for existing checked-arithmetic and Qt
-  // adapters. New domain-crossing APIs should accept the typed aliases above;
-  // this conversion can be removed once those seams are migrated.
-  constexpr operator std::uint64_t() const noexcept { return value; }
+  constexpr explicit Offset(std::uint64_t raw) noexcept : value(raw) {}
+  constexpr std::uint64_t raw_value() const noexcept { return value; }
 
   constexpr bool operator==(const Offset&) const noexcept = default;
   constexpr auto operator<=>(const Offset&) const noexcept = default;
