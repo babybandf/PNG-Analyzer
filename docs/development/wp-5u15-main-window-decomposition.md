@@ -34,6 +34,15 @@ This package precedes WP-5U12 completion, WP-602B re-entry and WP-699–706.
 - `tests/gui/cross_platform_gui_gate_test.cpp`
 - `tests/gui/CMakeLists.txt`
 - this document
+- Scope note (2026-09-01): the implementation plan
+  (`docs/superpowers/plans/2026-09-01-main-window-decomposition.md`) defines
+  one focused GUI test executable per extracted unit, created under
+  `tests/gui/`: `document_workers_test.cpp`, `main_window_ui_test.cpp`,
+  `workspace_controller_test.cpp`, `document_session_test.cpp`,
+  `selection_navigation_controller_test.cpp`, `trace_controller_test.cpp` and
+  the mechanized facade line-budget check
+  `tests/gui/check_main_window_line_budget.cmake`. These files are in scope
+  for this package.
 
 ## Forbidden paths
 
@@ -169,9 +178,14 @@ cmake --preset dev && cmake --build --preset dev --parallel 4   # 0 errors
 QT_QPA_PLATFORM=offscreen ctest --preset dev  # 100% tests passed out of 46
 python3 scripts/run_gui_gate.py               # GUI gate: PASS
 python3 scripts/run_package_smoke.py --preset release --jobs 2  # PASS
-wc -l main_window.cpp main_window.h           # 599 / 76 (gates 600 / 160)
+wc -l main_window.cpp main_window.h           # 599 / 76 -> 599 / 74 after review cleanup (gates 600 / 160)
 git diff --check                              # clean
 ```
+
+Re-verified on 2026-09-01 after review cleanup: `run_package_smoke.py
+--preset release --jobs 2` exits 0 with
+`package smoke: PASS package=.../png-analyzer-0.1.0-macOS-arm64.tar.gz
+version=pnga 0.1.0`.
 
 Notes:
 

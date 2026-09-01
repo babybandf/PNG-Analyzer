@@ -69,8 +69,6 @@ class MainWindow final : public QMainWindow {
   std::unique_ptr<DocumentSession> session_;
   std::unique_ptr<SelectionNavigationController> selection_;
   std::unique_ptr<TraceController> trace_;
-  QAction* close_action_ = nullptr;
-  QMenu* recent_files_menu_ = nullptr;
 };
 
 #endif  // PNG_ANALYZER_GUI_MAIN_WINDOW_H
