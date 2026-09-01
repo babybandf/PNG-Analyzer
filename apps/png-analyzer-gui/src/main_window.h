@@ -78,6 +78,7 @@ constexpr int kHexPanelOrigin = 3;
 // WP-5U15: worker/bridge types live in document_workers.h (moved verbatim).
 #include "document_workers.h"
 #include "main_window_ui.h"
+#include "workspace_controller.h"
 
 class MainWindow final : public QMainWindow {
   Q_OBJECT
@@ -115,15 +116,6 @@ class MainWindow final : public QMainWindow {
   void requestTraceFor(const pnga::trace_model::ImageCoordinate& coordinate);
   void setHexSource(pnga::ui::qt::HexSource source);
   void applyChunkHexHighlight(const pnga::png_format::ChunkNode& node);
-  void restoreWorkspace();
-  void saveWorkspace() const;
-  void applyDefaultWorkspace();
-  void configureDockInteraction();
-  void refreshRecentFilesMenu();
-  void rememberOpenedFile(const QString& path);
-  void rememberLastOpenDirectory(const QString& path);
-  QString lastOpenDirectory() const;
-  QString lastOpenFile() const;
   void openRecentFile(const QString& path);
   void publishLockedCoordinate();
   void clearLockedCoordinate();
@@ -143,6 +135,7 @@ class MainWindow final : public QMainWindow {
 
  private:
   MainWindowWidgets widgets_;
+  std::unique_ptr<WorkspaceController> workspace_;
   std::shared_ptr<pnga::io::IByteSource> source_;
   std::shared_ptr<const pnga::analysis_engine::StageSet> stage_set_;
   pnga::png_format::ChunkIndex index_;
@@ -159,7 +152,9 @@ class MainWindow final : public QMainWindow {
   pnga::ui::qt::DecodeTraceInspector* decode_trace_inspector_ = nullptr;
   pnga::ui::qt::TraceInspectorBinding* trace_binding_ = nullptr;
   pnga::ui::qt::CompressionContext* compression_context_ = nullptr;
-  pnga::ui::qt::SelectionViewState view_state_;
+  // WP-5U15: owned by WorkspaceController (Task 6 moves it to the selection
+  // controller); the facade points at the single instance.
+  pnga::ui::qt::SelectionViewState* view_state_ = nullptr;
   QDockWidget* chunks_dock_ = nullptr;
   QDockWidget* inspector_dock_ = nullptr;
   QSplitter* chunks_splitter_ = nullptr;

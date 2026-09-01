@@ -145,6 +145,7 @@ set(PNGA_GUI_APP_TEST_SOURCES
   ../../apps/png-analyzer-gui/src/main_window.cpp
   ../../apps/png-analyzer-gui/src/document_workers.cpp
   ../../apps/png-analyzer-gui/src/main_window_ui.cpp
+  ../../apps/png-analyzer-gui/src/workspace_controller.cpp
 )
 
 # WP-5U15 focused-test helper: each extraction unit gets one executable that
@@ -175,6 +176,9 @@ add_pnga_gui_app_test(pnga_gui_document_workers_tests
 
 add_pnga_gui_app_test(pnga_gui_main_window_ui_tests
   main_window_ui_test.cpp gui_main_window_ui_tests)
+
+add_pnga_gui_app_test(pnga_gui_workspace_controller_tests
+  workspace_controller_test.cpp gui_workspace_controller_tests)
 
 add_executable(pnga_gui_main_window_layout_tests
   main_window_layout_test.cpp

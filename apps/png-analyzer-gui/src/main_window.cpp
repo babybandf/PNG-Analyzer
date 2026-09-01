@@ -85,10 +85,6 @@ namespace {
 
 constexpr std::uint64_t kHeaderSpanLength = 8;
 constexpr std::uint64_t kCrcSpanLength = 4;
-constexpr int kMaxRecentFiles = 10;
-constexpr auto kRecentFilesSettingsKey = "file/recentFiles";
-constexpr auto kLastOpenDirectorySettingsKey = "file/lastOpenDirectory";
-constexpr auto kLastOpenFileSettingsKey = "file/lastOpenFile";
 
 std::filesystem::path filesystemPath(const QString& path) {
 #if defined(Q_OS_WIN)
@@ -125,21 +121,6 @@ constexpr std::uint64_t kMaxTraceTokens = 4096;
 // moderately large image while retaining a hard upper bound.
 constexpr std::uint64_t kTraceOutputBudgetBytes = 1ull << 23;   // 8 MiB
 constexpr std::uint64_t kTraceIndexOutputBytes = 1ull << 26;    // 64 MiB
-
-QString previewPageId(int index) {
-  switch (index) {
-    case 0:
-      return QStringLiteral("image");
-    case 1:
-      return QStringLiteral("pixels");
-    case 2:
-      return QStringLiteral("filtered");
-    case 3:
-      return QStringLiteral("defiltered");
-    default:
-      return QString();
-  }
-}
 
 std::optional<std::uint64_t> filtered_output_offset_for_pixel(
     const pnga::analysis_engine::ScanlineAnchorIndexResult& anchors,
@@ -229,56 +210,6 @@ std::optional<std::pair<std::uint64_t, std::uint64_t>> byte_range_for_bits(
   return std::pair<std::uint64_t, std::uint64_t>{start, finish - start};
 }
 
-int previewIndexForId(const QString& id) {
-  if (id == QStringLiteral("image")) {
-    return 0;
-  }
-  if (id == QStringLiteral("pixels")) {
-    return 1;
-  }
-  if (id == QStringLiteral("filtered")) {
-    return 2;
-  }
-  if (id == QStringLiteral("defiltered")) {
-    return 3;
-  }
-  return 0;
-}
-
-QString inspectorPageId(int index) {
-  switch (index) {
-    case 0:
-      return QStringLiteral("reconstruction");
-    case 1:
-      return QStringLiteral("compression");
-    default:
-      return QString();
-  }
-}
-
-int inspectorIndexForId(const QString& id) {
-  return id == QStringLiteral("compression") ? 1 : 0;
-}
-
-int migratePreviewIndexV1(int index) {
-  switch (index) {
-    case 1:
-      return 1;  // Pixels
-    case 3:
-      return 2;  // Filtered
-    case 4:
-      return 3;  // Defiltered
-    case 0:
-    case 2:
-    default:
-      return 0;  // Image and the retired Filter Map
-  }
-}
-
-int migrateInspectorIndexV1(int index) {
-  return index == 2 ? 1 : 0;
-}
-
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -323,6 +254,10 @@ MainWindow::MainWindow(QWidget* parent,
 
   trace_state_ =
       std::make_unique<pnga::analysis_engine::TraceInspectorStateMachine>();
+  workspace_ = std::make_unique<WorkspaceController>(
+      *this, widgets_,
+      [this](const QString& path) { openRecentFile(path); });
+  view_state_ = &workspace_->viewState();
   connect(block_inspector_,
           &pnga::ui::qt::BlockInspector::showInHexSpansRequested, this,
           [this](const QVector<QPair<quint64, quint64>>& ranges) {
@@ -384,8 +319,8 @@ MainWindow::MainWindow(QWidget* parent,
   connect(close_action_, &QAction::triggered, this,
           &MainWindow::onCloseTriggered);
   connect(recent_files_menu_, &QMenu::aboutToShow, this,
-          &MainWindow::refreshRecentFilesMenu);
-  refreshRecentFilesMenu();
+          [this] { workspace_->refreshRecentFilesMenu(); });
+  workspace_->refreshRecentFilesMenu();
   connect(widgets_.exit_action, &QAction::triggered, this,
           [this] { close(); });
 
@@ -441,12 +376,12 @@ MainWindow::MainWindow(QWidget* parent,
             const pnga::trace_model::ImageCoordinate coordinate{
                 0, 0, 0, static_cast<std::uint64_t>(x),
                 static_cast<std::uint64_t>(y)};
-            view_state_.set_hover(coordinate);
+            view_state_->set_hover(coordinate);
             setPixelStatus(x, y);
           });
   connect(image_view_, &pnga::ui::qt::DeliveredImageView::pixelHoverLeft,
           this, [this] {
-            view_state_.clear_hover();
+            view_state_->clear_hover();
             restorePixelStatus();
           });
   connect(image_view_,
@@ -488,8 +423,8 @@ MainWindow::MainWindow(QWidget* parent,
   });
   connect(base_button_, &QPushButton::clicked, this, [this](bool) {
     const bool hexadecimal =
-        view_state_.numeric_base != pnga::ui::qt::NumericBase::kHexadecimal;
-    view_state_.numeric_base =
+        view_state_->numeric_base != pnga::ui::qt::NumericBase::kHexadecimal;
+    view_state_->numeric_base =
         hexadecimal ? pnga::ui::qt::NumericBase::kHexadecimal
                     : pnga::ui::qt::NumericBase::kDecimal;
     inspector_->setNumericBase(hexadecimal);
@@ -500,331 +435,35 @@ MainWindow::MainWindow(QWidget* parent,
   });
   connect(hex_source_tabs_, &pnga::ui::qt::HexSourceTabBar::sourceChanged,
           this, [this](pnga::ui::qt::HexSource source) {
-            view_state_.hex_source = source;
+            view_state_->hex_source = source;
             updateHexSource();
           });
 
   resize(1200, 760);
-  applyDefaultWorkspace();
-  restoreWorkspace();
-  configureDockInteraction();
+  workspace_->applyDefaults();
+  workspace_->restore();
+  updateHexSource();
+  workspace_->configureDockInteraction();
 }
 
 MainWindow::~MainWindow() = default;
 
-void MainWindow::applyDefaultWorkspace() {
-  const auto preserved_locked = view_state_.locked;
-  const auto preserved_hover = view_state_.hover;
-  // Reset Layout must restore the dock topology as well as its dimensions.
-  // addDockWidget() selects the target side, while setFloating(false) is
-  // required for Qt to leave a native floating window on every platform.
-  addDockWidget(Qt::LeftDockWidgetArea, chunks_dock_);
-  chunks_dock_->setFloating(false);
-  addDockWidget(Qt::RightDockWidgetArea, inspector_dock_);
-  inspector_dock_->setFloating(false);
-  resize(1200, 760);
-  center_splitter_->setSizes({456, 304});
-  chunks_splitter_->setSizes({360, 180});
-  preview_tabs_->setCurrentIndex(0);
-  inspector_tabs_->setCurrentIndex(0);
-  compression_inspector_tabs_->setCurrentIndex(0);
-  chunks_dock_->show();
-  inspector_dock_->show();
-  chunks_dock_->setMinimumWidth(180);
-  inspector_dock_->setMinimumWidth(260);
-  resizeDocks({chunks_dock_, inspector_dock_}, {240, 420},
-              Qt::Horizontal);
-  setMinimumSize(840, 520);
-  for (auto* splitter : findChildren<QSplitter*>()) {
-    splitter->setHandleWidth(8);
-    splitter->setChildrenCollapsible(false);
-  }
-  configureDockInteraction();
-
-  view_state_.hex_source = pnga::ui::qt::HexSource::kFile;
-  view_state_.numeric_base = pnga::ui::qt::NumericBase::kDecimal;
-  view_state_.locked = preserved_locked;
-  view_state_.hover = preserved_hover;
-  {
-    const QSignalBlocker base_blocker(base_button_);
-    const QSignalBlocker lock_blocker(lock_check_);
-    updateNumericBaseButton();
-    lock_check_->setChecked(preserved_locked.has_value());
-    if (preserved_locked.has_value()) {
-      x_spin_->setValue(static_cast<int>(preserved_locked->x));
-      y_spin_->setValue(static_cast<int>(preserved_locked->y));
-    }
-  }
-  hex_source_tabs_->setSource(pnga::ui::qt::HexSource::kFile);
-  inspector_->setNumericBase(false);
-  pixel_view_->setNumericBase(false);
-  filtered_view_->setNumericBase(false);
-  defiltered_view_->setNumericBase(false);
-  updateHexSource();
-}
-
-void MainWindow::configureDockInteraction() {
-  if (chunks_dock_ == nullptr || inspector_dock_ == nullptr) {
-    return;
-  }
-  chunks_dock_->setMinimumWidth(180);
-  inspector_dock_->setMinimumWidth(260);
-  chunks_dock_->setSizePolicy(QSizePolicy::Preferred,
-                              QSizePolicy::Expanding);
-  inspector_dock_->setSizePolicy(QSizePolicy::Preferred,
-                                 QSizePolicy::Expanding);
-  // The internal QMainWindow dock layout is not exposed as QSplitter
-  // children.  Re-polish after the first layout pass so the style-sheet
-  // separator extent is applied to the actual native separators as well.
-  QMetaObject::invokeMethod(
-      this,
-      [this] {
-        if (chunks_dock_ == nullptr || inspector_dock_ == nullptr) {
-          return;
-        }
-        chunks_dock_->updateGeometry();
-        inspector_dock_->updateGeometry();
-        style()->unpolish(this);
-        style()->polish(this);
-        updateGeometry();
-      },
-      Qt::QueuedConnection);
-}
-
-void MainWindow::restoreWorkspace() {
-  QSettings settings;
-  const int workspace_version =
-      settings.value(QStringLiteral("workspace/version")).toInt();
-  const bool has_saved =
-      (workspace_version == 1 || workspace_version == 2) &&
-      settings.contains(QStringLiteral("workspace/geometry")) &&
-      settings.contains(QStringLiteral("workspace/mainState")) &&
-      settings.contains(QStringLiteral("workspace/splitterState"));
-  if (!has_saved ||
-      !restoreGeometry(settings.value(QStringLiteral("workspace/geometry"))
-                           .toByteArray()) ||
-      !restoreState(settings.value(QStringLiteral("workspace/mainState"))
-                        .toByteArray()) ||
-      !center_splitter_->restoreState(
-          settings.value(QStringLiteral("workspace/splitterState"))
-              .toByteArray())) {
-    applyDefaultWorkspace();
-    return;
-  }
-  if (settings.contains(QStringLiteral("workspace/chunkDetailSplitterState"))) {
-    chunks_splitter_->restoreState(
-        settings.value(QStringLiteral("workspace/chunkDetailSplitterState"))
-            .toByteArray());
-  }
-
-  int preview_index = 0;
-  int inspector_index = 0;
-  if (workspace_version == 2) {
-    preview_index = previewIndexForId(
-        settings.value(QStringLiteral("workspace/previewTabId"),
-                       QStringLiteral("image"))
-            .toString());
-    inspector_index = inspectorIndexForId(
-        settings.value(QStringLiteral("workspace/inspectorPageId"),
-                       QStringLiteral("reconstruction"))
-            .toString());
-  } else {
-    preview_index = migratePreviewIndexV1(
-        settings.value(QStringLiteral("workspace/previewTab"), 0).toInt());
-    inspector_index = migrateInspectorIndexV1(
-        settings.value(QStringLiteral("workspace/inspectorTab"), 0).toInt());
-  }
-  preview_tabs_->setCurrentIndex(preview_index);
-  inspector_tabs_->setCurrentIndex(inspector_index);
-  const int compression_page = settings.value(QStringLiteral("workspace/compressionPage"), 0).toInt();
-  if (compression_page >= 0 &&
-      compression_page < compression_inspector_tabs_->count()) {
-    compression_inspector_tabs_->setCurrentIndex(compression_page);
-  }
-
-  const int base = settings.value(QStringLiteral("view/numericBase"), 0).toInt();
-  const int source = settings.value(QStringLiteral("view/hexSource"), 0).toInt();
-  view_state_.numeric_base = base == 1
-                                 ? pnga::ui::qt::NumericBase::kHexadecimal
-                                 : pnga::ui::qt::NumericBase::kDecimal;
-  view_state_.hex_source = source >= 0 && source <= 3
-                                ? static_cast<pnga::ui::qt::HexSource>(source)
-                                : pnga::ui::qt::HexSource::kFile;
-  {
-    const QSignalBlocker base_blocker(base_button_);
-    updateNumericBaseButton();
-  }
-  hex_source_tabs_->setSource(view_state_.hex_source);
-  inspector_->setNumericBase(base == 1);
-  pixel_view_->setNumericBase(base == 1);
-  filtered_view_->setNumericBase(base == 1);
-  defiltered_view_->setNumericBase(base == 1);
-  updateHexSource();
-}
-
-void MainWindow::saveWorkspace() const {
-  QSettings settings;
-  settings.setValue(QStringLiteral("workspace/version"), 2);
-  settings.setValue(QStringLiteral("workspace/geometry"), saveGeometry());
-  settings.setValue(QStringLiteral("workspace/mainState"), saveState());
-  settings.setValue(QStringLiteral("workspace/splitterState"),
-                    center_splitter_->saveState());
-  settings.setValue(QStringLiteral("workspace/chunkDetailSplitterState"),
-                    chunks_splitter_->saveState());
-  settings.setValue(QStringLiteral("workspace/previewTabId"),
-                    previewPageId(preview_tabs_->currentIndex()));
-  settings.setValue(QStringLiteral("workspace/inspectorPageId"),
-                    inspectorPageId(inspector_tabs_->currentIndex()));
-  settings.setValue(QStringLiteral("workspace/compressionPage"),
-                    compression_inspector_tabs_->currentIndex());
-  settings.setValue(QStringLiteral("view/numericBase"),
-                    static_cast<int>(view_state_.numeric_base));
-  settings.setValue(QStringLiteral("view/hexSource"),
-                    static_cast<int>(view_state_.hex_source));
-}
-
-void MainWindow::refreshRecentFilesMenu() {
-  if (recent_files_menu_ == nullptr) {
-    return;
-  }
-
-  QSettings settings;
-  const QStringList stored =
-      settings.value(QLatin1String(kRecentFilesSettingsKey)).toStringList();
-  QStringList valid;
-  valid.reserve(kMaxRecentFiles);
-  for (const QString& stored_path : stored) {
-    if (valid.size() >= kMaxRecentFiles) {
-      break;
-    }
-    if (stored_path.isEmpty()) {
-      continue;
-    }
-    const QFileInfo info(stored_path);
-    const QString path = info.absoluteFilePath();
-    if (!info.exists() || !info.isFile() || valid.contains(path)) {
-      continue;
-    }
-    valid.push_back(path);
-  }
-  if (valid != stored) {
-    settings.setValue(QLatin1String(kRecentFilesSettingsKey), valid);
-  }
-
-  recent_files_menu_->clear();
-  if (valid.isEmpty()) {
-    QAction* empty = recent_files_menu_->addAction(
-        QStringLiteral("No Recent Files"));
-    empty->setObjectName(QStringLiteral("noRecentFiles"));
-    empty->setEnabled(false);
-    return;
-  }
-
-  for (const QString& path : valid) {
-    const QFileInfo info(path);
-    const QString label = info.fileName().isEmpty()
-                              ? QDir::toNativeSeparators(path)
-                              : info.fileName();
-    QAction* action = recent_files_menu_->addAction(label);
-    action->setData(path);
-    action->setToolTip(QDir::toNativeSeparators(path));
-    connect(action, &QAction::triggered, this, [this, path] {
-      openRecentFile(path);
-    });
-  }
-}
-
-void MainWindow::rememberLastOpenDirectory(const QString& path) {
-  const QFileInfo info(path);
-  const QString directory = info.absolutePath();
-  if (!directory.isEmpty() && QDir(directory).exists()) {
-    QSettings settings;
-    settings.setValue(QLatin1String(kLastOpenDirectorySettingsKey), directory);
-    if (info.isFile()) {
-      settings.setValue(QLatin1String(kLastOpenFileSettingsKey),
-                        info.absoluteFilePath());
-    }
-    settings.sync();
-  }
-}
-
-QString MainWindow::lastOpenDirectory() const {
-  QSettings settings;
-  const QString directory =
-      settings.value(QLatin1String(kLastOpenDirectorySettingsKey)).toString();
-  return !directory.isEmpty() && QDir(directory).exists() ? directory
-                                                           : QString();
-}
-
-QString MainWindow::lastOpenFile() const {
-  QSettings settings;
-  const QString path =
-      settings.value(QLatin1String(kLastOpenFileSettingsKey)).toString();
-  const QFileInfo info(path);
-  return !path.isEmpty() && info.exists() && info.isFile()
-             ? info.absoluteFilePath()
-             : QString();
-}
-
-void MainWindow::rememberOpenedFile(const QString& path) {
-  const QFileInfo info(path);
-  const QString normalized = info.absoluteFilePath();
-  if (normalized.isEmpty()) {
-    return;
-  }
-
-  QSettings settings;
-  const QStringList stored =
-      settings.value(QLatin1String(kRecentFilesSettingsKey)).toStringList();
-  QStringList updated;
-  updated.reserve(kMaxRecentFiles);
-  updated.push_back(normalized);
-  for (const QString& stored_path : stored) {
-    if (updated.size() >= kMaxRecentFiles) {
-      break;
-    }
-    if (stored_path.isEmpty()) {
-      continue;
-    }
-    const QFileInfo stored_info(stored_path);
-    const QString candidate = stored_info.absoluteFilePath();
-    if (!stored_info.exists() || !stored_info.isFile() ||
-        updated.contains(candidate)) {
-      continue;
-    }
-    updated.push_back(candidate);
-  }
-  settings.setValue(QLatin1String(kRecentFilesSettingsKey), updated);
-  settings.sync();
-  rememberLastOpenDirectory(normalized);
-  refreshRecentFilesMenu();
-}
-
-void MainWindow::openRecentFile(const QString& path) {
-  if (openFile(path)) {
-    return;
-  }
-  refreshRecentFilesMenu();
-  QMessageBox::warning(
-      this, QStringLiteral("PNG Analyzer"),
-      QStringLiteral("Could not open recent file:\n%1").arg(path));
-}
 
 void MainWindow::updateHexSource() {
   if (hex_source_tabs_ != nullptr) {
-    hex_source_tabs_->setSource(view_state_.hex_source);
+    hex_source_tabs_->setSource(view_state_->hex_source);
   }
   if (source_ == nullptr) {
     hex_->setSource(nullptr);
     return;
   }
   const std::shared_ptr<const pnga::io::IByteSource> source = source_;
-  if (view_state_.hex_source == pnga::ui::qt::HexSource::kIdatStream) {
+  if (view_state_->hex_source == pnga::ui::qt::HexSource::kIdatStream) {
     const pnga::png_format::VirtualIDATStream stream(index_);
     hex_->setSource(pnga::ui::qt::make_idat_hex_source(source, stream));
-  } else if (view_state_.hex_source == pnga::ui::qt::HexSource::kInflated) {
+  } else if (view_state_->hex_source == pnga::ui::qt::HexSource::kInflated) {
     hex_->setSource(pnga::ui::qt::make_inflated_hex_source(stage_set_));
-  } else if (view_state_.hex_source ==
+  } else if (view_state_->hex_source ==
              pnga::ui::qt::HexSource::kDefiltered) {
     hex_->setSource(pnga::ui::qt::make_defiltered_hex_source(stage_set_));
   } else {
@@ -841,7 +480,18 @@ void MainWindow::resetLayout() {
   settings.beginGroup(QStringLiteral("view"));
   settings.clear();
   settings.endGroup();
-  applyDefaultWorkspace();
+  workspace_->applyDefaults();
+  updateHexSource();
+}
+
+void MainWindow::openRecentFile(const QString& path) {
+  if (openFile(path)) {
+    return;
+  }
+  workspace_->refreshRecentFilesMenu();
+  QMessageBox::warning(
+      this, QStringLiteral("PNG Analyzer"),
+      QStringLiteral("Could not open recent file:\n%1").arg(path));
 }
 
 void MainWindow::updateNumericBaseButton() {
@@ -849,7 +499,7 @@ void MainWindow::updateNumericBaseButton() {
     return;
   }
   const bool hexadecimal =
-      view_state_.numeric_base == pnga::ui::qt::NumericBase::kHexadecimal;
+      view_state_->numeric_base == pnga::ui::qt::NumericBase::kHexadecimal;
   const QString target = hexadecimal ? QStringLiteral("DEC")
                                      : QStringLiteral("HEX");
   base_button_->setText(target);
@@ -860,7 +510,7 @@ void MainWindow::publishLockedCoordinate() {
   const pnga::trace_model::ImageCoordinate coordinate{
       0, 0, 0, static_cast<std::uint64_t>(x_spin_->value()),
       static_cast<std::uint64_t>(y_spin_->value())};
-  if (!view_state_.set_locked(coordinate)) {
+  if (!view_state_->set_locked(coordinate)) {
     return;
   }
   image_view_->setLockedPixel(
@@ -877,15 +527,15 @@ void MainWindow::publishLockedCoordinate() {
 }
 
 void MainWindow::clearLockedCoordinate() {
-  view_state_.clear_locked();
+  view_state_->clear_locked();
   image_view_->clearLockedPixel();
   {
     const QSignalBlocker lock_blocker(lock_check_);
     lock_check_->setChecked(false);
   }
-  if (view_state_.hover.has_value()) {
-    setPixelStatus(static_cast<int>(view_state_.hover->x),
-                   static_cast<int>(view_state_.hover->y));
+  if (view_state_->hover.has_value()) {
+    setPixelStatus(static_cast<int>(view_state_->hover->x),
+                   static_cast<int>(view_state_->hover->y));
   } else {
     restorePixelStatus();
   }
@@ -898,12 +548,12 @@ void MainWindow::clearLockedCoordinate() {
 }
 
 void MainWindow::nudgeLockedCoordinate(int dx, int dy) {
-  if (!view_state_.locked.has_value() || image_view_->image().isNull()) {
+  if (!view_state_->locked.has_value() || image_view_->image().isNull()) {
     return;
   }
   const QImage image = image_view_->image();
-  std::uint64_t x = view_state_.locked->x;
-  std::uint64_t y = view_state_.locked->y;
+  std::uint64_t x = view_state_->locked->x;
+  std::uint64_t y = view_state_->locked->y;
   if (dx < 0) {
     if (x == 0) {
       return;
@@ -995,7 +645,7 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
-  saveWorkspace();
+  workspace_->save();
   QMainWindow::closeEvent(event);
 }
 
@@ -1107,7 +757,7 @@ void MainWindow::onStageDone(std::uint64_t generation) {
   // it after the stage worker refreshes the source.
   const QModelIndex current_chunk = tree_->selectionModel()->currentIndex();
   if (current_chunk.isValid() &&
-      view_state_.hex_source == pnga::ui::qt::HexSource::kFile) {
+      view_state_->hex_source == pnga::ui::qt::HexSource::kFile) {
     applyChunkHexHighlight(model_->chunkAt(current_chunk.row()));
   }
   stage_worker_ = nullptr;
@@ -1165,7 +815,7 @@ bool MainWindow::openFile(const QString& path) {
   auto source =
       std::shared_ptr<pnga::io::IByteSource>(opened.release());
   const QString absolute_path = QFileInfo(path).absoluteFilePath();
-  rememberOpenedFile(path);
+  workspace_->rememberOpenedFile(path);
   if (!current_file_path_.isEmpty()) {
     const QString previous_suffix =
         QStringLiteral(" — %1").arg(current_file_path_);
@@ -1185,7 +835,7 @@ bool MainWindow::openFile(const QString& path) {
   index_ = pnga::png_format::index_chunks(*source_);
   ++generation_;
   bus_->setDocumentGeneration(generation_);
-  view_state_.set_document_generation(generation_);
+  view_state_->set_document_generation(generation_);
   trace_.reset();
   trace_result_.reset();
   if (trace_state_ != nullptr) {
@@ -1234,7 +884,7 @@ void MainWindow::onCloseTriggered() {
 
   ++generation_;
   bus_->setDocumentGeneration(generation_);
-  view_state_.set_document_generation(generation_);
+  view_state_->set_document_generation(generation_);
   source_.reset();
   index_ = {};
   stage_set_.reset();
@@ -1271,8 +921,8 @@ void MainWindow::onCloseTriggered() {
     const QSignalBlocker lock_blocker(lock_check_);
     lock_check_->setChecked(false);
   }
-  view_state_.clear_hover();
-  view_state_.clear_locked();
+  view_state_->clear_hover();
+  view_state_->clear_locked();
   resetDocument();
   preview_tabs_->setCurrentIndex(0);
   inspector_tabs_->setCurrentIndex(0);
@@ -1309,7 +959,7 @@ void MainWindow::onOpenTriggered() {
   QFileDialog dialog(this);
   dialog.setOption(QFileDialog::DontUseNativeDialog, true);
   dialog.setWindowTitle(QStringLiteral("Open PNG"));
-  dialog.setDirectory(lastOpenDirectory());
+  dialog.setDirectory(workspace_->lastOpenDirectory());
   dialog.setNameFilter(QStringLiteral("PNG files (*.png *.PNG)"));
   // QFileSystemModel disables non-matching files by default. That is the
   // behavior seen in the macOS picker; make the Qt-backed dialog hide them
@@ -1319,7 +969,7 @@ void MainWindow::onOpenTriggered() {
     file_system_model->setNameFilterDisables(false);
   }
   dialog.setFileMode(QFileDialog::ExistingFile);
-  const QString previous_file = lastOpenFile();
+  const QString previous_file = workspace_->lastOpenFile();
   if (!previous_file.isEmpty()) {
     dialog.selectFile(previous_file);
   }
@@ -1334,7 +984,7 @@ void MainWindow::onOpenTriggered() {
   }
   // Preserve the dialog location even when the selected file turns out to be
   // unreadable, so the next Open action still starts in the same directory.
-  rememberLastOpenDirectory(path);
+  workspace_->rememberLastOpenDirectory(path);
   if (!openFile(path)) {
     QMessageBox::warning(this, QStringLiteral("PNG Analyzer"),
                          QStringLiteral("Could not open file:\n%1").arg(path));
@@ -1427,7 +1077,7 @@ void MainWindow::onChunkSelectionChanged(const QModelIndex& current,
 
   // Chunk offsets are physical file offsets; never apply them to a virtual
   // IDAT or reconstructed stage address space.
-  view_state_.hex_source = pnga::ui::qt::HexSource::kFile;
+  view_state_->hex_source = pnga::ui::qt::HexSource::kFile;
   updateHexSource();
 
   if (chunk_detail_ != nullptr && source_ != nullptr) {
@@ -1504,9 +1154,9 @@ void MainWindow::setPixelStatus(int x, int y) {
 }
 
 void MainWindow::restorePixelStatus() {
-  if (view_state_.locked.has_value()) {
-    setPixelStatus(static_cast<int>(view_state_.locked->x),
-                   static_cast<int>(view_state_.locked->y));
+  if (view_state_->locked.has_value()) {
+    setPixelStatus(static_cast<int>(view_state_->locked->x),
+                   static_cast<int>(view_state_->locked->y));
     return;
   }
   pixel_label_->setText(default_pixel_status_);
@@ -1541,7 +1191,7 @@ void MainWindow::onPixelSelected(int x, int y) {
   sel.image = pnga::trace_model::ImageCoordinate{
       0, 0, 0, static_cast<std::uint64_t>(x), static_cast<std::uint64_t>(y)};
   sel.stage = pnga::trace_model::Stage::kDelivered;
-  view_state_.set_locked(*sel.image);
+  view_state_->set_locked(*sel.image);
   image_view_->setLockedPixel(QPoint(x, y));
   pixel_view_->setCoordinate(static_cast<std::uint64_t>(x),
                              static_cast<std::uint64_t>(y));
@@ -1692,7 +1342,7 @@ void MainWindow::requestTraceFor(
 }
 
 void MainWindow::setHexSource(pnga::ui::qt::HexSource source) {
-  view_state_.hex_source = source;
+  view_state_->hex_source = source;
   if (hex_source_tabs_ != nullptr) {
     hex_source_tabs_->setSource(source);
   }
