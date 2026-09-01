@@ -87,6 +87,17 @@ QTableWidget, QTreeView, QTextEdit {
   selection-background-color: @ACCENT@;
   selection-color: @ACCENT_TEXT@;
 }
+/* Base state must be QSS-rendered too: with only :hover/:pressed/:focus
+   rules the non-hover state is painted by the native style, and switching
+   renderers on hover can blank the button (observed on macOS — the label
+   disappears). A complete box model keeps every state in one pipeline. */
+QPushButton#numericBase {
+  background: @RAISED@;
+  color: @TEXT@;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 3px 10px;
+}
 QPushButton#numericBase:focus,
 QCheckBox#lockCoordinate:focus,
 QSpinBox#xCoordinate:focus,
