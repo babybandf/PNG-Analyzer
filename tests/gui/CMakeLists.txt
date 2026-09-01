@@ -143,7 +143,34 @@ add_test(NAME gui_selection_view_state_tests COMMAND pnga_gui_selection_view_sta
 # src/main.cpp into tests.
 set(PNGA_GUI_APP_TEST_SOURCES
   ../../apps/png-analyzer-gui/src/main_window.cpp
+  ../../apps/png-analyzer-gui/src/document_workers.cpp
 )
+
+# WP-5U15 focused-test helper: each extraction unit gets one executable that
+# compiles the full normalized application source list plus its own test.
+function(add_pnga_gui_app_test target source test_name)
+  add_executable(${target}
+    ${source}
+    ${PNGA_GUI_APP_TEST_SOURCES}
+  )
+  set_target_properties(${target} PROPERTIES AUTOMOC ON)
+  target_include_directories(${target} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../apps/png-analyzer-gui/src
+  )
+  target_link_libraries(${target} PRIVATE
+    pnga::ui_qt
+    pnga::analysis_engine
+    pnga::png_format
+    pnga::io
+    pnga::core
+    Qt6::Test
+  )
+  target_compile_features(${target} PRIVATE cxx_std_20)
+  add_test(NAME ${test_name} COMMAND ${target})
+endfunction()
+
+add_pnga_gui_app_test(pnga_gui_document_workers_tests
+  document_workers_test.cpp gui_document_workers_tests)
 
 add_executable(pnga_gui_main_window_layout_tests
   main_window_layout_test.cpp

@@ -29,6 +29,7 @@ endif()
 # MainWindow test executables so extraction tasks keep source parity.
 set(PNGA_GUI_APP_SOURCES
   src/main_window.cpp
+  src/document_workers.cpp
 )
 
 add_executable(pnga_analyzer_gui
