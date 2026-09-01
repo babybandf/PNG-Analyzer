@@ -32,6 +32,7 @@ set(PNGA_GUI_APP_SOURCES
   src/document_workers.cpp
   src/main_window_ui.cpp
   src/workspace_controller.cpp
+  src/document_session.cpp
 )
 
 add_executable(pnga_analyzer_gui

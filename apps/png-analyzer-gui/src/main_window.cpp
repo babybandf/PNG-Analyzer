@@ -258,6 +258,17 @@ MainWindow::MainWindow(QWidget* parent,
       *this, widgets_,
       [this](const QString& path) { openRecentFile(path); });
   view_state_ = &workspace_->viewState();
+  session_ = std::make_unique<DocumentSession>(this);
+  connect(session_.get(), &DocumentSession::decodePublished, this,
+          &MainWindow::onDecodeDone);
+  connect(session_.get(), &DocumentSession::stagesPublished, this,
+          &MainWindow::onStageDone);
+  connect(session_.get(), &DocumentSession::validationPublished, this,
+          &MainWindow::onValidationDone);
+  connect(session_.get(), &DocumentSession::chunkDetailPublished, this,
+          &MainWindow::onChunkDetailDone);
+  connect(session_.get(), &DocumentSession::rowQueryStatus, this,
+          &MainWindow::onRowQueryStatus);
   connect(block_inspector_,
           &pnga::ui::qt::BlockInspector::showInHexSpansRequested, this,
           [this](const QVector<QPair<quint64, quint64>>& ranges) {
@@ -364,7 +375,7 @@ MainWindow::MainWindow(QWidget* parent,
 
   // Initial empty model so the selection-model connection is valid from the
   // start; resetDocument() reconnects after each real setModel.
-  model_ = new pnga::ui::qt::ChunkModel(&index_, this);
+  model_ = new pnga::ui::qt::ChunkModel(&session_->index(), this);
   tree_->setModel(model_);
   connect(tree_->selectionModel(), &QItemSelectionModel::currentChanged,
           this, &MainWindow::onChunkSelectionChanged);
@@ -397,10 +408,6 @@ MainWindow::MainWindow(QWidget* parent,
   preview_tabs_->installEventFilter(this);
   hex_source_tabs_->installEventFilter(this);
   inspector_tabs_->installEventFilter(this);
-
-  query_bridge_ = new QueryStatusBridge(this);
-  connect(query_bridge_, &QueryStatusBridge::rowStatus, this,
-          &MainWindow::onRowQueryStatus);
 
   connect(x_spin_, qOverload<int>(&QSpinBox::valueChanged), this,
           [this](int) {
@@ -453,19 +460,19 @@ void MainWindow::updateHexSource() {
   if (hex_source_tabs_ != nullptr) {
     hex_source_tabs_->setSource(view_state_->hex_source);
   }
-  if (source_ == nullptr) {
+  const std::shared_ptr<const pnga::io::IByteSource> source = session_->source();
+  if (source == nullptr) {
     hex_->setSource(nullptr);
     return;
   }
-  const std::shared_ptr<const pnga::io::IByteSource> source = source_;
   if (view_state_->hex_source == pnga::ui::qt::HexSource::kIdatStream) {
-    const pnga::png_format::VirtualIDATStream stream(index_);
+    const pnga::png_format::VirtualIDATStream stream(session_->index());
     hex_->setSource(pnga::ui::qt::make_idat_hex_source(source, stream));
   } else if (view_state_->hex_source == pnga::ui::qt::HexSource::kInflated) {
-    hex_->setSource(pnga::ui::qt::make_inflated_hex_source(stage_set_));
+    hex_->setSource(pnga::ui::qt::make_inflated_hex_source(session_->stageSet()));
   } else if (view_state_->hex_source ==
              pnga::ui::qt::HexSource::kDefiltered) {
-    hex_->setSource(pnga::ui::qt::make_defiltered_hex_source(stage_set_));
+    hex_->setSource(pnga::ui::qt::make_defiltered_hex_source(session_->stageSet()));
   } else {
     hex_->setSource(pnga::ui::qt::make_file_hex_source(source));
   }
@@ -522,7 +529,7 @@ void MainWindow::publishLockedCoordinate() {
   pnga::trace_model::Selection update;
   update.image = coordinate;
   update.stage = pnga::trace_model::Stage::kDelivered;
-  bus_->publishMerged(kImagePanelOrigin, generation_, update);
+  bus_->publishMerged(kImagePanelOrigin, session_->generation(), update);
   requestTraceFor(coordinate);
 }
 
@@ -544,7 +551,7 @@ void MainWindow::clearLockedCoordinate() {
   if (current.stage == pnga::trace_model::Stage::kDelivered) {
     current.stage = pnga::trace_model::Stage::kUnknown;
   }
-  bus_->publish(kImagePanelOrigin, generation_, current);
+  bus_->publish(kImagePanelOrigin, session_->generation(), current);
 }
 
 void MainWindow::nudgeLockedCoordinate(int dx, int dy) {
@@ -695,58 +702,11 @@ void MainWindow::dropEvent(QDropEvent* event) {
   event->ignore();
 }
 
-void MainWindow::openQueryCoordinator(
-    const pnga::png_reconstruction::ImageHeader& header) {
-  query_.reset();
-  query_ = std::make_unique<pnga::analysis_engine::QueryCoordinator>(
-      /*worker_count=*/2, /*replay_budget_bytes=*/1ull << 26);
-  const std::shared_ptr<const pnga::io::IByteSource> shared =
-      std::shared_ptr<const pnga::io::IByteSource>(source_);
-  if (!query_->open(shared, header, /*anchor_interval_bytes=*/16384)) {
-    query_.reset();
-    return;
-  }
-  // Bridge the worker-thread status callback onto the GUI thread.
-  query_->setStatusCallback(
-      [bridge = query_bridge_](std::uint64_t row, pnga::analysis_engine::QueryStatus status) {
-        QMetaObject::invokeMethod(
-            bridge, [bridge, row, status] {
-              emit bridge->rowStatus(row, static_cast<int>(status));
-            },
-            Qt::QueuedConnection);
-      });
-}
-
-void MainWindow::startStageAnalysis() {
-  if (stage_worker_ != nullptr) {
-    stage_worker_ = nullptr;  // in-flight stage result becomes stale
-  }
-  auto* worker = new StageWorker(generation_, source_, this);
-  stage_worker_ = worker;
-  connect(worker, &StageWorker::stageDone, this, &MainWindow::onStageDone);
-  connect(worker, &QThread::finished, worker, &QObject::deleteLater);
-  worker->start();
-}
-
-void MainWindow::startValidation() {
-  if (validation_worker_ != nullptr) {
-    validation_worker_ = nullptr;
-  }
-  auto* worker = new ValidationWorker(generation_, source_, index_, this);
-  validation_worker_ = worker;
-  connect(worker, &ValidationWorker::validationDone, this,
-          &MainWindow::onValidationDone);
-  connect(worker, &QThread::finished, worker, &QObject::deleteLater);
-  worker->start();
-}
-
 void MainWindow::onStageDone(std::uint64_t generation) {
-  if (generation != generation_ || stage_worker_ == nullptr) {
+  if (generation != session_->generation() || session_->stageSet() == nullptr) {
     return;  // stale stage analysis; never overwrite the current document
   }
-  const auto stage = stage_worker_->result();
-  stage_set_ = stage;
-  const auto header = stage->header;
+  const auto stage = session_->stageSet();
   inspector_->setStageSet(stage);
   pixel_view_->setStageSet(stage);
   filtered_view_->setStageSet(stage);
@@ -760,28 +720,27 @@ void MainWindow::onStageDone(std::uint64_t generation) {
       view_state_->hex_source == pnga::ui::qt::HexSource::kFile) {
     applyChunkHexHighlight(model_->chunkAt(current_chunk.row()));
   }
-  stage_worker_ = nullptr;
-  openQueryCoordinator(header);
   openTraceCoordinator();
 }
 
 void MainWindow::onValidationDone(std::uint64_t generation) {
-  if (generation != generation_ || validation_worker_ == nullptr) {
+  if (generation != session_->generation()) {
     return;
   }
-  validation_report_ = validation_worker_->result();
-  if (validation_report_.issues.empty()) {
+  const pnga::analysis_engine::DocumentValidationReport& validation_report =
+      session_->validationReport();
+  if (validation_report.issues.empty()) {
     validation_label_->setText(QStringLiteral("Validation: OK"));
     validation_label_->setToolTip(QStringLiteral("No validation issues"));
   } else {
-    const auto& first = validation_report_.issues.front();
+    const auto& first = validation_report.issues.front();
     validation_label_->setText(
         QStringLiteral("Validation: %1 issue(s), %2 @ %3")
-            .arg(static_cast<qulonglong>(validation_report_.issues.size()))
+            .arg(static_cast<qulonglong>(validation_report.issues.size()))
             .arg(QString::fromStdString(first.rule_id))
             .arg(static_cast<qulonglong>(first.offset)));
     QString tooltip;
-    for (const auto& issue : validation_report_.issues) {
+    for (const auto& issue : validation_report.issues) {
       if (!tooltip.isEmpty()) {
         tooltip += QStringLiteral("\n");
       }
@@ -792,7 +751,6 @@ void MainWindow::onValidationDone(std::uint64_t generation) {
     }
     validation_label_->setToolTip(tooltip);
   }
-  validation_worker_ = nullptr;
 }
 
 void MainWindow::onRowQueryStatus(std::uint64_t row, int status) {
@@ -804,42 +762,35 @@ void MainWindow::onRowQueryStatus(std::uint64_t row, int status) {
 }
 
 bool MainWindow::openFile(const QString& path) {
-  std::unique_ptr<pnga::io::IByteSource> opened;
-  const std::error_code ec =
-      pnga::io::open_mapped_file(filesystemPath(path), opened);
-  if (ec) {
+  // Capture before replace(): the session adopts the new path on success and
+  // the previous suffix must still be stripped from the title.
+  const QString previous_path = session_->currentFilePath();
+  if (!session_->replace(path)) {
     return false;
   }
-  // Shared ownership so an in-flight worker keeps its source alive even when a
-  // newer file replaces source_ (virtual dtor makes this safe).
-  auto source =
-      std::shared_ptr<pnga::io::IByteSource>(opened.release());
+  const std::uint64_t generation = session_->generation();
   const QString absolute_path = QFileInfo(path).absoluteFilePath();
   workspace_->rememberOpenedFile(path);
-  if (!current_file_path_.isEmpty()) {
+  if (!previous_path.isEmpty()) {
     const QString previous_suffix =
-        QStringLiteral(" — %1").arg(current_file_path_);
+        QStringLiteral(" — %1").arg(previous_path);
     if (windowTitle().endsWith(previous_suffix)) {
       setWindowTitle(windowTitle().left(windowTitle().size() -
-                                       previous_suffix.size()));
+                                        previous_suffix.size()));
     }
   }
   setWindowTitle(QStringLiteral("%1 — %2").arg(windowTitle(), absolute_path));
-  current_file_path_ = absolute_path;
   if (close_action_ != nullptr) {
     close_action_->setEnabled(true);
   }
   default_pixel_status_ = QStringLiteral("Loading image…");
   pixel_label_->setText(default_pixel_status_);
-  source_ = source;
-  index_ = pnga::png_format::index_chunks(*source_);
-  ++generation_;
-  bus_->setDocumentGeneration(generation_);
-  view_state_->set_document_generation(generation_);
+  bus_->setDocumentGeneration(generation);
+  view_state_->set_document_generation(generation);
   trace_.reset();
   trace_result_.reset();
   if (trace_state_ != nullptr) {
-    trace_state_->replaceDocument(generation_);
+    trace_state_->replaceDocument(generation);
   }
   trace_handle_.reset();
   pending_trace_coordinate_.reset();
@@ -852,7 +803,6 @@ bool MainWindow::openFile(const QString& path) {
     trace_binding_->clear();
     trace_binding_->setHasDocument(true);
   }
-  stage_set_.reset();
   pixel_view_->clear();
   filtered_view_->clear();
   defiltered_view_->clear();
@@ -868,27 +818,25 @@ bool MainWindow::openFile(const QString& path) {
   // document, so Image and Reconstruction are visible immediately.
   preview_tabs_->setCurrentIndex(0);
   inspector_tabs_->setCurrentIndex(0);
-  validation_report_ = {};
   validation_label_->setText(QStringLiteral("Validation: checking…"));
   validation_label_->setToolTip(QString());
-  startValidation();
-  startDecode();
-  startStageAnalysis();
+  // Start the primary workers only after the visual reset above.
+  session_->startPrimaryWorkers();
   return true;
 }
 
 void MainWindow::onCloseTriggered() {
-  if (source_ == nullptr && current_file_path_.isEmpty()) {
+  if (!session_->hasDocument() && session_->currentFilePath().isEmpty()) {
     return;
   }
+  // The session owns the path; capture it before close() clears the state so
+  // the title suffix can be removed.
+  const QString closing_path = session_->currentFilePath();
 
-  ++generation_;
-  bus_->setDocumentGeneration(generation_);
-  view_state_->set_document_generation(generation_);
-  source_.reset();
-  index_ = {};
-  stage_set_.reset();
-  query_.reset();
+  session_->close();
+  const std::uint64_t generation = session_->generation();
+  bus_->setDocumentGeneration(generation);
+  view_state_->set_document_generation(generation);
   trace_.reset();
   trace_handle_.reset();
   trace_result_.reset();
@@ -898,12 +846,8 @@ void MainWindow::onCloseTriggered() {
   trace_interval_.reset();
   trace_request_generation_ = 0;
   trace_deflate_data_begin_ = 0;
-  decode_worker_ = nullptr;
-  stage_worker_ = nullptr;
-  validation_worker_ = nullptr;
-  chunk_detail_worker_ = nullptr;
   if (trace_state_ != nullptr) {
-    trace_state_->replaceDocument(generation_);
+    trace_state_->replaceDocument(generation);
   }
   if (trace_binding_ != nullptr) {
     trace_binding_->clear();
@@ -928,15 +872,13 @@ void MainWindow::onCloseTriggered() {
   inspector_tabs_->setCurrentIndex(0);
   default_pixel_status_ = QStringLiteral("No image");
   pixel_label_->setText(default_pixel_status_);
-  validation_report_ = {};
   validation_label_->setText(QStringLiteral("Validation: not loaded"));
   validation_label_->setToolTip(QString());
 
-  const QString path_suffix = QStringLiteral(" — %1").arg(current_file_path_);
-  if (!current_file_path_.isEmpty() && windowTitle().endsWith(path_suffix)) {
+  const QString path_suffix = QStringLiteral(" — %1").arg(closing_path);
+  if (!closing_path.isEmpty() && windowTitle().endsWith(path_suffix)) {
     setWindowTitle(windowTitle().left(windowTitle().size() - path_suffix.size()));
   }
-  current_file_path_.clear();
   if (close_action_ != nullptr) {
     close_action_->setEnabled(false);
   }
@@ -999,7 +941,7 @@ void MainWindow::resetDocument() {
   if (model_ != nullptr) {
     delete model_;
   }
-  model_ = new pnga::ui::qt::ChunkModel(&index_, this);
+  model_ = new pnga::ui::qt::ChunkModel(&session_->index(), this);
   tree_->setModel(model_);
   // setModel() replaces the selection model; reconnect to the new one.
   connect(tree_->selectionModel(), &QItemSelectionModel::currentChanged,
@@ -1013,30 +955,17 @@ void MainWindow::resetDocument() {
   }
 }
 
-void MainWindow::startDecode() {
-  if (decode_worker_ != nullptr) {
-    // A previous decode may still be running; its result will be ignored
-    // because its generation is stale. Drop the reference now.
-    decode_worker_ = nullptr;
-  }
-  auto* worker = new DecodeWorker(generation_, source_, this);
-  decode_worker_ = worker;
-  connect(worker, &DecodeWorker::decodeDone, this, &MainWindow::onDecodeDone);
-  connect(worker, &QThread::finished, worker, &QObject::deleteLater);
-  worker->start();
-}
 
 void MainWindow::onDecodeDone(std::uint64_t generation) {
-  if (generation != generation_ || decode_worker_ == nullptr) {
+  if (generation != session_->generation()) {
     return;  // stale decode; never overwrite the current document's image
   }
-  const auto& result = decode_worker_->result();
+  const auto& result = session_->decodeResult();
   if (!result.success) {
     image_view_->setImage(QImage());
     default_pixel_status_ = QStringLiteral("decode failed: %1")
                                 .arg(QString::fromStdString(result.error));
     pixel_label_->setText(default_pixel_status_);
-    decode_worker_ = nullptr;
     return;
   }
   const auto& img = result.image;
@@ -1060,7 +989,6 @@ void MainWindow::onDecodeDone(std::uint64_t generation) {
   // This keeps Compression populated immediately after opening a document
   // instead of requiring an incidental image click first.
   onPixelSelected(0, 0);
-  decode_worker_ = nullptr;
 }
 
 void MainWindow::onChunkSelectionChanged(const QModelIndex& current,
@@ -1080,22 +1008,9 @@ void MainWindow::onChunkSelectionChanged(const QModelIndex& current,
   view_state_->hex_source = pnga::ui::qt::HexSource::kFile;
   updateHexSource();
 
-  if (chunk_detail_ != nullptr && source_ != nullptr) {
+  if (chunk_detail_ != nullptr && session_->hasDocument()) {
     chunk_detail_->setLoading();
-    auto* detail_worker = new ChunkDetailWorker(
-        generation_, selection_serial, source_, node, this);
-    chunk_detail_worker_ = detail_worker;
-    connect(detail_worker, &ChunkDetailWorker::detailDone, this,
-            &MainWindow::onChunkDetailDone);
-    connect(detail_worker, &QThread::finished, detail_worker,
-            &QObject::deleteLater);
-    connect(detail_worker, &QThread::finished, this,
-            [this, detail_worker] {
-              if (chunk_detail_worker_ == detail_worker) {
-                chunk_detail_worker_ = nullptr;
-              }
-            });
-    detail_worker->start();
+    session_->requestChunkDetail(node, selection_serial);
   }
 
   applyChunkHexHighlight(node);
@@ -1108,7 +1023,7 @@ void MainWindow::onChunkSelectionChanged(const QModelIndex& current,
       pnga::trace_model::BitSpan{node.data_offset, node.data_length},
       pnga::trace_model::BitSpan{node.crc_offset, kCrcSpanLength}};
   sel.stage = pnga::trace_model::Stage::kChunk;
-  bus_->publishMerged(kChunkPanelOrigin, generation_, sel);
+  bus_->publishMerged(kChunkPanelOrigin, session_->generation(), sel);
 }
 
 void MainWindow::applyChunkHexHighlight(
@@ -1129,12 +1044,11 @@ void MainWindow::applyChunkHexHighlight(
 
 void MainWindow::onChunkDetailDone(std::uint64_t generation,
                                    std::uint64_t selection_serial) {
-  if (generation != generation_ ||
-      selection_serial != chunk_selection_serial_ ||
-      chunk_detail_worker_ == nullptr || chunk_detail_ == nullptr) {
+  if (generation != session_->generation() ||
+      selection_serial != chunk_selection_serial_ || chunk_detail_ == nullptr) {
     return;
   }
-  chunk_detail_->setDetail(chunk_detail_worker_->result());
+  chunk_detail_->setDetail(session_->chunkDetail());
 }
 
 void MainWindow::setPixelStatus(int x, int y) {
@@ -1173,15 +1087,16 @@ void MainWindow::onPixelSelected(int x, int y) {
   }
   inspector_->onPixelSelected(static_cast<std::uint64_t>(x),
                               static_cast<std::uint64_t>(y));
-  if (query_ != nullptr && query_->has_index() &&
-      stage_worker_ == nullptr) {
+  pnga::analysis_engine::QueryCoordinator* query = session_->queryCoordinator();
+  if (query != nullptr && query->has_index() &&
+      session_->stageSet() != nullptr) {
     // Map the clicked pixel to its stream row and issue a selection-priority
     // replay if the row's data is not materialized yet.
-    const auto& layout = query_->anchors().layout;
+    const auto& layout = query->anchors().layout;
     const auto row = pnga::analysis_engine::stream_row_for_pixel(
         layout, static_cast<std::uint64_t>(x), static_cast<std::uint64_t>(y));
     if (row.has_value()) {
-      const auto result = query_->query_scanline(
+      const auto result = query->query_scanline(
           *row, pnga::analysis_engine::JobPriority::kSelection);
       inspector_->setRowQueryStatus(QLatin1String(
           pnga::analysis_engine::query_status_text(result.status)));
@@ -1199,7 +1114,7 @@ void MainWindow::onPixelSelected(int x, int y) {
                                 static_cast<std::uint64_t>(y));
   defiltered_view_->setCoordinate(static_cast<std::uint64_t>(x),
                                   static_cast<std::uint64_t>(y));
-  bus_->publishMerged(kImagePanelOrigin, generation_, sel);
+  bus_->publishMerged(kImagePanelOrigin, session_->generation(), sel);
   requestTraceFor(
       pnga::trace_model::ImageCoordinate{0, 0, 0, static_cast<std::uint64_t>(x),
                                          static_cast<std::uint64_t>(y)});
@@ -1213,18 +1128,17 @@ void MainWindow::onPixelSelected(int x, int y) {
 void MainWindow::openTraceCoordinator() {
   trace_.reset();
   trace_handle_.reset();
-  if (source_ == nullptr) {
+  const std::shared_ptr<const pnga::io::IByteSource> shared = session_->source();
+  if (shared == nullptr) {
     return;
   }
-  const std::shared_ptr<const pnga::io::IByteSource> shared =
-      std::shared_ptr<const pnga::io::IByteSource>(source_);
   auto trace = std::make_unique<pnga::analysis_engine::TraceOrchestrator>(
       /*worker_count=*/1,
       /*max_reserved_bytes=*/kTraceOutputBudgetBytes * 2);
   if (!trace->open(shared, kTraceIndexOutputBytes)) {
     return;
   }
-  trace->setDocumentGeneration(generation_);
+  trace->setDocumentGeneration(session_->generation());
   if (trace_binding_ != nullptr) {
     trace_binding_->publishFastIndex(trace->fast_index());
   }
@@ -1247,7 +1161,7 @@ void MainWindow::openTraceCoordinator() {
 
 void MainWindow::onTraceResult(
     const pnga::analysis_engine::TraceQueryResult& result) {
-  if (result.generation != generation_ || trace_binding_ == nullptr ||
+  if (result.generation != session_->generation() || trace_binding_ == nullptr ||
       trace_state_ == nullptr) {
     return;  // stale result; never publish for an older document
   }
@@ -1269,8 +1183,9 @@ void MainWindow::requestTraceFor(
   if (trace_binding_ == nullptr || trace_state_ == nullptr) {
     return;
   }
-  if (trace_ == nullptr || !trace_->has_index() || query_ == nullptr ||
-      !query_->has_index()) {
+  pnga::analysis_engine::QueryCoordinator* query = session_->queryCoordinator();
+  if (trace_ == nullptr || !trace_->has_index() || query == nullptr ||
+      !query->has_index()) {
     // The trace pipeline is not ready yet; remember the committed coordinate
     // and publish a not-indexed state instead of guessing an interval.
     pending_trace_coordinate_ = coordinate;
@@ -1279,11 +1194,11 @@ void MainWindow::requestTraceFor(
   }
   trace_binding_->setNotIndexed(false);
   const auto row = pnga::analysis_engine::stream_row_for_pixel(
-      query_->anchors().layout, coordinate.x, coordinate.y);
+      query->anchors().layout, coordinate.x, coordinate.y);
   if (!row.has_value()) {
     return;
   }
-  const auto& scanlines = query_->anchors().scanlines;
+  const auto& scanlines = query->anchors().scanlines;
   if (*row >= scanlines.size()) {
     return;
   }
@@ -1299,8 +1214,8 @@ void MainWindow::requestTraceFor(
     return;
   }
   trace_selected_output_offset_ = filtered_output_offset_for_pixel(
-      query_->anchors(), coordinate, *row);
-  if (trace_interval_.has_value() && trace_request_generation_ == generation_ &&
+      query->anchors(), coordinate, *row);
+  if (trace_interval_.has_value() && trace_request_generation_ == session_->generation() &&
       trace_interval_->first == begin && trace_interval_->second == end) {
     if (trace_result_ != nullptr) {
       const bool accepted = trace_state_->publish(
@@ -1316,13 +1231,13 @@ void MainWindow::requestTraceFor(
   pending_trace_coordinate_.reset();
   trace_interval_ = std::make_pair(begin, end);
   trace_scanline_ = *row;
-  trace_request_generation_ = generation_;
+  trace_request_generation_ = session_->generation();
   if (trace_handle_ != nullptr && trace_handle_->accepted()) {
     trace_->cancel(*trace_handle_);
     trace_handle_.reset();
   }
   pnga::analysis_engine::TraceOrchestrationRequest request;
-  request.generation = generation_;
+  request.generation = session_->generation();
   pnga::trace_model::Selection selection;
   selection.image = coordinate;
   selection.stage = pnga::trace_model::Stage::kDelivered;
@@ -1332,7 +1247,7 @@ void MainWindow::requestTraceFor(
   request.max_tokens = kMaxTraceTokens;
   request.trace_output_budget_bytes = kTraceOutputBudgetBytes;
   request.priority = pnga::analysis_engine::JobPriority::kSelection;
-  trace_state_->markReplaying(generation_);
+  trace_state_->markReplaying(session_->generation());
   trace_binding_->publishState(trace_state_->state());
   const auto handle = trace_->submit(request);
   trace_handle_ = handle.accepted()
