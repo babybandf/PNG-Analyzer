@@ -34,6 +34,7 @@ set(PNGA_GUI_APP_SOURCES
   src/workspace_controller.cpp
   src/document_session.cpp
   src/selection_navigation_controller.cpp
+  src/trace_controller.cpp
 )
 
 add_executable(pnga_analyzer_gui

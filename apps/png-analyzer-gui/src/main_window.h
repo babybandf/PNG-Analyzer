@@ -74,6 +74,7 @@ class ApplicationTheme;
 #include "document_workers.h"
 #include "main_window_ui.h"
 #include "selection_navigation_controller.h"
+#include "trace_controller.h"
 #include "workspace_controller.h"
 
 class MainWindow final : public QMainWindow {
@@ -96,12 +97,9 @@ class MainWindow final : public QMainWindow {
   void onChunkDetailDone(std::uint64_t generation,
                          std::uint64_t selection_serial);
   void onRowQueryStatus(std::uint64_t row, int status);
-  void onTraceResult(const pnga::analysis_engine::TraceQueryResult& result);
   void resetLayout();
 
  private:
-  void openTraceCoordinator();
-  void requestTraceFor(const pnga::trace_model::ImageCoordinate& coordinate);
   void openRecentFile(const QString& path);
 
  protected:
@@ -117,6 +115,7 @@ class MainWindow final : public QMainWindow {
   std::unique_ptr<WorkspaceController> workspace_;
   std::unique_ptr<DocumentSession> session_;
   std::unique_ptr<SelectionNavigationController> selection_;
+  std::unique_ptr<TraceController> trace_controller_;
   pnga::ui::qt::HexView* hex_ = nullptr;
   pnga::ui::qt::DeliveredImageView* image_view_ = nullptr;
   pnga::ui::qt::StagePixelProcessView* pixel_view_ = nullptr;
@@ -146,18 +145,6 @@ class MainWindow final : public QMainWindow {
   QTreeView* tree_ = nullptr;
   QAction* close_action_ = nullptr;
   QMenu* recent_files_menu_ = nullptr;
-  std::unique_ptr<pnga::analysis_engine::TraceOrchestrator> trace_;
-  std::unique_ptr<pnga::analysis_engine::TraceInspectorStateMachine> trace_state_;
-  std::unique_ptr<pnga::analysis_engine::TraceTaskHandle> trace_handle_;
-  std::shared_ptr<const pnga::analysis_engine::TraceQueryResult> trace_result_;
-  std::optional<pnga::trace_model::ImageCoordinate> pending_trace_coordinate_;
-  std::optional<std::uint64_t> trace_scanline_;
-  // Absolute inflated byte corresponding to the selected pixel's sample
-  // (the scanline filter byte is intentionally excluded).
-  std::optional<std::uint64_t> trace_selected_output_offset_;
-  std::optional<std::pair<std::uint64_t, std::uint64_t>> trace_interval_;
-  std::uint64_t trace_request_generation_ = 0;
-  std::uint64_t trace_deflate_data_begin_ = 0;
   QLabel* pixel_label_ = nullptr;
   QLabel* validation_label_ = nullptr;
   pnga::ui::qt::ApplicationTheme* theme_ = nullptr;

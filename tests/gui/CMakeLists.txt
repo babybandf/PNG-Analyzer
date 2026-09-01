@@ -148,6 +148,7 @@ set(PNGA_GUI_APP_TEST_SOURCES
   ../../apps/png-analyzer-gui/src/workspace_controller.cpp
   ../../apps/png-analyzer-gui/src/document_session.cpp
   ../../apps/png-analyzer-gui/src/selection_navigation_controller.cpp
+  ../../apps/png-analyzer-gui/src/trace_controller.cpp
 )
 
 # WP-5U15 focused-test helper: each extraction unit gets one executable that
@@ -188,6 +189,11 @@ add_pnga_gui_app_test(pnga_gui_document_session_tests
 add_pnga_gui_app_test(pnga_gui_selection_navigation_controller_tests
   selection_navigation_controller_test.cpp
   gui_selection_navigation_controller_tests)
+
+add_pnga_gui_app_test(pnga_gui_trace_controller_tests
+  trace_controller_test.cpp gui_trace_controller_tests)
+target_compile_definitions(pnga_gui_trace_controller_tests PRIVATE
+  PNGA_TRACE_CONTROLLER_TESTING=1)
 
 add_executable(pnga_gui_main_window_layout_tests
   main_window_layout_test.cpp
