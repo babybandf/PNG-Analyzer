@@ -10,6 +10,7 @@ add_library(pnga_ui_qt
   include/pnga/ui/qt/about_dialog.h
   include/pnga/ui/qt/application_theme.h
   include/pnga/ui/qt/block_inspector.h
+  include/pnga/ui/qt/block_inspector_model.h
   include/pnga/ui/qt/chunk_detail_panel.h
   include/pnga/ui/qt/chunk_model.h
   include/pnga/ui/qt/compression_context.h
@@ -33,6 +34,7 @@ add_library(pnga_ui_qt
   src/about_dialog.cpp
   src/application_theme.cpp
   src/block_inspector.cpp
+  src/block_inspector_model.cpp
   src/chunk_detail_panel.cpp
   src/chunk_model.cpp
   src/compression_context.cpp
