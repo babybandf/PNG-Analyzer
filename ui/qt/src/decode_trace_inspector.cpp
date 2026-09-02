@@ -373,20 +373,18 @@ DecodeTraceInspector::inflatedTargetFor(
 }
 
 void DecodeTraceInspector::onSelectionChanged() {
-  if (!applying_state_) {
-    const auto row = activeRow();
-    if (row.has_value()) {
-      const auto* step = model_->stepAt(*row);
-      if (step != nullptr) {
-        // Row selection changes only Manual Selection: no history entry, no
-        // navigation request and no trace submission.
-        if (auto target = manualTargetFor(*step);
-            target.has_value() && target->valid()) {
-          if (selection_store_ != nullptr) {
-            selection_store_->setManual(*target);
-          } else {
-            emit navigationRequested(*target);
-          }
+  const auto row = activeRow();
+  if (row.has_value()) {
+    const auto* step = model_->stepAt(*row);
+    if (step != nullptr) {
+      // Row selection changes only Manual Selection: no history entry, no
+      // navigation request and no trace submission.
+      if (auto target = manualTargetFor(*step);
+          target.has_value() && target->valid()) {
+        if (selection_store_ != nullptr) {
+          selection_store_->setManual(*target);
+        } else {
+          emit navigationRequested(*target);
         }
       }
     }

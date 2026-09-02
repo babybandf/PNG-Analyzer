@@ -576,12 +576,6 @@ void HuffmanInspector::openOccurrence() {
     return;
   }
   if (entry->occurrence_token_indices.empty()) {
-    setDetailsInstruction(
-        QStringLiteral("This symbol is defined but not used by Block #%1.")
-            .arg(static_cast<qulonglong>(
-                activeTable().has_value()
-                    ? (*activeTable())->block_index
-                    : 0)));
     updateDetails();
     return;
   }

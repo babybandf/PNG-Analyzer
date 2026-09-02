@@ -56,7 +56,7 @@ const HuffmanInspectorEntry* find_entry(
 }
 
 // A dynamic block at DEFLATE bits [0, 64) with code-length, literal/length
-// and distance tables plus four bounded tokens (two literals, one match, one
+// and distance tables plus six bounded tokens (four literals, one match, one
 // end-of-block).
 TraceQueryResult dynamic_trace() {
   TraceQueryResult trace;

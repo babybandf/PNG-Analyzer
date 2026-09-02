@@ -99,9 +99,7 @@ std::optional<DeflateBitWindow> block_deflate_window(
 
 std::optional<pnga::trace_model::DeflateBitRange> make_deflate_range(
     std::uint64_t begin, std::uint64_t end) noexcept {
-  if (end < begin || end - begin >
-                         std::numeric_limits<std::uint64_t>::max() -
-                             begin) {
+  if (end < begin || end > std::numeric_limits<std::uint64_t>::max()) {
     return std::nullopt;
   }
   return pnga::trace_model::DeflateBitRange{pnga::trace_model::DeflateBitOffset{begin},

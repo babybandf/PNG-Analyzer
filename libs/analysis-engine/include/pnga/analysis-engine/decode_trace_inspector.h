@@ -18,16 +18,6 @@
 
 namespace pnga::analysis_engine {
 
-enum class DecodeTraceInspectorStatus {
-  kNoTrace = 0,
-  kReady = 1,
-  kPartial = 2,
-  kError = 3,
-};
-
-const char* decode_trace_inspector_status_text(
-    DecodeTraceInspectorStatus status) noexcept;
-
 enum class DecodeTracePath { kLiteral = 0, kMatch = 1, kEndOfBlock = 2 };
 
 const char* decode_trace_path_text(DecodeTracePath path) noexcept;

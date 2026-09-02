@@ -5,7 +5,6 @@
 
 #include "pnga/analysis-engine/decode_trace_inspector.h"
 
-#include <limits>
 #include <sstream>
 
 namespace pnga::analysis_engine {
@@ -33,20 +32,6 @@ constexpr BaseExtra kDistances[] = {
     {4097, 11}, {6145, 11}, {8193, 12}, {12289, 12}, {16385, 13},
     {24577, 13},
 };
-
-const char* status_text(DecodeTraceInspectorStatus status) noexcept {
-  switch (status) {
-    case DecodeTraceInspectorStatus::kNoTrace:
-      return "no_trace";
-    case DecodeTraceInspectorStatus::kReady:
-      return "ready";
-    case DecodeTraceInspectorStatus::kPartial:
-      return "partial";
-    case DecodeTraceInspectorStatus::kError:
-      return "error";
-  }
-  return "unknown";
-}
 
 const char* path_text(DecodeTracePath path) noexcept {
   switch (path) {
@@ -90,11 +75,6 @@ std::string match_event_text(std::uint16_t length, std::uint16_t distance) {
 const char* const kEndOfBlockEventText = "End of block";
 
 }  // namespace
-
-const char* decode_trace_inspector_status_text(
-    DecodeTraceInspectorStatus status) noexcept {
-  return status_text(status);
-}
 
 const char* decode_trace_path_text(DecodeTracePath path) noexcept {
   return path_text(path);

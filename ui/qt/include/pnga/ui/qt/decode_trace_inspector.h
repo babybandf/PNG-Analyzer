@@ -92,7 +92,6 @@ class DecodeTraceInspector final : public CompressionInspectorPage {
   QLabel* scope_heading_ = nullptr;
   QPushButton* hex_button_ = nullptr;
   QPushButton* inflated_button_ = nullptr;
-  bool applying_state_ = false;
   bool splitter_sized_ = false;
   mutable std::uint64_t serial_base_ = 0;
   mutable std::uint64_t serial_counter_ = 0;
