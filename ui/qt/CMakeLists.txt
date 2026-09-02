@@ -18,6 +18,7 @@ add_library(pnga_ui_qt
   include/pnga/ui/qt/compression_selection_store.h
   include/pnga/ui/qt/delivered_image_view.h
   include/pnga/ui/qt/decode_trace_inspector.h
+  include/pnga/ui/qt/decode_trace_model.h
   include/pnga/ui/qt/hex_view.h
   include/pnga/ui/qt/hex_source_tab_bar.h
   include/pnga/ui/qt/huffman_inspector.h
@@ -43,6 +44,7 @@ add_library(pnga_ui_qt
   src/compression_selection_store.cpp
   src/delivered_image_view.cpp
   src/decode_trace_inspector.cpp
+  src/decode_trace_model.cpp
   src/hex_view.cpp
   src/hex_source_tab_bar.cpp
   src/huffman_inspector.cpp
