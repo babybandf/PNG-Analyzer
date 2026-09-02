@@ -7,6 +7,7 @@
 
 #include <pnga/ui/qt/chunk_detail_panel.h>
 #include <pnga/ui/qt/chunk_model.h>
+#include <pnga/ui/qt/compression_selection_store.h>
 #include <pnga/ui/qt/delivered_image_view.h>
 #include <pnga/ui/qt/hex_data_source.h>
 #include <pnga/ui/qt/hex_source_tab_bar.h>
@@ -26,7 +27,9 @@
 
 #include <algorithm>
 #include <limits>
+#include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace {
@@ -108,14 +111,23 @@ std::optional<std::uint64_t> filtered_output_offset_for_pixel(
 
 SelectionNavigationController::SelectionNavigationController(
     MainWindowWidgets widgets, SelectionNavigationCallbacks callbacks,
-    QObject* parent, pnga::ui::qt::SelectionViewState* shared_view_state)
+    QObject* parent, pnga::ui::qt::SelectionViewState* shared_view_state,
+    pnga::ui::qt::CompressionSelectionStore* compression_store)
     : QObject(parent),
       w_(widgets),
       callbacks_(std::move(callbacks)),
       internal_view_state_(),
       view_state_(shared_view_state != nullptr ? *shared_view_state
-                                               : internal_view_state_) {
+                                               : internal_view_state_),
+      compression_store_(compression_store) {
   default_pixel_status_ = QStringLiteral("No image");
+  if (compression_store_ != nullptr) {
+    // The controller is the single receiver of the store's navigation
+    // requests; the store owns Current/Manual state and history.
+    connect(compression_store_,
+            &pnga::ui::qt::CompressionSelectionStore::navigationRequested,
+            this, &SelectionNavigationController::applyCompressionNavigation);
+  }
 }
 
 pnga::ui::qt::SelectionViewState& SelectionNavigationController::viewState()
@@ -143,6 +155,10 @@ void SelectionNavigationController::setDocument(
   query_ = query;
   stage_set_.reset();
   view_state_.set_document_generation(generation);
+  last_applied_navigation_serial_ = 0;
+  if (compression_store_ != nullptr) {
+    compression_store_->resetGeneration(generation);
+  }
 }
 
 void SelectionNavigationController::clearDocument(std::uint64_t generation) {
@@ -154,6 +170,75 @@ void SelectionNavigationController::clearDocument(std::uint64_t generation) {
   view_state_.set_document_generation(generation);
   view_state_.clear_hover();
   view_state_.clear_locked();
+  last_applied_navigation_serial_ = 0;
+  if (compression_store_ != nullptr) {
+    compression_store_->resetGeneration(generation);
+  }
+}
+
+void SelectionNavigationController::applyCompressionNavigation(
+    const pnga::trace_model::CompressionNavigationTarget& target) {
+  if (w_.hex == nullptr) {
+    return;
+  }
+  if (target.generation != generation_ || target.request_serial == 0 ||
+      target.request_serial == last_applied_navigation_serial_) {
+    return;  // stale generation or an already-applied serial (loop guard).
+  }
+  last_applied_navigation_serial_ = target.request_serial;
+  const auto highlight_spans =
+      [this](const std::vector<pnga::trace_model::FileByteRange>& spans) {
+        if (spans.empty()) {
+          return;
+        }
+        std::vector<pnga::ui::qt::HexHighlightSpan> highlights;
+        highlights.reserve(spans.size());
+        for (const auto& span : spans) {
+          if (!span.valid() || span.empty()) {
+            continue;
+          }
+          highlights.push_back(
+              {span.begin.value, span.end - span.begin,
+               QColor(0x42, 0xA5, 0xF5)});
+        }
+        w_.hex->setHighlight(std::move(highlights));
+        w_.hex->navigateTo(spans.front().begin.value);
+      };
+  std::visit(
+      [&](const auto& range) {
+        using Range = std::decay_t<decltype(range)>;
+        if constexpr (std::is_same_v<Range,
+                                     pnga::trace_model::InflatedByteRange>) {
+          // Inflated output routes through the existing Inflated source.
+          setHexSource(pnga::ui::qt::HexSource::kInflated);
+          w_.hex->navigateTo(range.begin.value);
+        } else if constexpr (std::is_same_v<Range,
+                                            pnga::trace_model::FileByteRange>) {
+          setHexSource(pnga::ui::qt::HexSource::kFile);
+          if (!target.physical_spans.empty()) {
+            highlight_spans(target.physical_spans);
+          } else {
+            highlight_spans({range});
+          }
+        } else {
+          // Zlib byte/bit and DEFLATE bit ranges show the compressed input
+          // through every mapped physical file span; no bit normalization
+          // happens here and no span is dropped.
+          setHexSource(pnga::ui::qt::HexSource::kFile);
+          highlight_spans(target.physical_spans);
+        }
+      },
+      target.logical_range);
+}
+
+void SelectionNavigationController::setCompressionCurrent(
+    const pnga::trace_model::CompressionCurrentMapping& mapping) {
+  if (mapping.generation != generation_) {
+    return;  // stale document context.
+  }
+  if (compression_store_ != nullptr) {
+    compression_store_->setCurrent(mapping);
+  }
 }
 
 void SelectionNavigationController::setQueryCoordinator(

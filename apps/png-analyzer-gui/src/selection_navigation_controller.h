@@ -14,6 +14,7 @@
 #include <pnga/analysis-engine/stage_analysis.h>
 #include <pnga/io/byte_source.h>
 #include <pnga/png-format/chunk_index.h>
+#include <pnga/trace-model/compression_navigation.h>
 #include <pnga/trace-model/selection.h>
 #include <pnga/ui/qt/selection_view_state.h>
 
@@ -28,6 +29,7 @@
 
 namespace pnga::ui::qt {
 class ChunkModel;
+class CompressionSelectionStore;
 }
 
 struct SelectionNavigationCallbacks final {
@@ -45,10 +47,14 @@ class SelectionNavigationController final : public QObject {
   // `shared_view_state` may be null (standalone tests); the controller then
   // uses its own instance. The product facade shares the workspace-owned
   // state so Reset Layout and selection editing observe one object.
+  // `compression_store` may be null; when present the controller keeps its
+  // generation in step with the document and is the single receiver of the
+  // store's navigation requests (WP-5U12B).
   SelectionNavigationController(MainWindowWidgets widgets,
                                 SelectionNavigationCallbacks callbacks,
                                 QObject* parent = nullptr,
-                                pnga::ui::qt::SelectionViewState* shared_view_state = nullptr);
+                                pnga::ui::qt::SelectionViewState* shared_view_state = nullptr,
+                                pnga::ui::qt::CompressionSelectionStore* compression_store = nullptr);
 
   void setDocument(std::uint64_t generation,
                    std::shared_ptr<const pnga::io::IByteSource> source,
@@ -65,6 +71,16 @@ class SelectionNavigationController final : public QObject {
   pnga::ui::qt::SelectionViewState& viewState() noexcept;
   const pnga::ui::qt::SelectionViewState& viewState() const noexcept;
   std::uint64_t chunkSelectionSerial() const noexcept;
+
+  // WP-5U12B typed Compression entry points. Both check the document
+  // generation first and never submit Deep Trace work. Navigation routes the
+  // target's variant and every physical span to the Hex/Inflated views and
+  // suppresses a serial it already applied; Current is published through the
+  // shared store so Manual Selection survives.
+  void applyCompressionNavigation(
+      const pnga::trace_model::CompressionNavigationTarget& target);
+  void setCompressionCurrent(
+      const pnga::trace_model::CompressionCurrentMapping& mapping);
 
  public slots:
   void onChunkSelectionChanged(const QModelIndex& current,
@@ -97,6 +113,8 @@ class SelectionNavigationController final : public QObject {
   std::shared_ptr<const pnga::analysis_engine::StageSet> stage_set_;
   std::uint64_t generation_ = 0;
   std::uint64_t chunk_selection_serial_ = 0;
+  std::uint64_t last_applied_navigation_serial_ = 0;
+  pnga::ui::qt::CompressionSelectionStore* compression_store_ = nullptr;
   QString default_pixel_status_;
 };
 

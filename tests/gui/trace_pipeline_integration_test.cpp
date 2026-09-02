@@ -6,7 +6,10 @@
 
 #include "main_window.h"
 
+#include <pnga/trace-model/compression_navigation.h>
 #include <pnga/ui/qt/block_inspector.h>
+#include <pnga/ui/qt/chunk_model.h>
+#include <pnga/ui/qt/compression_selection_store.h>
 #include <pnga/ui/qt/decode_trace_inspector.h>
 #include <pnga/ui/qt/delivered_image_view.h>
 #include <pnga/ui/qt/hex_source_tab_bar.h>
@@ -18,12 +21,17 @@
 #include <QCheckBox>
 #include <QLabel>
 #include <QPushButton>
+#include <QSignalSpy>
 #include <QSpinBox>
 #include <QTabWidget>
 #include <QTableWidget>
 #include <QTemporaryFile>
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <utility>
+#include <vector>
 
 class TracePipelineIntegrationTest : public QObject {
   Q_OBJECT
@@ -36,6 +44,7 @@ class TracePipelineIntegrationTest : public QObject {
   void blockShowInHexNavigatesFileSource();
   void decodeShowInHexNavigatesInflatedSource();
   void blockShowInDeflateNavigatesIdatSource();
+  void typedTargetsRoundTripAcrossTwoIdats();
 };
 
 void TracePipelineIntegrationTest::init() {
@@ -366,6 +375,162 @@ void TracePipelineIntegrationTest::blockShowInDeflateNavigatesIdatSource() {
   QVERIFY(hex->currentLocation().has_value());
   QCOMPARE(*hex->currentLocation(), expected_byte);
   QVERIFY(hex->highlightCount() > 0);
+}
+
+void TracePipelineIntegrationTest::typedTargetsRoundTripAcrossTwoIdats() {
+  MainWindow window;
+  window.resize(1200, 760);
+  window.show();
+  QCoreApplication::processEvents();
+
+  QTemporaryFile png;
+  QVERIFY(png.open());
+  // 1x1 grayscale PNG whose single zlib stream is split across two IDAT
+  // chunks (deterministic two-IDAT fixture).
+  const QByteArray bytes = QByteArray::fromBase64(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAABElEQVR42mP4OQCd2AAA"
+      "AAZJREFUDwABAQEAYcWXBgAAAABJRU5ErkJggg==");
+  QCOMPARE(png.write(bytes), bytes.size());
+  png.flush();
+  QVERIFY(window.openFile(png.fileName()));
+  QCoreApplication::processEvents();
+
+  auto* image = window.findChild<pnga::ui::qt::DeliveredImageView*>();
+  QVERIFY(image != nullptr);
+  QTRY_VERIFY_WITH_TIMEOUT(!image->image().isNull(), 5000);
+  auto* context_status = window.findChild<QLabel*>(
+      QStringLiteral("compressionContextStatus"));
+  QVERIFY(context_status != nullptr);
+  QTRY_VERIFY_WITH_TIMEOUT(
+      context_status->text().contains(QStringLiteral("ready")), 5000);
+
+  auto* block = window.findChild<pnga::ui::qt::BlockInspector*>(
+      QStringLiteral("blockInspector"));
+  QVERIFY(block != nullptr);
+  QVERIFY(block->view().generation != 0);
+  const std::uint64_t generation = block->view().generation;
+  const std::size_t rows_before = block->view().rows.size();
+
+  // MainWindow owns exactly one shared CompressionSelectionStore.
+  const auto stores =
+      window.findChildren<pnga::ui::qt::CompressionSelectionStore*>();
+  QCOMPARE(stores.size(), 1);
+  auto* store = stores.front();
+
+  // The exact IDAT data spans come from the application's own chunk model.
+  auto* chunk_model = window.findChild<pnga::ui::qt::ChunkModel*>();
+  QVERIFY(chunk_model != nullptr);
+  std::vector<std::pair<std::uint64_t, std::uint64_t>> idat_spans;
+  std::uint64_t zlib_bytes = 0;
+  for (int row = 0; row < chunk_model->rowCount(); ++row) {
+    const auto& node = chunk_model->chunkAt(row);
+    if (node.text() == "IDAT") {
+      idat_spans.emplace_back(node.data_offset, node.data_length);
+      zlib_bytes += node.data_length;
+    }
+  }
+  QCOMPARE(idat_spans.size(), 2);
+
+  const auto file_span_of = [](const std::pair<std::uint64_t, std::uint64_t>&
+                                   span) {
+    return pnga::trace_model::FileByteRange{
+        pnga::trace_model::FileByteOffset{span.first},
+        pnga::trace_model::FileByteOffset{span.first + span.second}};
+  };
+
+  auto* hex =
+      window.findChild<pnga::ui::qt::HexView*>(QStringLiteral("hexView"));
+  QVERIFY(hex != nullptr);
+  QSignalSpy location_spy(hex, &pnga::ui::qt::HexView::locationChanged);
+  QVERIFY(location_spy.isValid());
+  auto* hex_source = window.findChild<pnga::ui::qt::HexSourceTabBar*>(
+      QStringLiteral("hexSourceTabs"));
+  QVERIFY(hex_source != nullptr);
+
+  // A zlib navigation highlights BOTH exact IDAT data spans on the File
+  // source: no first-span-only path, no chunk length/type/CRC bytes.
+  pnga::trace_model::CompressionNavigationTarget zlib_target;
+  zlib_target.generation = generation;
+  zlib_target.request_serial = 1;
+  zlib_target.origin =
+      pnga::trace_model::CompressionNavigationOrigin::kBlocks;
+  zlib_target.logical_range = pnga::trace_model::ZlibByteRange{
+      pnga::trace_model::ZlibByteOffset{0},
+      pnga::trace_model::ZlibByteOffset{zlib_bytes}};
+  for (const auto& span : idat_spans) {
+    zlib_target.physical_spans.push_back(file_span_of(span));
+  }
+  QVERIFY(store->applyNavigation(zlib_target));
+  QCOMPARE(location_spy.count(), 1);  // one request gives one view update
+  QCOMPARE(hex_source->source(), pnga::ui::qt::HexSource::kFile);
+  QCOMPARE(hex->currentLocation().value_or(99), idat_spans.front().first);
+  QCOMPARE(hex->highlightCount(), std::size_t{2});
+
+  // A DEFLATE bit-range navigation carries the same physical file spans.
+  pnga::trace_model::CompressionNavigationTarget deflate_target;
+  deflate_target.generation = generation;
+  deflate_target.request_serial = 2;
+  deflate_target.origin =
+      pnga::trace_model::CompressionNavigationOrigin::kDecodeTrace;
+  deflate_target.logical_range = pnga::trace_model::DeflateBitRange{
+      pnga::trace_model::DeflateBitOffset{0},
+      pnga::trace_model::DeflateBitOffset{(zlib_bytes - 2) * 8}};
+  deflate_target.physical_spans = zlib_target.physical_spans;
+  QVERIFY(store->applyNavigation(deflate_target));
+  QCOMPARE(hex->highlightCount(), std::size_t{2});
+  QCOMPARE(hex->currentLocation().value_or(99), idat_spans.front().first);
+
+  // A File target selects its exact file range.
+  pnga::trace_model::CompressionNavigationTarget file_target;
+  file_target.generation = generation;
+  file_target.request_serial = 3;
+  file_target.origin = pnga::trace_model::CompressionNavigationOrigin::kHex;
+  file_target.logical_range = pnga::trace_model::FileByteRange{
+      pnga::trace_model::FileByteOffset{0},
+      pnga::trace_model::FileByteOffset{8}};
+  file_target.physical_spans = {
+      pnga::trace_model::FileByteRange{pnga::trace_model::FileByteOffset{0},
+                                       pnga::trace_model::FileByteOffset{8}}};
+  QVERIFY(store->applyNavigation(file_target));
+  QCOMPARE(hex->highlightCount(), std::size_t{1});
+  QCOMPARE(hex->currentLocation().value_or(99), std::uint64_t{0});
+
+  // An Inflated target routes through the existing Inflated source only.
+  pnga::trace_model::CompressionNavigationTarget inflated_target;
+  inflated_target.generation = generation;
+  inflated_target.request_serial = 4;
+  inflated_target.origin =
+      pnga::trace_model::CompressionNavigationOrigin::kInflated;
+  inflated_target.logical_range = pnga::trace_model::InflatedByteRange{
+      pnga::trace_model::InflatedByteOffset{0},
+      pnga::trace_model::InflatedByteOffset{2}};
+  QVERIFY(store->applyNavigation(inflated_target));
+  QCOMPARE(hex_source->source(), pnga::ui::qt::HexSource::kInflated);
+  QCOMPARE(hex->currentLocation().value_or(99), std::uint64_t{0});
+
+  // A stale generation is rejected before UI publication.
+  pnga::trace_model::CompressionNavigationTarget stale = zlib_target;
+  stale.request_serial = 5;
+  stale.generation = generation - 1;
+  QVERIFY(!store->applyNavigation(stale));
+  QCOMPARE(hex_source->source(), pnga::ui::qt::HexSource::kInflated);
+
+  // The Current mapping coexists with the last Manual selection.
+  pnga::trace_model::CompressionCurrentMapping mapping;
+  mapping.generation = generation;
+  mapping.output_range = pnga::trace_model::InflatedByteRange{
+      pnga::trace_model::InflatedByteOffset{0},
+      pnga::trace_model::InflatedByteOffset{1}};
+  QVERIFY(store->setCurrent(mapping));
+  QVERIFY(store->state().current.has_value());
+  QVERIFY(store->state().manual.has_value());
+  QCOMPARE(store->state().manual->request_serial, std::uint64_t{4});
+
+  // Typed navigation submits zero Deep Trace work: the trace bundle and its
+  // generation are untouched and the context stays ready.
+  QCOMPARE(block->view().generation, generation);
+  QCOMPARE(block->view().rows.size(), rows_before);
+  QVERIFY(context_status->text().contains(QStringLiteral("ready")));
 }
 
 QTEST_MAIN(TracePipelineIntegrationTest)

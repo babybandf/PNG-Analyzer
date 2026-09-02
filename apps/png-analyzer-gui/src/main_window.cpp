@@ -75,7 +75,7 @@ bool hasLocalPngUrl(const QMimeData* mime_data) {
 
 MainWindow::MainWindow(QWidget* parent,
                        pnga::ui::qt::ApplicationTheme* theme)
-    : QMainWindow(parent) {
+    : QMainWindow(parent), compression_store_(this) {
   widgets_ = buildMainWindowUi(*this, theme);
   workspace_ = std::make_unique<WorkspaceController>(
       *this, widgets_,
@@ -113,7 +113,7 @@ MainWindow::MainWindow(QWidget* parent,
                  std::uint64_t selection_serial) {
             session_->requestChunkDetail(node, selection_serial);
           }},
-      this, &workspace_->viewState());
+      this, &workspace_->viewState(), &compression_store_);
   trace_ = std::make_unique<TraceController>(widgets_, this);
   connect(trace_.get(), &TraceController::hexSourceRequested,
           selection_.get(), &SelectionNavigationController::setHexSource);

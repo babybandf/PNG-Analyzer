@@ -18,6 +18,8 @@
 #include <cstdint>
 #include <memory>
 
+#include <pnga/ui/qt/compression_selection_store.h>
+
 namespace pnga::ui::qt {
 class ApplicationTheme;
 }  // namespace pnga::ui::qt
@@ -65,6 +67,8 @@ class MainWindow final : public QMainWindow {
 
  private:
   MainWindowWidgets widgets_;
+  // WP-5U12B: exactly one shared Compression selection store.
+  pnga::ui::qt::CompressionSelectionStore compression_store_;
   std::unique_ptr<WorkspaceController> workspace_;
   std::unique_ptr<DocumentSession> session_;
   std::unique_ptr<SelectionNavigationController> selection_;
