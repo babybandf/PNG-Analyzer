@@ -183,10 +183,19 @@ void TraceControllerTest::incidentalInteractionSubmitsZero() {
     trace_button->click();
     QTRY_COMPARE_WITH_TIMEOUT(
         controller.acceptedRequestCountForTest(), std::size_t{1}, 5000);
-    // …and the incidental actions still submit zero afterwards.
+    // WP-5U12E: a Decode Trace row selection and every other incidental
+    // action still submit zero replays.
     widgets.compression_inspector_tabs->setCurrentIndex(2);
+    QTest::qWait(50);
+    auto* trace_table = widgets.decode_trace_inspector->findChild<QTableView*>(
+        QStringLiteral("compressionDecodeTraceTable"));
+    QVERIFY(trace_table != nullptr);
+    if (trace_table->model()->rowCount() > 0) {
+      trace_table->selectRow(0);
+      QTest::qWait(50);
+    }
     widgets.compression_inspector_tabs->setCurrentIndex(0);
-    window.resize(980, 640);
+    window.resize(960, 620);
     QTest::qWait(50);
     QCOMPARE(controller.acceptedRequestCountForTest(), std::size_t{1});
     QCOMPARE(controller.cancelledRequestCountForTest(), std::size_t{0});

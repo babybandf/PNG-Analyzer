@@ -100,6 +100,14 @@ TraceInspectorBinding::TraceInspectorBinding(BlockInspector* block,
       huffman_->setSelectionStore(store);
     }
   }
+  // WP-5U12E: the Decode Trace page joins the same store so row selection
+  // publishes a Manual target and the two Show actions request typed B
+  // navigation (compressed input vs inflated output) through it.
+  if (decode_ != nullptr) {
+    if (auto* store = find_compression_store(decode_); store != nullptr) {
+      decode_->setSelectionStore(store);
+    }
+  }
 }
 
 void TraceInspectorBinding::publishFastIndex(
@@ -304,10 +312,15 @@ void TraceInspectorBinding::updateContext() {
                    .arg(static_cast<qulonglong>(
                        *block_view.selected_block_index));
     }
-    if (decode_view.selected_token_index.has_value()) {
-      parts << QStringLiteral("Token #%1")
-                   .arg(static_cast<qulonglong>(
-                       *decode_view.selected_token_index));
+    // WP-5U12E: the Current token comes from the typed projection facts
+    // (the step containing the Current output byte), never from a manual
+    // selection or a parsed string.
+    for (const auto& step : decode_view.steps) {
+      if (step.contains_current) {
+        parts << QStringLiteral("Token #%1")
+                     .arg(static_cast<qulonglong>(step.token_index));
+        break;
+      }
     }
     if (!parts.isEmpty()) {
       mapping = QStringLiteral("Current · ") + parts.join(QStringLiteral(" · "));

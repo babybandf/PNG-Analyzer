@@ -1,8 +1,10 @@
 // WP-5U15: bounded trace pipeline moved verbatim from the facade, including
 // its budgets, checked arithmetic, deduplication and cancellation policy.
-// Hex-source navigation requested by the Compression pages is delegated
-// through the hexSourceRequested signal so the selection controller stays the
-// single owner of the hex source state.
+// WP-5U12E: the Decode Trace page navigates through the typed
+// CompressionSelectionStore targets only (Show in Hex carries the compressed
+// DeflateBitRange with every physical file span, Show inflated output carries
+// the InflatedByteRange); no untyped integer navigation signal exists and no
+// path here submits a replay except the explicit Open Decode Trace action.
 
 #include "trace_controller.h"
 
@@ -15,7 +17,6 @@
 #include <pnga/ui/qt/hex_view.h>
 #include <pnga/ui/qt/trace_inspector_binding.h>
 
-#include <QColor>
 #include <QMetaObject>
 
 #include <limits>
@@ -30,37 +31,16 @@ constexpr std::uint64_t kMaxTraceTokens = 4096;
 constexpr std::uint64_t kTraceOutputBudgetBytes = 1ull << 23;   // 8 MiB
 constexpr std::uint64_t kTraceIndexOutputBytes = 1ull << 26;    // 64 MiB
 
-std::optional<std::pair<std::uint64_t, std::uint64_t>> byte_range_for_bits(
-    std::uint64_t bit_begin, std::uint64_t bit_end,
-    std::uint64_t byte_origin = 0) noexcept {
-  if (bit_end <= bit_begin ||
-      bit_end > std::numeric_limits<std::uint64_t>::max() - 7) {
-    return std::nullopt;
-  }
-  const std::uint64_t begin = bit_begin / 8;
-  const std::uint64_t end = (bit_end + 7) / 8;
-  if (byte_origin > std::numeric_limits<std::uint64_t>::max() - begin ||
-      byte_origin > std::numeric_limits<std::uint64_t>::max() - end) {
-    return std::nullopt;
-  }
-  const std::uint64_t start = byte_origin + begin;
-  const std::uint64_t finish = byte_origin + end;
-  if (finish <= start) {
-    return std::nullopt;
-  }
-  return std::pair<std::uint64_t, std::uint64_t>{start, finish - start};
-}
-
 }  // namespace
 
 TraceController::TraceController(MainWindowWidgets widgets, QObject* parent)
     : QObject(parent), w_(widgets) {
   trace_state_ =
       std::make_unique<pnga::analysis_engine::TraceInspectorStateMachine>();
-  // WP-5U12C: Blocks-page Show in Hex / Show inflated output navigate through
-  // the shared CompressionSelectionStore and the selection controller; only
-  // the explicit Open Decode Trace action reaches this controller, and it
-  // reuses the existing bounded request path once per interval.
+  // WP-5U12C/E: the Compression pages navigate through the shared
+  // CompressionSelectionStore and the selection controller; only the explicit
+  // Open Decode Trace action reaches this controller, and it reuses the
+  // existing bounded request path once per interval.
   connect(w_.block_inspector,
           &pnga::ui::qt::BlockInspector::decodeTraceRequested, this,
           [this](std::uint64_t generation, std::uint64_t /*block_index*/,
@@ -126,28 +106,6 @@ TraceController::TraceController(MainWindowWidgets widgets, QObject* parent)
                     ? std::make_unique<
                           pnga::analysis_engine::TraceTaskHandle>(handle)
                     : nullptr;
-          });
-  connect(w_.decode_trace_inspector,
-          &pnga::ui::qt::DecodeTraceInspector::showInHexRequested, this,
-          [this](quint64 output_begin, quint64 /*output_end*/) {
-            emit hexSourceRequested(pnga::ui::qt::HexSource::kInflated);
-            w_.hex->navigateTo(output_begin);
-          });
-  connect(w_.decode_trace_inspector,
-          &pnga::ui::qt::DecodeTraceInspector::showInDeflateRequested, this,
-          [this](quint64 bit_begin, quint64 bit_end) {
-            // Token input bits are relative to the start of the Deflate data
-            // (after the zlib wrapper); add deflate_data_begin for the IDAT
-            // byte offset.
-            emit hexSourceRequested(pnga::ui::qt::HexSource::kIdatStream);
-            const auto range = byte_range_for_bits(
-                bit_begin, bit_end, trace_deflate_data_begin_);
-            if (!range.has_value()) {
-              return;
-            }
-            w_.hex->setHighlight({{range->first, range->second,
-                                   QColor(0x42, 0xA5, 0xF5)}});
-            w_.hex->navigateTo(range->first);
           });
 }
 
@@ -261,7 +219,6 @@ void TraceController::onTraceResult(
       trace_state_ == nullptr) {
     return;  // stale result; never publish for an older document
   }
-  trace_deflate_data_begin_ = result.deflate_data_begin;
   trace_result_ =
       std::make_shared<const pnga::analysis_engine::TraceQueryResult>(result);
   const std::uint64_t selected_output_offset =
