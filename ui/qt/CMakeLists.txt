@@ -21,6 +21,7 @@ add_library(pnga_ui_qt
   include/pnga/ui/qt/hex_view.h
   include/pnga/ui/qt/hex_source_tab_bar.h
   include/pnga/ui/qt/huffman_inspector.h
+  include/pnga/ui/qt/huffman_inspector_model.h
   include/pnga/ui/qt/hex_data_source.h
   include/pnga/ui/qt/image_transform.h
   include/pnga/ui/qt/pixel_viewport.h
@@ -45,6 +46,7 @@ add_library(pnga_ui_qt
   src/hex_view.cpp
   src/hex_source_tab_bar.cpp
   src/huffman_inspector.cpp
+  src/huffman_inspector_model.cpp
   src/hex_data_source.cpp
   src/image_transform.cpp
   src/pixel_viewport.cpp
