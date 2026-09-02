@@ -32,6 +32,7 @@
 #include <QSysInfo>
 #include <QTabBar>
 #include <QTabWidget>
+#include <QTableView>
 #include <QTableWidget>
 #include <QtGlobal>
 
@@ -276,16 +277,39 @@ void CrossPlatformGuiGateTest::accessibilityNamesCoverControlsAndInspectors() {
 }
 
 void CrossPlatformGuiGateTest::inspectorTruncationContractsRemainBounded() {
-  pnga::analysis_engine::BlockInspectorView block;
+  // WP-5U12C mechanism migration: the Blocks page exposes the complete block
+  // list through BlockInspectorModel, so the truncation contract is asserted
+  // as the virtualized model row count equal to the source fact, with the
+  // last row being a real block instead of a "truncated" placeholder. The
+  // Huffman and Decode Trace sections are unchanged.
+  pnga::analysis_engine::FastCompressionIndexView fast_blocks;
+  fast_blocks.status =
+      pnga::analysis_engine::FastCompressionIndexStatus::kReady;
+  fast_blocks.generation = 1;
   for (int i = 0; i < pnga::ui::qt::BlockInspector::kMaxVisibleRows + 1; ++i) {
-    pnga::analysis_engine::BlockInspectorRow row;
+    pnga::analysis_engine::FastCompressionBlockRow row;
     row.block_index = static_cast<std::uint64_t>(i);
-    block.rows.push_back(row);
+    row.output_range = {
+        pnga::trace_model::InflatedByteOffset{static_cast<std::uint64_t>(i)},
+        pnga::trace_model::InflatedByteOffset{static_cast<std::uint64_t>(i) +
+                                              1}};
+    fast_blocks.blocks.push_back(row);
   }
   pnga::ui::qt::BlockInspector block_widget;
-  block_widget.setView(block);
-  verify_bounded_table(block_widget,
-                       pnga::ui::qt::BlockInspector::kMaxVisibleRows + 1);
+  block_widget.setFastIndex(fast_blocks);
+  auto* blocks_table = block_widget.findChild<QTableView*>(
+      QStringLiteral("compressionBlocksTable"));
+  QVERIFY(blocks_table != nullptr);
+  QVERIFY(blocks_table->model() != nullptr);
+  QCOMPARE(blocks_table->model()->rowCount(),
+           pnga::ui::qt::BlockInspector::kMaxVisibleRows + 1);
+  QCOMPARE(blocks_table->model()
+               ->data(blocks_table->model()->index(
+                          pnga::ui::qt::BlockInspector::kMaxVisibleRows, 1),
+                      Qt::DisplayRole)
+               .toString(),
+           QString::number(static_cast<qulonglong>(
+               pnga::ui::qt::BlockInspector::kMaxVisibleRows)));
 
   pnga::analysis_engine::HuffmanInspectorView huffman;
   pnga::analysis_engine::HuffmanInspectorTable table;

@@ -12,6 +12,7 @@
 
 #include <QElapsedTimer>
 #include <QColor>
+#include <QTableView>
 #include <QTableWidget>
 
 class TraceInspectorPerformanceTest : public QObject {
@@ -22,13 +23,20 @@ class TraceInspectorPerformanceTest : public QObject {
 };
 
 void TraceInspectorPerformanceTest::largeViewsAreCappedAndFast() {
-  pnga::analysis_engine::BlockInspectorView block;
-  block.status = pnga::analysis_engine::BlockInspectorStatus::kReady;
+  // WP-5U12C mechanism migration: the Blocks page is model-backed, so the
+  // 10,000-row input is published through the Fast Index and the complete
+  // block count is asserted on the model. The Huffman and Decode Trace
+  // sections and every threshold are unchanged.
+  pnga::analysis_engine::FastCompressionIndexView fast_blocks;
+  fast_blocks.status =
+      pnga::analysis_engine::FastCompressionIndexStatus::kReady;
+  fast_blocks.generation = 1;
   for (std::uint64_t i = 0; i < 10000; ++i) {
-    pnga::analysis_engine::BlockInspectorRow row;
+    pnga::analysis_engine::FastCompressionBlockRow row;
     row.block_index = i;
-    row.output_end = i + 1;
-    block.rows.push_back(row);
+    row.output_range = {pnga::trace_model::InflatedByteOffset{i},
+                        pnga::trace_model::InflatedByteOffset{i + 1}};
+    fast_blocks.blocks.push_back(row);
   }
   pnga::analysis_engine::HuffmanInspectorView huffman;
   huffman.status = pnga::analysis_engine::HuffmanInspectorStatus::kReady;
@@ -53,12 +61,12 @@ void TraceInspectorPerformanceTest::largeViewsAreCappedAndFast() {
   pnga::ui::qt::DecodeTraceInspector decode_widget;
   QElapsedTimer timer;
   timer.start();
-  block_widget.setView(block);
+  block_widget.setFastIndex(fast_blocks);
   huffman_widget.setView(huffman);
   decode_widget.setView(decode);
   const qint64 cold_ms = timer.elapsed();
   timer.restart();
-  block_widget.setView(block);
+  block_widget.setFastIndex(fast_blocks);
   huffman_widget.setView(huffman);
   decode_widget.setView(decode);
   const qint64 hot_ms = timer.elapsed();
@@ -66,10 +74,14 @@ void TraceInspectorPerformanceTest::largeViewsAreCappedAndFast() {
           << "hot_ms=" << hot_ms;
   QVERIFY(cold_ms < 2000);
   QVERIFY(hot_ms < 2000);
-  QCOMPARE(block_widget.findChild<QTableWidget*>(
-                QStringLiteral("blockInspectorTable"))
-                ->rowCount(),
-           pnga::ui::qt::BlockInspector::kMaxVisibleRows + 1);
+  // Model contract: the complete block list is exposed with a virtualized
+  // row count equal to the source fact (the former capped QTableWidget row
+  // count kMaxVisibleRows + 1 has no model equivalent).
+  auto* blocks_table = block_widget.findChild<QTableView*>(
+      QStringLiteral("compressionBlocksTable"));
+  QVERIFY(blocks_table != nullptr);
+  QVERIFY(blocks_table->model() != nullptr);
+  QCOMPARE(blocks_table->model()->rowCount(), 10000);
   QCOMPARE(huffman_widget.findChild<QTableWidget*>(
                 QStringLiteral("huffmanInspectorTable"))
                 ->rowCount(),
