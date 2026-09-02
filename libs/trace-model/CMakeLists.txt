@@ -3,6 +3,7 @@
 # ADR-0003: this target must never link Qt.
 
 add_library(pnga_trace_model
+  src/compression_navigation.cpp
   src/selection.cpp
   src/stage_artifact.cpp
 )
