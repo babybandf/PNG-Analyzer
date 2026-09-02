@@ -138,6 +138,20 @@ target_compile_features(pnga_gui_selection_view_state_tests PRIVATE cxx_std_20)
 
 add_test(NAME gui_selection_view_state_tests COMMAND pnga_gui_selection_view_state_tests)
 
+add_executable(pnga_gui_compression_selection_store_tests
+  compression_selection_store_test.cpp
+)
+set_target_properties(pnga_gui_compression_selection_store_tests PROPERTIES AUTOMOC ON)
+target_link_libraries(pnga_gui_compression_selection_store_tests PRIVATE
+  pnga::ui_qt
+  pnga::trace_model
+  Qt6::Test
+)
+target_compile_features(pnga_gui_compression_selection_store_tests PRIVATE cxx_std_20)
+
+add_test(NAME gui_compression_selection_store_tests
+  COMMAND pnga_gui_compression_selection_store_tests)
+
 # WP-5U15: normalized application-source list shared by the three MainWindow
 # test executables so extraction tasks keep source parity. Do not compile
 # src/main.cpp into tests.
@@ -416,6 +430,7 @@ add_custom_target(pnga_gui_tests DEPENDS
   pnga_gui_hex_data_source_tests
   pnga_gui_selection_bus_tests
   pnga_gui_selection_view_state_tests
+  pnga_gui_compression_selection_store_tests
   pnga_gui_main_window_layout_tests
   pnga_gui_trace_pipeline_integration_tests
   pnga_gui_compression_inspector_responsive_tests

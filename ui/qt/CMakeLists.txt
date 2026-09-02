@@ -14,6 +14,7 @@ add_library(pnga_ui_qt
   include/pnga/ui/qt/chunk_model.h
   include/pnga/ui/qt/compression_context.h
   include/pnga/ui/qt/compression_inspector_page.h
+  include/pnga/ui/qt/compression_selection_store.h
   include/pnga/ui/qt/delivered_image_view.h
   include/pnga/ui/qt/decode_trace_inspector.h
   include/pnga/ui/qt/hex_view.h
@@ -36,6 +37,7 @@ add_library(pnga_ui_qt
   src/chunk_model.cpp
   src/compression_context.cpp
   src/compression_inspector_page.cpp
+  src/compression_selection_store.cpp
   src/delivered_image_view.cpp
   src/decode_trace_inspector.cpp
   src/hex_view.cpp
