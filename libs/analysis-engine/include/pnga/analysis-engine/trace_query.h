@@ -72,6 +72,10 @@ struct TraceTokenSummary {
   std::uint64_t match_source_end = 0;
   std::vector<pnga::deflate_trace::TokenOutputRange> match_source_ranges;
   std::int64_t block_index = -1;
+  // WP-5U12D: the literal/length Huffman symbol consumed by this token,
+  // captured by the decoder at the read that resolved it. Stored literals
+  // and stored block boundaries consume no Huffman code and stay unset.
+  std::optional<std::uint16_t> huffman_symbol;
 
   // Token input positions are relative to the DEFLATE payload; output
   // positions are absolute inflated-byte offsets.

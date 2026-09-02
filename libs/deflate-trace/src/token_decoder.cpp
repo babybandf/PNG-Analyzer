@@ -676,6 +676,7 @@ TokenDecodeResult decode_stored_and_fixed(const pnga::io::IByteSource& source,
             return out;
           }
           token.literal = static_cast<std::uint8_t>(symbol);
+          token.huffman_symbol = symbol;
           const std::uint64_t output_end = token.output_end;
           const std::uint64_t token_index = out.tokens.size();
           out.tokens.push_back(std::move(token));
@@ -702,6 +703,7 @@ TokenDecodeResult decode_stored_and_fixed(const pnga::io::IByteSource& source,
           token.input_bit_end = reader.pos();
           token.output_begin = out.output_bytes;
           token.output_end = out.output_bytes;
+          token.huffman_symbol = symbol;
           out.tokens.push_back(std::move(token));
           break;  // end of this block
         } else if (symbol <= 285) {
@@ -769,6 +771,7 @@ TokenDecodeResult decode_stored_and_fixed(const pnga::io::IByteSource& source,
           token.distance = static_cast<std::uint16_t>(distance);
           token.match_source_begin = src;
           token.match_source_end = source_end;
+          token.huffman_symbol = symbol;
           const std::uint64_t token_index = out.tokens.size();
           out.tokens.push_back(std::move(token));
           out.output_index.add(

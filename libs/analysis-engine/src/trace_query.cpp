@@ -293,6 +293,7 @@ TraceQueryResult compose_trace_query(
       summary.match_source_begin = token.match_source_begin;
       summary.match_source_end = token.match_source_end;
       summary.match_source_ranges = token.match_source_ranges;
+      summary.huffman_symbol = token.huffman_symbol;
       for (const auto& block : block_index.blocks) {
         if (overlaps(token.output_begin, token.output_end, block.output_begin,
                      block.output_end)) {
@@ -367,8 +368,13 @@ std::string serialize_trace_query(const TraceQueryResult& result) {
         << token.output_begin << ',' << token.output_end << ','
         << static_cast<unsigned>(token.literal) << ',' << token.length << ','
         << token.distance << ',' << token.match_source_begin << ','
-        << token.match_source_end << ',' << token.block_index
-        << ",sources=" << token.match_source_ranges.size();
+        << token.match_source_end << ',' << token.block_index << ',';
+    if (token.huffman_symbol.has_value()) {
+      out << *token.huffman_symbol;
+    } else {
+      out << '-';
+    }
+    out << ",sources=" << token.match_source_ranges.size();
     for (const auto& range : token.match_source_ranges) {
       out << ',';
       append_serialized_range(out, range);

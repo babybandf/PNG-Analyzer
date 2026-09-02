@@ -459,3 +459,93 @@ TEST_CASE("Truncated input is rejected with a stable error",
   REQUIRE_FALSE(result.success);
   REQUIRE_FALSE(result.error.empty());
 }
+
+TEST_CASE("Fixed-huffman tokens record the consumed huffman symbol",
+          "[deflate-trace][wp5u12d]") {
+  const auto raw = make_raw(64 * 1024, 0x50);
+  const auto stream = zlib_compress(raw, 6, Z_FIXED);
+  MemoryByteSource source(stream);
+  const TokenDecodeResult result = decode_stored_and_fixed(source, 1u << 20);
+  require_output_matches(result, raw);
+  REQUIRE_FALSE(result.tokens.empty());
+
+  const auto first_literal = std::find_if(
+      result.tokens.begin(), result.tokens.end(),
+      [](const auto& token) { return token.kind == TokenKind::kLiteral; });
+  REQUIRE(first_literal != result.tokens.end());
+  // A Huffman literal carries the byte symbol that produced it.
+  REQUIRE(first_literal->huffman_symbol ==
+          std::optional<std::uint16_t>{first_literal->literal});
+
+  const auto first_match = std::find_if(
+      result.tokens.begin(), result.tokens.end(), [](const auto& token) {
+        return token.kind == TokenKind::kLengthDistance;
+      });
+  REQUIRE(first_match != result.tokens.end());
+  // A match carries its literal/length symbol 257..285.
+  REQUIRE(first_match->huffman_symbol.has_value());
+  REQUIRE(*first_match->huffman_symbol >= 257);
+  REQUIRE(*first_match->huffman_symbol <= 285);
+
+  REQUIRE(result.tokens.back().kind == TokenKind::kEndOfBlock);
+  REQUIRE(result.tokens.back().huffman_symbol ==
+          std::optional<std::uint16_t>{256});
+}
+
+TEST_CASE("Stored tokens carry no huffman symbol",
+          "[deflate-trace][wp5u12d]") {
+  const auto raw = make_raw(64, 0x40);
+  const auto stream = zlib_compress(raw, 0, Z_DEFAULT_STRATEGY);
+  REQUIRE_FALSE(stream.empty());
+  MemoryByteSource source(stream);
+  const TokenDecodeResult result = decode_stored_and_fixed(source, 1u << 20);
+  require_output_matches(result, raw);
+  REQUIRE(result.tokens.size() > 1);
+  for (const auto& token : result.tokens) {
+    REQUIRE_FALSE(token.huffman_symbol.has_value());
+  }
+}
+
+TEST_CASE("Dynamic huffman tokens record the consumed huffman symbol",
+          "[deflate-trace][wp5u12d]") {
+  // Hand-built literal-only dynamic stream: literal 'A' then EOB.
+  {
+    const std::vector<std::byte> raw = {B(0x41)};
+    MemoryByteSource source(literal_only_dynamic_stream());
+    const TokenDecodeResult result = decode_stored_and_fixed(source, 1u << 20);
+    require_output_matches(result, raw);
+    REQUIRE(result.tokens.size() == 2);
+    REQUIRE(result.tokens[0].kind == TokenKind::kLiteral);
+    REQUIRE(result.tokens[0].literal == 0x41);
+    REQUIRE(result.tokens[0].huffman_symbol ==
+            std::optional<std::uint16_t>{65});
+    REQUIRE(result.tokens[1].kind == TokenKind::kEndOfBlock);
+    REQUIRE(result.tokens[1].huffman_symbol ==
+            std::optional<std::uint16_t>{256});
+  }
+  // A real dynamic stream with literals, matches and EOB.
+  {
+    const auto raw = make_raw(64 * 1024, 0x60);
+    const auto stream = zlib_compress(raw, 6, Z_DEFAULT_STRATEGY);
+    MemoryByteSource source(stream);
+    const TokenDecodeResult result = decode_stored_and_fixed(source, 1u << 20);
+    require_output_matches(result, raw);
+    for (const auto& token : result.tokens) {
+      switch (token.kind) {
+        case TokenKind::kLiteral:
+          REQUIRE(token.huffman_symbol ==
+                  std::optional<std::uint16_t>{token.literal});
+          break;
+        case TokenKind::kLengthDistance:
+          REQUIRE(token.huffman_symbol.has_value());
+          REQUIRE(*token.huffman_symbol >= 257);
+          REQUIRE(*token.huffman_symbol <= 285);
+          break;
+        case TokenKind::kEndOfBlock:
+          REQUIRE(token.huffman_symbol ==
+                  std::optional<std::uint16_t>{256});
+          break;
+      }
+    }
+  }
+}

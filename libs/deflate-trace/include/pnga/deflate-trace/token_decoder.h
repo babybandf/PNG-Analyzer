@@ -87,6 +87,13 @@ struct TokenEvent {
   // earlier token even when the immediate source address is in this token's
   // own output range.
   std::vector<TokenOutputRange> match_source_ranges;
+
+  // WP-5U12D: the literal/length Huffman symbol consumed at the read that
+  // resolved this token. Huffman literals carry their byte symbol, matches
+  // carry the length symbol 257..285 and Huffman end-of-block events carry
+  // 256. Stored literals and stored block boundaries consume no Huffman code
+  // and stay unset.
+  std::optional<std::uint16_t> huffman_symbol;
 };
 
 struct TokenDecodeResult {

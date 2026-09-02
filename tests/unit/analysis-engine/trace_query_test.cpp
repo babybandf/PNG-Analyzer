@@ -74,6 +74,64 @@ struct TraceInputs {
       : TraceInputs(encoded.png_bytes) {}
 };
 
+// A one-IDAT PNG whose zlib stream is a single final stored block over the
+// given raw bytes: BFINAL=1/BTYPE=00, LEN/NLEN, payload, Adler-32.
+std::vector<std::byte> stored_block_png(const std::vector<std::byte>& raw) {
+  std::vector<std::byte> payload;
+  payload.push_back(pnga_test::B(0x78));
+  payload.push_back(pnga_test::B(0x01));
+  payload.push_back(pnga_test::B(0x01));  // BFINAL=1, BTYPE=00, aligned
+  REQUIRE(raw.size() <= 0xFFFFu);
+  const std::uint16_t len = static_cast<std::uint16_t>(raw.size());
+  const std::uint16_t nlen = static_cast<std::uint16_t>(~len & 0xFFFFu);
+  payload.push_back(pnga_test::B(static_cast<unsigned char>(len & 0xFF)));
+  payload.push_back(pnga_test::B(static_cast<unsigned char>(len >> 8)));
+  payload.push_back(pnga_test::B(static_cast<unsigned char>(nlen & 0xFF)));
+  payload.push_back(pnga_test::B(static_cast<unsigned char>(nlen >> 8)));
+  payload.insert(payload.end(), raw.begin(), raw.end());
+  const uLong adler =
+      adler32(adler32(0, Z_NULL, 0),
+              reinterpret_cast<const Bytef*>(raw.data()),
+              static_cast<uInt>(raw.size()));
+  for (int shift = 24; shift >= 0; shift -= 8) {
+    payload.push_back(pnga_test::B(
+        static_cast<unsigned char>((adler >> shift) & 0xFFu)));
+  }
+
+  std::vector<std::byte> png(pnga::png_format::kPngSignature.begin(),
+                             pnga::png_format::kPngSignature.end());
+  const auto append_chunk = [&png](const char* type,
+                                   const std::vector<std::byte>& data) {
+    const auto length = static_cast<std::uint32_t>(data.size());
+    png.push_back(pnga_test::B(static_cast<unsigned char>(length >> 24)));
+    png.push_back(pnga_test::B(static_cast<unsigned char>(length >> 16)));
+    png.push_back(pnga_test::B(static_cast<unsigned char>(length >> 8)));
+    png.push_back(pnga_test::B(static_cast<unsigned char>(length)));
+    const auto type_bytes = reinterpret_cast<const Bytef*>(type);
+    uLong crc = crc32(0, type_bytes, 4);
+    if (!data.empty()) {
+      crc = crc32(crc, reinterpret_cast<const Bytef*>(data.data()),
+                  static_cast<uInt>(data.size()));
+    }
+    for (int i = 0; i < 4; ++i) {
+      png.push_back(pnga_test::B(static_cast<unsigned char>(type[i])));
+    }
+    png.insert(png.end(), data.begin(), data.end());
+    png.push_back(pnga_test::B(static_cast<unsigned char>(crc >> 24)));
+    png.push_back(pnga_test::B(static_cast<unsigned char>(crc >> 16)));
+    png.push_back(pnga_test::B(static_cast<unsigned char>(crc >> 8)));
+    png.push_back(pnga_test::B(static_cast<unsigned char>(crc)));
+  };
+  std::vector<std::byte> ihdr(13, std::byte{0});
+  ihdr[0] = pnga_test::B(0);  // 1x1 grayscale placeholder IHDR
+  ihdr[3] = pnga_test::B(1);
+  ihdr[8] = pnga_test::B(8);
+  append_chunk("IHDR", ihdr);
+  append_chunk("IDAT", payload);
+  append_chunk("IEND", {});
+  return png;
+}
+
 std::vector<std::byte> split_idat_payload(const pnga_test::EncodedPng& encoded) {
   MemoryByteSource original(encoded.png_bytes);
   const auto index = index_chunks(original);
@@ -290,4 +348,109 @@ TEST_CASE("Trace query serialization names every Deflate block type",
   REQUIRE(serialized.find("block:0,stored,") != std::string::npos);
   REQUIRE(serialized.find("block:1,fixed,") != std::string::npos);
   REQUIRE(serialized.find("block:2,dynamic,") != std::string::npos);
+}
+
+TEST_CASE("Trace query preserves the bounded huffman symbol",
+          "[analysis-engine][wp5u12d]") {
+  const auto encoded =
+      pnga_test::encode_png(64, 32, 8, 2, /*interlace=*/false,
+                            /*all_none=*/false);
+  TraceInputs inputs(encoded);
+  REQUIRE(inputs.blocks.success);
+  REQUIRE(inputs.trace.success);
+  Selection selection;
+  selection.stage = pnga::trace_model::Stage::kTrace;
+  const auto result = compose_trace_query(
+      9, selection, inputs.blocks, inputs.trace, inputs.stream, inputs.file,
+      0, inputs.trace.output_bytes, 100000);
+  REQUIRE(result.status == TraceQueryStatus::kReady);
+  REQUIRE_FALSE(result.tokens.empty());
+  bool saw_literal = false;
+  for (const auto& token : result.tokens) {
+    switch (token.kind) {
+      case pnga::deflate_trace::TokenKind::kLiteral:
+        saw_literal = true;
+        REQUIRE(token.huffman_symbol ==
+                std::optional<std::uint16_t>{token.literal});
+        break;
+      case pnga::deflate_trace::TokenKind::kLengthDistance:
+        REQUIRE(token.huffman_symbol.has_value());
+        REQUIRE(*token.huffman_symbol >= 257);
+        REQUIRE(*token.huffman_symbol <= 285);
+        break;
+      case pnga::deflate_trace::TokenKind::kEndOfBlock:
+        REQUIRE(token.huffman_symbol ==
+                std::optional<std::uint16_t>{256});
+        break;
+    }
+  }
+  REQUIRE(saw_literal);
+
+  // Partial truncation keeps the symbol of every returned token.
+  const auto partial = compose_trace_query(
+      9, selection, inputs.blocks, inputs.trace, inputs.stream, inputs.file,
+      0, inputs.trace.output_bytes, 1);
+  REQUIRE(partial.status == TraceQueryStatus::kPartial);
+  REQUIRE(partial.tokens.size() == 1);
+  REQUIRE(partial.tokens.front().huffman_symbol.has_value());
+  REQUIRE(partial.tokens.front().huffman_symbol ==
+          result.tokens.front().huffman_symbol);
+}
+
+TEST_CASE("Stored trace tokens keep an absent huffman symbol",
+          "[analysis-engine][wp5u12d]") {
+  std::vector<std::byte> raw(8);
+  for (std::size_t i = 0; i < raw.size(); ++i) {
+    raw[i] = pnga_test::B(static_cast<unsigned char>(0x10 + i));
+  }
+  TraceInputs inputs(stored_block_png(raw));
+  REQUIRE(inputs.blocks.success);
+  REQUIRE(inputs.trace.success);
+  REQUIRE(inputs.blocks.blocks.front().type ==
+          pnga::deflate_index::BlockType::kStored);
+  const auto result = compose_trace_query(
+      2, Selection{}, inputs.blocks, inputs.trace, inputs.stream, inputs.file,
+      0, inputs.trace.output_bytes, 100000);
+  REQUIRE(result.status == TraceQueryStatus::kReady);
+  REQUIRE_FALSE(result.tokens.empty());
+  for (const auto& token : result.tokens) {
+    REQUIRE_FALSE(token.huffman_symbol.has_value());
+  }
+}
+
+TEST_CASE("Trace query serialization pins the huffman symbol field",
+          "[analysis-engine][wp5u12d]") {
+  pnga::analysis_engine::TraceQueryResult result;
+  result.status = TraceQueryStatus::kReady;
+  pnga::analysis_engine::TraceTokenSummary literal;
+  literal.index = 0;
+  literal.kind = pnga::deflate_trace::TokenKind::kLiteral;
+  literal.input_bit_begin = 16;
+  literal.input_bit_end = 24;
+  literal.output_begin = 0;
+  literal.output_end = 1;
+  literal.literal = 65;
+  literal.block_index = 0;
+  literal.huffman_symbol = 65;
+  result.tokens.push_back(literal);
+  pnga::analysis_engine::TraceTokenSummary stored_literal;
+  stored_literal.index = 1;
+  stored_literal.kind = pnga::deflate_trace::TokenKind::kLiteral;
+  stored_literal.input_bit_begin = 24;
+  stored_literal.input_bit_end = 32;
+  stored_literal.output_begin = 1;
+  stored_literal.output_end = 2;
+  stored_literal.literal = 66;
+  stored_literal.block_index = 0;
+  result.tokens.push_back(stored_literal);
+
+  const auto serialized = serialize_trace_query(result);
+  // The symbol field sits between block_index and sources=; a stored literal
+  // that consumed no Huffman code serializes as '-'.
+  REQUIRE(serialized.find(
+              "token:0,literal,16,24,0,1,65,0,0,0,0,0,65,sources=0\n") !=
+          std::string::npos);
+  REQUIRE(serialized.find(
+              "token:1,literal,24,32,1,2,66,0,0,0,0,0,-,sources=0\n") !=
+          std::string::npos);
 }
