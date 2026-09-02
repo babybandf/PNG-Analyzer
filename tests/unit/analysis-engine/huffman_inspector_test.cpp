@@ -83,12 +83,15 @@ TraceQueryResult dynamic_trace() {
   literal_length.entries.push_back({256, 1, 0, 26, 27});
   literal_length.entries.push_back({65, 3, 4, 20, 23});
   literal_length.entries.push_back({268, 3, 5, 23, 26});
-  literal_length.entries.push_back({66, 0, 0, 26, 27});
+  literal_length.entries.push_back({5, 3, 6, 27, 28});
+  literal_length.entries.push_back({17, 3, 7, 28, 29});
+  literal_length.entries.push_back({66, 0, 0, 29, 30});
   trace.huffman_tables.push_back(literal_length);
 
   pnga::analysis_engine::TraceHuffmanTableSummary distance;
   distance.kind = HuffmanTableKind::kDistance;
   distance.entries.push_back({0, 1, 0, 30, 31});
+  distance.entries.push_back({5, 1, 1, 31, 32});
   trace.huffman_tables.push_back(distance);
 
   trace.tokens.push_back(make_token(3, TokenKind::kLiteral, 7, 65, 4, 12));
@@ -97,6 +100,10 @@ TraceQueryResult dynamic_trace() {
   trace.tokens.push_back(make_token(5, TokenKind::kLiteral, 7, 65, 20, 28));
   trace.tokens.push_back(make_token(6, TokenKind::kEndOfBlock, 7, 256, 28,
                                     28));
+  // Literal bytes 5 and 17 collide with the Distance entry 5 and the
+  // Code Length entry 17; only Literal/Length entries may count them.
+  trace.tokens.push_back(make_token(7, TokenKind::kLiteral, 7, 5, 28, 36));
+  trace.tokens.push_back(make_token(8, TokenKind::kLiteral, 7, 17, 36, 44));
   return trace;
 }
 
@@ -312,8 +319,8 @@ TEST_CASE("dynamic tables project build order, exact strings and bounded "
   REQUIRE(literal.kind == HuffmanTableKind::kLiteralLength);
   REQUIRE(literal.selector_label == "Literal / Length");
   REQUIRE(literal.build_order == 1);
-  REQUIRE(literal.declared_entry_count == 4);
-  REQUIRE(literal.entries.size() == 4);
+  REQUIRE(literal.declared_entry_count == 6);
+  REQUIRE(literal.entries.size() == 6);
   const auto* eob = find_entry(literal, 256);
   REQUIRE(eob != nullptr);
   REQUIRE(eob->bit_length == 1);
@@ -359,8 +366,29 @@ TEST_CASE("dynamic tables project build order, exact strings and bounded "
   REQUIRE(distance_0->read_order_bits == "0");
   REQUIRE(distance_0->meaning == "distance 1");
 
+  // Regression (fix round 1): tokens 7 and 8 carry literal bytes 5 and 17,
+  // which collide with the Distance entry 5 and the Code Length entry 17.
+  // Only Literal/Length table entries may accumulate occurrences; the
+  // Distance and Code Length rows must show zero uses with empty
+  // occurrence lists instead of fabricating ids from literal/length
+  // symbols.
+  const auto* distance_5 = find_entry(dist, 5);
+  REQUIRE(distance_5 != nullptr);
+  REQUIRE(distance_5->occurrence_token_indices.empty());
+  const auto* repeat_17_regression = find_entry(code_length, 17);
+  REQUIRE(repeat_17_regression != nullptr);
+  REQUIRE(repeat_17_regression->occurrence_token_indices.empty());
+  const auto* literal_5 = find_entry(literal, 5);
+  REQUIRE(literal_5 != nullptr);
+  REQUIRE(literal_5->occurrence_token_indices ==
+          std::vector<std::uint64_t>{7});
+  const auto* literal_17 = find_entry(literal, 17);
+  REQUIRE(literal_17 != nullptr);
+  REQUIRE(literal_17->occurrence_token_indices ==
+          std::vector<std::uint64_t>{8});
+
   for (const auto& table : view.tables) {
-    REQUIRE(table.bounded_token_count == 4);
+    REQUIRE(table.bounded_token_count == 6);
   }
 
   REQUIRE(view.block_scopes.size() == 1);
@@ -369,7 +397,7 @@ TEST_CASE("dynamic tables project build order, exact strings and bounded "
           DeflateBitRange{DeflateBitOffset{0}, DeflateBitOffset{64}});
   REQUIRE(view.block_scopes[0].physical_spans ==
           trace.blocks[0].physical_spans);
-  REQUIRE(view.occurrences.size() == 4);
+  REQUIRE(view.occurrences.size() == 6);
   REQUIRE(view.occurrences[1].token_index == 4);
   REQUIRE(view.occurrences[1].input_range ==
           DeflateBitRange{DeflateBitOffset{12}, DeflateBitOffset{20}});
@@ -417,7 +445,7 @@ TEST_CASE("partial and error traces retain verified tables and stop reasons") {
   REQUIRE(error.status == HuffmanInspectorStatus::kError);
   REQUIRE(error.error == "reserved deflate block type");
   REQUIRE(error.tables.size() == 3);
-  REQUIRE(error.tables[1].entries.size() == 4);
+  REQUIRE(error.tables[1].entries.size() == 6);
   REQUIRE_FALSE(error.tables[0].truncated);
 }
 

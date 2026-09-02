@@ -346,6 +346,14 @@ void count_occurrences(const TraceQueryResult& trace,
     if (!token.huffman_symbol.has_value()) {
       continue;
     }
+    // The captured symbol is a literal/length symbol (byte, length range or
+    // end-of-block). Only Literal/Length table entries can be occurrences of
+    // it; Distance and Code Length symbols are not captured per token, so
+    // those tables must never fabricate ids from literal/length symbols.
+    if (table->kind !=
+        pnga::deflate_trace::HuffmanTableKind::kLiteralLength) {
+      continue;
+    }
     const std::uint16_t symbol = *token.huffman_symbol;
     const auto entry = std::find_if(
         table->entries.begin(), table->entries.end(),
