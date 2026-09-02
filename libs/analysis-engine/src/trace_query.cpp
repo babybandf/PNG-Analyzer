@@ -96,6 +96,59 @@ bool overlaps(std::uint64_t begin, std::uint64_t end,
   return begin < wanted_end && wanted_begin < end;
 }
 
+// WP-5U12E: maps one token's DEFLATE bit range onto the exact ordered
+// physical file bytes that contain it. The bit origin is the zlib-bit
+// wrapper origin (checked multiplication of the byte-unit DEFLATE origin by
+// 8); the byte envelope [floor(begin/8), ceil(end/8)) is mapped through
+// VirtualIDATStream and every returned physical range is retained in order.
+bool token_physical_spans(
+    const pnga::png_format::VirtualIDATStream& stream,
+    std::uint64_t wrapper_bits, const pnga::deflate_trace::TokenEvent& token,
+    std::vector<pnga::trace_model::FileByteRange>* spans) {
+  std::uint64_t absolute_begin = 0;
+  std::uint64_t absolute_end = 0;
+  if (!checked_add(wrapper_bits, token.input_bit_begin, &absolute_begin) ||
+      !checked_add(wrapper_bits, token.input_bit_end, &absolute_end)) {
+    return false;
+  }
+  if (absolute_end < absolute_begin) {
+    return false;
+  }
+  if (absolute_end == absolute_begin) {
+    return true;  // a zero-bit boundary consumes no data bytes
+  }
+  std::uint64_t rounded_end = 0;
+  if (!checked_add(absolute_end, 7, &rounded_end)) {
+    return false;
+  }
+  const std::uint64_t logical_begin = absolute_begin / 8;
+  const std::uint64_t logical_end = rounded_end / 8;
+  if (logical_end < logical_begin) {
+    return false;
+  }
+  const std::uint64_t logical_length = logical_end - logical_begin;
+  std::vector<pnga::png_format::PhysicalRange> ranges;
+  if (!stream.logical_to_physical(logical_begin, logical_length, ranges)) {
+    return false;
+  }
+  std::uint64_t covered = 0;
+  for (const auto& range : ranges) {
+    if (covered > std::numeric_limits<std::uint64_t>::max() - range.length) {
+      return false;
+    }
+    covered += range.length;
+    const auto made = pnga::trace_model::make_range(
+        pnga::trace_model::FileByteOffset{range.offset}, range.length);
+    if (!made.has_value()) {
+      return false;
+    }
+    spans->push_back(*made);
+  }
+  // The mapped ranges must tile the whole byte envelope; a gap would hide
+  // input provenance from the Hex navigation.
+  return covered == logical_length;
+}
+
 bool append_bit_mapping(
     const pnga::png_format::VirtualIDATStream& stream,
     std::uint64_t logical_begin_bits, std::uint64_t logical_end_bits,
@@ -258,6 +311,16 @@ TraceQueryResult compose_trace_query(
     out.blocks.push_back(std::move(summary));
   }
 
+  // WP-5U12E: normalize the byte-unit DEFLATE payload origin supplied by the
+  // trace artifact (ZlibByteOffset{2} ordinary, ZlibByteOffset{6} FDICT)
+  // before any bit arithmetic; the checked multiplication by 8 yields the
+  // zlib-bit origin shared by every token mapping below.
+  const pnga::trace_model::ZlibByteOffset deflate_origin{
+      trace.deflate_data_begin};
+  std::uint64_t wrapper_bits = 0;
+  const bool wrapper_bits_ok =
+      checked_mul(deflate_origin.raw_value(), 8, &wrapper_bits);
+
   // A decoder stopped at its bounded output budget still owns verified
   // tables/tokens for the prefix it decoded. Preserve those artifacts in the
   // partial result; dropping them makes large valid images appear empty even
@@ -301,15 +364,16 @@ TraceQueryResult compose_trace_query(
           break;
         }
       }
-      std::uint64_t wrapper_bits = 0;
       std::uint64_t absolute_begin = 0;
       std::uint64_t absolute_end = 0;
-      if (!checked_mul(trace.deflate_data_begin, 8, &wrapper_bits) ||
+      if (!wrapper_bits_ok ||
           !checked_add(wrapper_bits, token.input_bit_begin,
                        &absolute_begin) ||
           !checked_add(wrapper_bits, token.input_bit_end, &absolute_end) ||
           !append_bit_mapping(stream, absolute_begin, absolute_end,
-                              &out.logical_input, &out.physical_input)) {
+                              &out.logical_input, &out.physical_input) ||
+          !token_physical_spans(stream, wrapper_bits, token,
+                                &summary.physical_input_spans)) {
         out.status = TraceQueryStatus::kError;
         out.error = "token input provenance is unavailable";
         return out;
@@ -373,6 +437,10 @@ std::string serialize_trace_query(const TraceQueryResult& result) {
       out << *token.huffman_symbol;
     } else {
       out << '-';
+    }
+    out << ",spans=" << token.physical_input_spans.size();
+    for (const auto& span : token.physical_input_spans) {
+      out << ",file," << span.begin.value << ',' << span.end.value;
     }
     out << ",sources=" << token.match_source_ranges.size();
     for (const auto& range : token.match_source_ranges) {

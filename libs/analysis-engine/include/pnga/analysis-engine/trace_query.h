@@ -76,6 +76,11 @@ struct TraceTokenSummary {
   // captured by the decoder at the read that resolved it. Stored literals
   // and stored block boundaries consume no Huffman code and stay unset.
   std::optional<std::uint16_t> huffman_symbol;
+  // WP-5U12E: every ordered physical file range containing this token's
+  // compressed input bytes, mapped through VirtualIDATStream during
+  // composition. The Deflate bit positions above stay the precise bit range;
+  // these spans are the exact containing data bytes used by Hex navigation.
+  std::vector<pnga::trace_model::FileByteRange> physical_input_spans;
 
   // Token input positions are relative to the DEFLATE payload; output
   // positions are absolute inflated-byte offsets.

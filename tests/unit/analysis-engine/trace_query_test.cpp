@@ -132,6 +132,123 @@ std::vector<std::byte> stored_block_png(const std::vector<std::byte>& raw) {
   return png;
 }
 
+// A one-IDAT fixture with two stored blocks ("A" not final, "B" final). The
+// zlib stream is 78 01 | 00 01 00 FE FF 41 | 01 01 00 FE FF 42 | Adler-32;
+// the block boundary between them carries an empty DEFLATE bit range.
+std::vector<std::byte> two_stored_blocks_png() {
+  const std::vector<std::byte> output = {pnga_test::B(0x41), pnga_test::B(0x42)};
+  std::vector<std::byte> zlib = {pnga_test::B(0x78), pnga_test::B(0x01)};
+  const std::vector<std::byte> stored_header = {
+      pnga_test::B(0x00), pnga_test::B(0x01), pnga_test::B(0x00),
+      pnga_test::B(0xFE), pnga_test::B(0xFF)};
+  const auto push_block = [&zlib, &stored_header](std::byte flag,
+                                                  std::byte value) {
+    zlib.push_back(flag);
+    zlib.insert(zlib.end(), stored_header.begin() + 1, stored_header.end());
+    zlib.push_back(value);
+  };
+  push_block(pnga_test::B(0x00), pnga_test::B(0x41));  // not final, "A"
+  push_block(pnga_test::B(0x01), pnga_test::B(0x42));  // final, "B"
+  const uLong adler =
+      adler32(adler32(0, Z_NULL, 0),
+              reinterpret_cast<const Bytef*>(output.data()),
+              static_cast<uInt>(output.size()));
+  for (int shift = 24; shift >= 0; shift -= 8) {
+    zlib.push_back(pnga_test::B(
+        static_cast<unsigned char>((adler >> shift) & 0xFFu)));
+  }
+
+  std::vector<std::byte> png(pnga::png_format::kPngSignature.begin(),
+                             pnga::png_format::kPngSignature.end());
+  const auto append_chunk = [&png](const char* type,
+                                   const std::vector<std::byte>& data) {
+    const auto length = static_cast<std::uint32_t>(data.size());
+    png.push_back(pnga_test::B(static_cast<unsigned char>(length >> 24)));
+    png.push_back(pnga_test::B(static_cast<unsigned char>(length >> 16)));
+    png.push_back(pnga_test::B(static_cast<unsigned char>(length >> 8)));
+    png.push_back(pnga_test::B(static_cast<unsigned char>(length)));
+    const auto type_bytes = reinterpret_cast<const Bytef*>(type);
+    uLong crc = crc32(0, type_bytes, 4);
+    if (!data.empty()) {
+      crc = crc32(crc, reinterpret_cast<const Bytef*>(data.data()),
+                  static_cast<uInt>(data.size()));
+    }
+    for (int i = 0; i < 4; ++i) {
+      png.push_back(pnga_test::B(static_cast<unsigned char>(type[i])));
+    }
+    png.insert(png.end(), data.begin(), data.end());
+    png.push_back(pnga_test::B(static_cast<unsigned char>(crc >> 24)));
+    png.push_back(pnga_test::B(static_cast<unsigned char>(crc >> 16)));
+    png.push_back(pnga_test::B(static_cast<unsigned char>(crc >> 8)));
+    png.push_back(pnga_test::B(static_cast<unsigned char>(crc)));
+  };
+  std::vector<std::byte> ihdr(13, std::byte{0});
+  ihdr[0] = pnga_test::B(0);  // 1x1 grayscale placeholder IHDR
+  ihdr[3] = pnga_test::B(1);
+  ihdr[8] = pnga_test::B(8);
+  append_chunk("IHDR", ihdr);
+  append_chunk("IDAT", zlib);
+  append_chunk("IEND", {});
+  return png;
+}
+
+// A one-PNG fixture whose zlib stream is a final fixed-Huffman block over
+// "ABC", split across two IDAT chunks after zlib byte 2. Payload bit layout
+// (BFINAL=1, BTYPE=01, then MSB-first codes 0x71, 0x72, 0x73 and the 7-bit
+// end-of-block code 0000000) packs into bytes 73 74 72 06 00.
+std::vector<std::byte> fixed_abc_two_idat_png() {
+  const std::vector<std::byte> output = {pnga_test::B(0x41), pnga_test::B(0x42),
+                                         pnga_test::B(0x43)};
+  std::vector<std::byte> zlib = {pnga_test::B(0x78), pnga_test::B(0x01),
+                                 pnga_test::B(0x73), pnga_test::B(0x74),
+                                 pnga_test::B(0x72), pnga_test::B(0x06),
+                                 pnga_test::B(0x00)};
+  const uLong adler =
+      adler32(adler32(0, Z_NULL, 0),
+              reinterpret_cast<const Bytef*>(output.data()),
+              static_cast<uInt>(output.size()));
+  for (int shift = 24; shift >= 0; shift -= 8) {
+    zlib.push_back(pnga_test::B(
+        static_cast<unsigned char>((adler >> shift) & 0xFFu)));
+  }
+
+  std::vector<std::byte> png(pnga::png_format::kPngSignature.begin(),
+                             pnga::png_format::kPngSignature.end());
+  const auto append_chunk = [&png](const char* type,
+                                   const std::vector<std::byte>& data) {
+    const auto length = static_cast<std::uint32_t>(data.size());
+    png.push_back(pnga_test::B(static_cast<unsigned char>(length >> 24)));
+    png.push_back(pnga_test::B(static_cast<unsigned char>(length >> 16)));
+    png.push_back(pnga_test::B(static_cast<unsigned char>(length >> 8)));
+    png.push_back(pnga_test::B(static_cast<unsigned char>(length)));
+    const auto type_bytes = reinterpret_cast<const Bytef*>(type);
+    uLong crc = crc32(0, type_bytes, 4);
+    if (!data.empty()) {
+      crc = crc32(crc, reinterpret_cast<const Bytef*>(data.data()),
+                  static_cast<uInt>(data.size()));
+    }
+    for (int i = 0; i < 4; ++i) {
+      png.push_back(pnga_test::B(static_cast<unsigned char>(type[i])));
+    }
+    png.insert(png.end(), data.begin(), data.end());
+    png.push_back(pnga_test::B(static_cast<unsigned char>(crc >> 24)));
+    png.push_back(pnga_test::B(static_cast<unsigned char>(crc >> 16)));
+    png.push_back(pnga_test::B(static_cast<unsigned char>(crc >> 8)));
+    png.push_back(pnga_test::B(static_cast<unsigned char>(crc)));
+  };
+  std::vector<std::byte> ihdr(13, std::byte{0});
+  ihdr[0] = pnga_test::B(0);  // 1x1 grayscale placeholder IHDR
+  ihdr[3] = pnga_test::B(1);
+  ihdr[8] = pnga_test::B(8);
+  append_chunk("IHDR", ihdr);
+  // Split after zlib byte 2: the first literal's byte envelope [2, 4)
+  // crosses the chunk boundary.
+  append_chunk("IDAT", std::vector<std::byte>(zlib.begin(), zlib.begin() + 3));
+  append_chunk("IDAT", std::vector<std::byte>(zlib.begin() + 3, zlib.end()));
+  append_chunk("IEND", {});
+  return png;
+}
+
 std::vector<std::byte> split_idat_payload(const pnga_test::EncodedPng& encoded) {
   MemoryByteSource original(encoded.png_bytes);
   const auto index = index_chunks(original);
@@ -397,6 +514,101 @@ TEST_CASE("Trace query preserves the bounded huffman symbol",
           result.tokens.front().huffman_symbol);
 }
 
+TEST_CASE("Trace query maps every token to exact physical file spans",
+          "[analysis-engine][wp5u12e]") {
+  // One IDAT: two final/non-final stored blocks over "A" and "B". The IDAT
+  // data begins at file offset 41 (signature 8 + IHDR chunk 25). Stored
+  // literal i reads DEFLATE bits [40+8i, 48+8i) relative to its own block
+  // header, so its one-byte input envelope is the zlib byte holding it.
+  TraceInputs inputs(two_stored_blocks_png());
+  REQUIRE(inputs.blocks.success);
+  REQUIRE(inputs.trace.success);
+  REQUIRE(inputs.trace.tokens.size() == 4);
+  Selection selection;
+  selection.stage = pnga::trace_model::Stage::kTrace;
+  const auto result = compose_trace_query(
+      7, selection, inputs.blocks, inputs.trace, inputs.stream, inputs.file,
+      0, inputs.trace.output_bytes, 100000);
+  REQUIRE(result.status == TraceQueryStatus::kReady);
+  // Literal 'A', the block boundary (empty input range) and literal 'B' all
+  // intersect the requested output range; the final boundary sits at the
+  // exclusive query end and stays outside the bounded token list.
+  REQUIRE(result.tokens.size() == 3);
+  const auto& literal_a = result.tokens[0];
+  REQUIRE(literal_a.kind == pnga::deflate_trace::TokenKind::kLiteral);
+  REQUIRE(literal_a.literal == 65);
+  REQUIRE(literal_a.input_range() ==
+          (pnga::trace_model::DeflateBitRange{
+              pnga::trace_model::DeflateBitOffset{40},
+              pnga::trace_model::DeflateBitOffset{48}}));
+  REQUIRE(literal_a.physical_input_spans.size() == 1);
+  REQUIRE(literal_a.physical_input_spans.front() ==
+          (pnga::trace_model::FileByteRange{
+              pnga::trace_model::FileByteOffset{48},
+              pnga::trace_model::FileByteOffset{49}}));
+  // The stored block boundary consumes no bits and owns no data bytes.
+  const auto& boundary = result.tokens[1];
+  REQUIRE(boundary.kind == pnga::deflate_trace::TokenKind::kEndOfBlock);
+  REQUIRE(boundary.input_range().empty());
+  REQUIRE(boundary.physical_input_spans.empty());
+  const auto& literal_b = result.tokens[2];
+  REQUIRE(literal_b.literal == 66);
+  REQUIRE(literal_b.physical_input_spans.size() == 1);
+  REQUIRE(literal_b.physical_input_spans.front() ==
+          (pnga::trace_model::FileByteRange{
+              pnga::trace_model::FileByteOffset{54},
+              pnga::trace_model::FileByteOffset{55}}));
+}
+
+TEST_CASE("Trace query keeps every span of a token crossing IDAT chunks",
+          "[analysis-engine][wp5u12e]") {
+  // Hand-built final fixed-Huffman block over "ABC" (BFINAL=1, BTYPE=01,
+  // literal codes 0x71/0x72/0x73, EOB 0000000), split after zlib byte 2 so
+  // the first literal's byte envelope [2, 4) crosses the chunk boundary.
+  // Bit packing: byte 0 = 0x73, byte 1 = 0x74, byte 2 = 0x72, byte 3 = 0x06,
+  // byte 4 = 0x00. IDAT data begins at file offset 41; the second IDAT data
+  // begins at file offset 56.
+  TraceInputs inputs(fixed_abc_two_idat_png());
+  REQUIRE(inputs.stream.segment_count() == 2);
+  REQUIRE(inputs.blocks.success);
+  REQUIRE(inputs.trace.success);
+  REQUIRE(inputs.trace.tokens.size() == 4);
+  REQUIRE(inputs.trace.tokens[0].literal == 65);
+  REQUIRE(inputs.trace.tokens[1].literal == 66);
+  REQUIRE(inputs.trace.tokens[2].literal == 67);
+  Selection selection;
+  selection.stage = pnga::trace_model::Stage::kTrace;
+  const auto result = compose_trace_query(
+      9, selection, inputs.blocks, inputs.trace, inputs.stream, inputs.file,
+      0, inputs.trace.output_bytes, 100000);
+  REQUIRE(result.status == TraceQueryStatus::kReady);
+  REQUIRE(result.deflate_data_begin == 2);
+  // The final end-of-block event sits at the exclusive query end and stays
+  // outside the bounded token list; the three literals are returned.
+  REQUIRE(result.tokens.size() == 3);
+  using pnga::trace_model::FileByteOffset;
+  using pnga::trace_model::FileByteRange;
+  // 'A' reads DEFLATE bits [3, 11) -> zlib bits [19, 27) -> bytes [2, 4):
+  // one byte in each IDAT segment, both retained in source order.
+  REQUIRE(result.tokens[0].input_range() ==
+          (pnga::trace_model::DeflateBitRange{
+              pnga::trace_model::DeflateBitOffset{3},
+              pnga::trace_model::DeflateBitOffset{11}}));
+  REQUIRE(result.tokens[0].physical_input_spans.size() == 2);
+  REQUIRE(result.tokens[0].physical_input_spans[0] ==
+          FileByteRange{FileByteOffset{43}, FileByteOffset{44}});
+  REQUIRE(result.tokens[0].physical_input_spans[1] ==
+          FileByteRange{FileByteOffset{56}, FileByteOffset{57}});
+  // 'B' spans zlib bytes [3, 5), entirely inside the second segment.
+  REQUIRE(result.tokens[1].physical_input_spans ==
+          (std::vector<FileByteRange>{FileByteRange{FileByteOffset{56},
+                                                    FileByteOffset{58}}}));
+  // 'C' spans zlib bytes [4, 6).
+  REQUIRE(result.tokens[2].physical_input_spans ==
+          (std::vector<FileByteRange>{FileByteRange{FileByteOffset{57},
+                                                    FileByteOffset{59}}}));
+}
+
 TEST_CASE("Stored trace tokens keep an absent huffman symbol",
           "[analysis-engine][wp5u12d]") {
   std::vector<std::byte> raw(8);
@@ -445,12 +657,13 @@ TEST_CASE("Trace query serialization pins the huffman symbol field",
   result.tokens.push_back(stored_literal);
 
   const auto serialized = serialize_trace_query(result);
-  // The symbol field sits between block_index and sources=; a stored literal
-  // that consumed no Huffman code serializes as '-'.
+  // The symbol field sits between block_index and the per-token physical
+  // span count, followed by sources=; a stored literal that consumed no
+  // Huffman code serializes as '-'.
   REQUIRE(serialized.find(
-              "token:0,literal,16,24,0,1,65,0,0,0,0,0,65,sources=0\n") !=
+              "token:0,literal,16,24,0,1,65,0,0,0,0,0,65,spans=0,sources=0\n") !=
           std::string::npos);
   REQUIRE(serialized.find(
-              "token:1,literal,24,32,1,2,66,0,0,0,0,0,-,sources=0\n") !=
+              "token:1,literal,24,32,1,2,66,0,0,0,0,0,-,spans=0,sources=0\n") !=
           std::string::npos);
 }
