@@ -107,7 +107,8 @@ void TraceControllerTest::replacementDropsOldGenerationResult() {
   QTRY_COMPARE_WITH_TIMEOUT(widgets.huffman_inspector->view().generation,
                             std::uint64_t{6}, 5000);
   QCOMPARE(widgets.block_inspector->view().generation, std::uint64_t{6});
-  QCOMPARE(widgets.decode_trace_inspector->view().generation, std::uint64_t{6});
+  QCOMPARE(widgets.decode_trace_inspector->view().scope.generation,
+           std::uint64_t{6});
 }
 
 void TraceControllerTest::openDecodeTraceSubmitsOncePerBlockInterval() {
@@ -195,7 +196,7 @@ void TraceControllerTest::incidentalInteractionSubmitsZero() {
       QTest::qWait(50);
     }
     widgets.compression_inspector_tabs->setCurrentIndex(0);
-    window.resize(960, 620);
+    window.resize(980, 640);
     QTest::qWait(50);
     QCOMPARE(controller.acceptedRequestCountForTest(), std::size_t{1});
     QCOMPARE(controller.cancelledRequestCountForTest(), std::size_t{0});

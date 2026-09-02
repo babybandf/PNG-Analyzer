@@ -99,7 +99,7 @@ void TraceInspectorBindingTest::publishesOneGenerationToAllPages() {
   QCOMPARE(spy.takeFirst().at(0).toULongLong(), qulonglong{91});
   QCOMPARE(block_widget.view().generation, std::uint64_t{91});
   QCOMPARE(huffman_widget.view().generation, std::uint64_t{91});
-  QCOMPARE(decode_widget.view().generation, std::uint64_t{91});
+  QCOMPARE(decode_widget.view().scope.generation, std::uint64_t{91});
 }
 
 void TraceInspectorBindingTest::publishesLifecycleStatus() {

@@ -69,7 +69,6 @@ pnga::analysis_engine::FastCompressionIndexView readyIndex(
 }
 
 pnga::analysis_engine::DecodeTraceInspectorView ready_decode() {
-  using pnga::analysis_engine::DecodeTraceInspectorStatus;
   using pnga::analysis_engine::DecodeTracePath;
   using pnga::analysis_engine::DecodeTraceStep;
   using pnga::analysis_engine::TraceQueryStatus;
@@ -86,9 +85,6 @@ pnga::analysis_engine::DecodeTraceInspectorView ready_decode() {
                                                   InflatedByteOffset{1587}};
   view.scope.status = TraceQueryStatus::kReady;
   view.scope.returned_token_count = 3;
-  // Legacy WP-505C sync fields stay consistent with the scope.
-  view.status = DecodeTraceInspectorStatus::kReady;
-  view.generation = 3;
 
   DecodeTraceStep literal;
   literal.token_index = 35;

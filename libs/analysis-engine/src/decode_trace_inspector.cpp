@@ -118,27 +118,6 @@ DecodeTraceInspectorView build_decode_trace_inspector(
   view.scope.truncated = trace.truncated;
   view.scope.stop_reason = trace.error;
 
-  // Legacy WP-505C fields stay in sync for consumers outside this package.
-  view.generation = trace.generation;
-  view.selected_token_index = selected_token_index;
-  view.selected_output_offset = selected_output_offset;
-  switch (trace.status) {
-    case TraceQueryStatus::kReady:
-      view.status = DecodeTraceInspectorStatus::kReady;
-      break;
-    case TraceQueryStatus::kPartial:
-    case TraceQueryStatus::kCancelled:
-      view.status = DecodeTraceInspectorStatus::kPartial;
-      break;
-    case TraceQueryStatus::kError:
-      view.status = DecodeTraceInspectorStatus::kError;
-      break;
-    case TraceQueryStatus::kNotIndexed:
-    case TraceQueryStatus::kReplaying:
-      view.status = DecodeTraceInspectorStatus::kNoTrace;
-      break;
-  }
-
   view.steps.reserve(trace.tokens.size());
   for (const auto& token : trace.tokens) {
     DecodeTraceStep step;
@@ -172,7 +151,6 @@ DecodeTraceInspectorView build_decode_trace_inspector(
           view.scope.status = TraceQueryStatus::kError;
           view.scope.stop_reason =
               "token length/distance is outside RFC 1951 ranges";
-          view.status = DecodeTraceInspectorStatus::kError;
           continue;
         }
         step.event_text = match_event_text(token.length, token.distance);

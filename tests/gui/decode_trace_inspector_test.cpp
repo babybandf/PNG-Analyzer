@@ -120,9 +120,6 @@ DecodeTraceInspectorView ready_view() {
                                                   InflatedByteOffset{1587}};
   view.scope.status = pnga::analysis_engine::TraceQueryStatus::kReady;
   view.scope.returned_token_count = 3;
-  // Legacy WP-505C sync fields stay consistent with the scope.
-  view.status = pnga::analysis_engine::DecodeTraceInspectorStatus::kReady;
-  view.generation = 6;
   view.steps.push_back(literal_step(35, 0x41));
   view.steps.push_back(match_step(36));
   view.steps.push_back(eob_step(37));

@@ -42,7 +42,7 @@ TEST_CASE("trace inspector bundle keeps one generation across pages") {
   REQUIRE(bundle.generation == 77);
   REQUIRE(bundle.block.generation == 77);
   REQUIRE(bundle.huffman.generation == 77);
-  REQUIRE(bundle.decode.generation == 77);
+  REQUIRE(bundle.decode.scope.generation == 77);
   REQUIRE(bundle.block.selected_block_index == 0);
   REQUIRE(bundle.decode.steps[0].selected);
 }

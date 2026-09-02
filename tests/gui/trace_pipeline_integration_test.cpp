@@ -112,7 +112,7 @@ void TracePipelineIntegrationTest::committedPixelPublishesReadyBundleToAllPages(
   QCOMPARE(block->view().selected_output_offset,
            std::optional<std::uint64_t>{1});
   QCOMPARE(block->view().generation, huffman->view().generation);
-  QCOMPARE(huffman->view().generation, decode->view().generation);
+  QCOMPARE(huffman->view().generation, decode->view().scope.generation);
   QVERIFY(block->view().generation != 0);
   QVERIFY(!block->view().rows.empty());
   QVERIFY(!decode->view().steps.empty());

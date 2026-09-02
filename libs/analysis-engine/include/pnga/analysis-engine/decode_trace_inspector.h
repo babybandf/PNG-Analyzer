@@ -86,15 +86,6 @@ struct DecodeTraceInspectorView {
   DecodeTraceScope scope;
   std::vector<DecodeTraceStep> steps;
 
-  // WP-505C legacy projection fields retained for consumers outside this
-  // work package (bundle, orchestrator and binding gates). The builder keeps
-  // them in sync with the scope and step facts; new code reads the scope and
-  // the typed step fields instead.
-  DecodeTraceInspectorStatus status = DecodeTraceInspectorStatus::kNoTrace;
-  std::uint64_t generation = 0;
-  std::optional<std::uint64_t> selected_token_index;
-  std::optional<std::uint64_t> selected_output_offset;
-
   bool operator==(const DecodeTraceInspectorView&) const = default;
 };
 

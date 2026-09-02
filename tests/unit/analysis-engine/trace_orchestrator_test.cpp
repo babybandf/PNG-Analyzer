@@ -131,8 +131,7 @@ TEST_CASE("Trace orchestrator delivers a bounded ready result",
           pnga::analysis_engine::BlockInspectorStatus::kReady);
   REQUIRE(bundle->huffman.status ==
           pnga::analysis_engine::HuffmanInspectorStatus::kReady);
-  REQUIRE(bundle->decode.status ==
-          pnga::analysis_engine::DecodeTraceInspectorStatus::kReady);
+  REQUIRE(bundle->decode.scope.status == TraceQueryStatus::kReady);
 }
 
 TEST_CASE("Trace orchestrator rejects stale and over-budget submissions",
