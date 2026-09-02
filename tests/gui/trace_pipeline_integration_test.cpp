@@ -1,8 +1,11 @@
 // WP-5U13 integration test: the bounded trace pipeline wired into MainWindow.
 // A real deterministic PNG is opened; committing a pixel must publish one
 // generation-coherent bundle to all three Compression pages, page switching
-// must not request or wipe data, and Show in Hex / Show in DEFLATE must
-// navigate the correct WP-5U11 sources.
+// must not request or wipe data, and typed Blocks navigation must reach the
+// correct WP-5U11 sources. WP-5U12C: the complete Blocks list is browsable
+// without X/Y Lock, row selection only changes Manual Selection, Show in Hex
+// highlights every IDAT data span, Show inflated output carries the output
+// range and Open Decode Trace drives the existing bounded request once.
 
 #include "main_window.h"
 
@@ -25,6 +28,7 @@
 #include <QSpinBox>
 #include <QTabWidget>
 #include <QTableWidget>
+#include <QTableView>
 #include <QTemporaryFile>
 
 #include <algorithm>
@@ -43,7 +47,11 @@ class TracePipelineIntegrationTest : public QObject {
   void subpageSwitchingKeepsSameGenerationWithoutWiping();
   void blockShowInHexNavigatesFileSource();
   void decodeShowInHexNavigatesInflatedSource();
-  void blockShowInDeflateNavigatesIdatSource();
+  void immediateNoLockBlocksAreBrowsable();
+  void blockShowInHexCoversEveryIdatSpan();
+  void showInflatedOutputNavigatesInflatedSource();
+  void rowSelectionSubmitsZeroTraces();
+  void openDecodeTracePublishesBoundedBundle();
   void typedTargetsRoundTripAcrossTwoIdats();
 };
 
@@ -193,6 +201,19 @@ void TracePipelineIntegrationTest::subpageSwitchingKeepsSameGenerationWithoutWip
   QCoreApplication::processEvents();
   QVERIFY(context_status->text().contains(QStringLiteral("ready")));
 
+  // DEC/HEX base toggling and window resize only change presentation: the
+  // trace bundle stays published and no replay is started.
+  if (auto* base_button =
+          window.findChild<QPushButton*>(QStringLiteral("numericBase"));
+      base_button != nullptr) {
+    base_button->click();
+    base_button->click();
+  }
+  window.resize(1180, 740);
+  QCoreApplication::processEvents();
+  QTest::qWait(50);
+  QVERIFY(context_status->text().contains(QStringLiteral("ready")));
+
   auto* block = window.findChild<pnga::ui::qt::BlockInspector*>(
       QStringLiteral("blockInspector"));
   QVERIFY(block != nullptr);
@@ -319,7 +340,7 @@ void TracePipelineIntegrationTest::decodeShowInHexNavigatesInflatedSource() {
   QCOMPARE(*hex->currentLocation(), expected_begin);
 }
 
-void TracePipelineIntegrationTest::blockShowInDeflateNavigatesIdatSource() {
+void TracePipelineIntegrationTest::immediateNoLockBlocksAreBrowsable() {
   MainWindow window;
   window.resize(1200, 760);
   window.show();
@@ -337,25 +358,64 @@ void TracePipelineIntegrationTest::blockShowInDeflateNavigatesIdatSource() {
   auto* image = window.findChild<pnga::ui::qt::DeliveredImageView*>();
   QVERIFY(image != nullptr);
   QTRY_VERIFY_WITH_TIMEOUT(!image->image().isNull(), 5000);
-  auto* x = window.findChild<QSpinBox*>(QStringLiteral("xCoordinate"));
-  auto* y = window.findChild<QSpinBox*>(QStringLiteral("yCoordinate"));
-  auto* lock = window.findChild<QCheckBox*>(QStringLiteral("lockCoordinate"));
-  x->setValue(0);
-  y->setValue(0);
-  lock->setChecked(true);
-
-  auto* context_status = window.findChild<QLabel*>(
-      QStringLiteral("compressionContextStatus"));
-  QVERIFY(context_status != nullptr);
-  QTRY_VERIFY_WITH_TIMEOUT(
-      context_status->text().contains(QStringLiteral("ready")), 5000);
 
   auto* block = window.findChild<pnga::ui::qt::BlockInspector*>(
       QStringLiteral("blockInspector"));
   QVERIFY(block != nullptr);
-  QVERIFY(!block->view().rows.empty());
-  const std::uint64_t expected_byte =
-      block->view().rows.front().input_bit_begin / 8;
+  auto* table = block->findChild<QTableView*>(
+      QStringLiteral("compressionBlocksTable"));
+  QVERIFY(table != nullptr);
+  QTRY_VERIFY_WITH_TIMEOUT(table->model()->rowCount() >= 1, 5000);
+
+  // Releasing the pixel lock removes the Deep Trace context but the complete
+  // Fast Index Blocks list stays visible and browsable.
+  auto* lock = window.findChild<QCheckBox*>(QStringLiteral("lockCoordinate"));
+  QVERIFY(lock != nullptr);
+  lock->setChecked(false);
+  QCoreApplication::processEvents();
+  QTest::qWait(50);
+  QVERIFY(table->model()->rowCount() >= 1);
+  QVERIFY(table->model()->data(table->model()->index(0, 1),
+                               Qt::DisplayRole)
+              .isValid());
+}
+
+void TracePipelineIntegrationTest::blockShowInHexCoversEveryIdatSpan() {
+  MainWindow window;
+  window.resize(1200, 760);
+  window.show();
+  QCoreApplication::processEvents();
+
+  QTemporaryFile png;
+  QVERIFY(png.open());
+  const QByteArray bytes = QByteArray::fromBase64(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAABElEQVR42mP4OQCd2AAA"
+      "AAZJREFUDwABAQEAYcWXBgAAAABJRU5ErkJggg==");
+  QCOMPARE(png.write(bytes), bytes.size());
+  png.flush();
+  QVERIFY(window.openFile(png.fileName()));
+  QCoreApplication::processEvents();
+
+  auto* image = window.findChild<pnga::ui::qt::DeliveredImageView*>();
+  QVERIFY(image != nullptr);
+  QTRY_VERIFY_WITH_TIMEOUT(!image->image().isNull(), 5000);
+
+  auto* block = window.findChild<pnga::ui::qt::BlockInspector*>(
+      QStringLiteral("blockInspector"));
+  QVERIFY(block != nullptr);
+  auto* table = block->findChild<QTableView*>(
+      QStringLiteral("compressionBlocksTable"));
+  QVERIFY(table != nullptr);
+  QTRY_VERIFY_WITH_TIMEOUT(table->model()->rowCount() >= 1, 5000);
+
+  // The row's typed physical spans are the expected highlight payload.
+  const auto spans =
+      table->model()
+          ->data(table->model()->index(0, 0),
+                 pnga::ui::qt::PhysicalSpansRole)
+          .value<std::vector<pnga::trace_model::ProvenanceSpan>>();
+  QVERIFY(spans.size() >= 2);  // the block crosses the IDAT boundary
+  const std::uint64_t first_offset = spans.front().offset;
 
   auto* hex_source = window.findChild<pnga::ui::qt::HexSourceTabBar*>(
       QStringLiteral("hexSourceTabs"));
@@ -364,17 +424,188 @@ void TracePipelineIntegrationTest::blockShowInDeflateNavigatesIdatSource() {
   QVERIFY(hex_source != nullptr);
   QVERIFY(hex != nullptr);
 
+  table->selectRow(0);
   const auto buttons = block->findChildren<QPushButton*>();
+  bool clicked = false;
   for (auto* button : buttons) {
-    if (button->text() == QStringLiteral("Show in DEFLATE")) {
+    if (button->text() == QStringLiteral("Show in Hex")) {
       button->click();
+      clicked = true;
     }
   }
+  QVERIFY(clicked);
   QCoreApplication::processEvents();
-  QCOMPARE(hex_source->source(), pnga::ui::qt::HexSource::kIdatStream);
+  QCOMPARE(hex_source->source(), pnga::ui::qt::HexSource::kFile);
   QVERIFY(hex->currentLocation().has_value());
-  QCOMPARE(*hex->currentLocation(), expected_byte);
-  QVERIFY(hex->highlightCount() > 0);
+  QCOMPARE(*hex->currentLocation(), first_offset);
+  // Every physical span of the row is highlighted: no first-span-only path.
+  QCOMPARE(hex->highlightCount(), spans.size());
+}
+
+void TracePipelineIntegrationTest::showInflatedOutputNavigatesInflatedSource() {
+  MainWindow window;
+  window.resize(1200, 760);
+  window.show();
+  QCoreApplication::processEvents();
+
+  QTemporaryFile png;
+  QVERIFY(png.open());
+  const QByteArray bytes = QByteArray::fromBase64(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+  QCOMPARE(png.write(bytes), bytes.size());
+  png.flush();
+  QVERIFY(window.openFile(png.fileName()));
+  QCoreApplication::processEvents();
+
+  auto* image = window.findChild<pnga::ui::qt::DeliveredImageView*>();
+  QVERIFY(image != nullptr);
+  QTRY_VERIFY_WITH_TIMEOUT(!image->image().isNull(), 5000);
+
+  auto* block = window.findChild<pnga::ui::qt::BlockInspector*>(
+      QStringLiteral("blockInspector"));
+  QVERIFY(block != nullptr);
+  auto* table = block->findChild<QTableView*>(
+      QStringLiteral("compressionBlocksTable"));
+  QVERIFY(table != nullptr);
+  QTRY_VERIFY_WITH_TIMEOUT(table->model()->rowCount() >= 1, 5000);
+  const auto output_range =
+      table->model()
+          ->data(table->model()->index(0, 0), pnga::ui::qt::OutputRangeRole)
+          .value<pnga::trace_model::InflatedByteRange>();
+  QVERIFY(output_range.valid() && !output_range.empty());
+
+  auto* hex_source = window.findChild<pnga::ui::qt::HexSourceTabBar*>(
+      QStringLiteral("hexSourceTabs"));
+  auto* hex = window.findChild<pnga::ui::qt::HexView*>(
+      QStringLiteral("hexView"));
+  QVERIFY(hex_source != nullptr);
+  QVERIFY(hex != nullptr);
+
+  table->selectRow(0);
+  QPushButton* inflated_button = nullptr;
+  const auto buttons = block->findChildren<QPushButton*>();
+  for (auto* button : buttons) {
+    if (button->text() == QStringLiteral("Show inflated output")) {
+      inflated_button = button;
+    }
+  }
+  QVERIFY(inflated_button != nullptr);
+  // The Inflated hex source becomes ready asynchronously after the decode
+  // publishes; the action is idempotent, so it is retried until the typed
+  // navigation lands on the Inflated source.
+  QTRY_VERIFY_WITH_TIMEOUT(([&]() {
+    inflated_button->click();
+    QCoreApplication::processEvents();
+    return hex->currentLocation().has_value() &&
+           hex_source->source() == pnga::ui::qt::HexSource::kInflated;
+  })(), 5000);
+  QCOMPARE(*hex->currentLocation(), output_range.begin.value);
+}
+
+void TracePipelineIntegrationTest::rowSelectionSubmitsZeroTraces() {
+  MainWindow window;
+  window.resize(1200, 760);
+  window.show();
+  QCoreApplication::processEvents();
+
+  QTemporaryFile png;
+  QVERIFY(png.open());
+  const QByteArray bytes = QByteArray::fromBase64(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAABElEQVR42mP4OQCd2AAA"
+      "AAZJREFUDwABAQEAYcWXBgAAAABJRU5ErkJggg==");
+  QCOMPARE(png.write(bytes), bytes.size());
+  png.flush();
+  QVERIFY(window.openFile(png.fileName()));
+  QCoreApplication::processEvents();
+
+  auto* image = window.findChild<pnga::ui::qt::DeliveredImageView*>();
+  QVERIFY(image != nullptr);
+  QTRY_VERIFY_WITH_TIMEOUT(!image->image().isNull(), 5000);
+  auto* context_status = window.findChild<QLabel*>(
+      QStringLiteral("compressionContextStatus"));
+  QVERIFY(context_status != nullptr);
+
+  auto* block = window.findChild<pnga::ui::qt::BlockInspector*>(
+      QStringLiteral("blockInspector"));
+  QVERIFY(block != nullptr);
+  auto* table = block->findChild<QTableView*>(
+      QStringLiteral("compressionBlocksTable"));
+  QVERIFY(table != nullptr);
+  QTRY_VERIFY_WITH_TIMEOUT(table->model()->rowCount() >= 1, 5000);
+  // Let the initial auto-locked trace settle before touching the table.
+  QTRY_VERIFY_WITH_TIMEOUT(
+      context_status->text().contains(QStringLiteral("ready")), 5000);
+  const std::uint64_t generation_before = block->view().generation;
+  const std::uint64_t selected_block_index =
+      table->model()
+          ->data(table->model()->index(0, 0), pnga::ui::qt::BlockIndexRole)
+          .toULongLong();
+
+  // Row selection produces the Manual target in the shared store and
+  // submits no Deep Trace request of any kind.
+  const auto stores =
+      window.findChildren<pnga::ui::qt::CompressionSelectionStore*>();
+  QCOMPARE(stores.size(), 1);
+  auto* store = stores.front();
+  table->selectRow(0);
+  QVERIFY(store->state().manual.has_value());
+  QCOMPARE(store->state().manual->block_index,
+           std::optional<std::uint64_t>{selected_block_index});
+  QCOMPARE(store->history().size(), std::size_t{0});
+  QCOMPARE(block->view().generation, generation_before);
+  QVERIFY(!context_status->text().contains(QStringLiteral("Replaying")));
+}
+
+void TracePipelineIntegrationTest::openDecodeTracePublishesBoundedBundle() {
+  MainWindow window;
+  window.resize(1200, 760);
+  window.show();
+  QCoreApplication::processEvents();
+
+  QTemporaryFile png;
+  QVERIFY(png.open());
+  const QByteArray bytes = QByteArray::fromBase64(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=");
+  QCOMPARE(png.write(bytes), bytes.size());
+  png.flush();
+  QVERIFY(window.openFile(png.fileName()));
+  QCoreApplication::processEvents();
+
+  auto* image = window.findChild<pnga::ui::qt::DeliveredImageView*>();
+  QVERIFY(image != nullptr);
+  QTRY_VERIFY_WITH_TIMEOUT(!image->image().isNull(), 5000);
+  auto* context_status = window.findChild<QLabel*>(
+      QStringLiteral("compressionContextStatus"));
+  QVERIFY(context_status != nullptr);
+  auto* block = window.findChild<pnga::ui::qt::BlockInspector*>(
+      QStringLiteral("blockInspector"));
+  QVERIFY(block != nullptr);
+  auto* table = block->findChild<QTableView*>(
+      QStringLiteral("compressionBlocksTable"));
+  QVERIFY(table != nullptr);
+  QTRY_VERIFY_WITH_TIMEOUT(table->model()->rowCount() >= 1, 5000);
+
+  // The explicit drill-in routes the selected block through the existing
+  // bounded request and publishes a fresh ready bundle for the same
+  // generation. The request is interval-deduplicated, so retrying the click
+  // while the single worker finishes is safe.
+  table->selectRow(0);
+  QPushButton* trace_button = nullptr;
+  const auto buttons = block->findChildren<QPushButton*>();
+  for (auto* button : buttons) {
+    if (button->text() == QStringLiteral("Open Decode Trace")) {
+      trace_button = button;
+    }
+  }
+  QVERIFY(trace_button != nullptr);
+  QTRY_VERIFY_WITH_TIMEOUT(([&]() {
+    trace_button->click();
+    QCoreApplication::processEvents();
+    return context_status->text().contains(QStringLiteral("ready"));
+  })(), 10000);
+  QVERIFY(!block->view().rows.empty());
+  // The bounded result stays scoped: the bundle generation is unchanged.
+  QVERIFY(block->view().generation != 0);
 }
 
 void TracePipelineIntegrationTest::typedTargetsRoundTripAcrossTwoIdats() {

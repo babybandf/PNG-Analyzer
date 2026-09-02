@@ -4,6 +4,7 @@
 
 #include "pnga/ui/qt/block_inspector.h"
 #include "pnga/ui/qt/compression_context.h"
+#include "pnga/ui/qt/compression_selection_store.h"
 #include "pnga/ui/qt/decode_trace_inspector.h"
 #include "pnga/ui/qt/huffman_inspector.h"
 
@@ -39,13 +40,60 @@ const char* lifecycle_key(
   return "unknown";
 }
 
+// Resolves the single shared WP-5U12B store owned by the document window so
+// the binding can hand it to the pages and publish Current through it.
+pnga::ui::qt::CompressionSelectionStore* find_compression_store(
+    const QWidget* anchor) {
+  if (anchor == nullptr) {
+    return nullptr;
+  }
+  return anchor->window()->findChild<pnga::ui::qt::CompressionSelectionStore*>();
+}
+
+// Publishes the committed-pixel Current mapping through the shared store.
+// The store preserves a same-generation Manual Selection, so Current and
+// Selection stay separate facts (WP-5U12B).
+void publish_current_mapping(
+    pnga::ui::qt::BlockInspector* block,
+    const pnga::analysis_engine::BlockInspectorView& block_view) {
+  if (block == nullptr || !block_view.selected_block_index.has_value() ||
+      !block_view.selected_output_offset.has_value()) {
+    return;
+  }
+  auto* store = find_compression_store(block);
+  if (store == nullptr) {
+    return;
+  }
+  const auto output_range = pnga::trace_model::make_range(
+      pnga::trace_model::InflatedByteOffset{
+          *block_view.selected_output_offset},
+      1);
+  if (!output_range.has_value()) {
+    return;
+  }
+  pnga::trace_model::CompressionCurrentMapping mapping;
+  mapping.generation = block_view.generation;
+  mapping.source_unit = pnga::trace_model::DocumentSourceUnit{};
+  mapping.output_range = *output_range;
+  mapping.block_index = block_view.selected_block_index;
+  store->setCurrent(mapping);
+}
+
 }  // namespace
 
 TraceInspectorBinding::TraceInspectorBinding(BlockInspector* block,
                                              HuffmanInspector* huffman,
                                              DecodeTraceInspector* decode,
                                              QObject* parent)
-    : QObject(parent), block_(block), huffman_(huffman), decode_(decode) {}
+    : QObject(parent), block_(block), huffman_(huffman), decode_(decode) {
+  // Hand the one shared selection state to the Blocks page so row selection,
+  // Current and Manual Selection flow through the WP-5U12B store.
+  if (block_ != nullptr) {
+    if (auto* store = find_compression_store(block_); store != nullptr) {
+      block_->setSelectionStore(store);
+    }
+  }
+}
 
 void TraceInspectorBinding::publishFastIndex(
     const pnga::analysis_engine::FastCompressionIndexView& view) {
@@ -61,14 +109,16 @@ void TraceInspectorBinding::publishFastIndex(
     return;
   }
   const auto& stream = view.stream;
-  const QString adler = stream.adler_ok ? QStringLiteral("Adler valid")
-                                        : QStringLiteral("Adler not verified");
+  const QString adler = stream.adler.status ==
+                                pnga::deflate_index::Adler32Status::kMatch
+                            ? QStringLiteral("Adler valid")
+                            : QStringLiteral("Adler not verified");
   context_->setStreamSummary(
       QStringLiteral("generation %1 · zlib stream %2 bytes · %3 IDAT segments · "
                      "%4 blocks · Inflated %5 bytes · %6")
           .arg(static_cast<qulonglong>(view.generation))
           .arg(static_cast<qulonglong>(stream.stream_range.end.value))
-          .arg(static_cast<qulonglong>(stream.idat_segment_count))
+          .arg(static_cast<qulonglong>(stream.idat_spans.size()))
           .arg(static_cast<qulonglong>(view.blocks.size()))
           .arg(static_cast<qulonglong>(stream.total_output_bytes))
           .arg(adler));
@@ -105,6 +155,7 @@ void TraceInspectorBinding::publish(
   }
   if (block_ != nullptr) {
     block_->setView(bundle.block);
+    publish_current_mapping(block_, bundle.block);
   }
   if (huffman_ != nullptr) {
     huffman_->setView(bundle.huffman);
@@ -123,6 +174,7 @@ void TraceInspectorBinding::publishState(
   if (state.bundle.has_value()) {
     if (block_ != nullptr) {
       block_->setView(state.bundle->block);
+      publish_current_mapping(block_, state.bundle->block);
     }
     if (huffman_ != nullptr) {
       huffman_->setView(state.bundle->huffman);

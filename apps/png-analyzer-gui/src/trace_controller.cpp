@@ -17,7 +17,6 @@
 
 #include <QColor>
 #include <QMetaObject>
-#include <QVector>
 
 #include <limits>
 
@@ -58,38 +57,75 @@ TraceController::TraceController(MainWindowWidgets widgets, QObject* parent)
     : QObject(parent), w_(widgets) {
   trace_state_ =
       std::make_unique<pnga::analysis_engine::TraceInspectorStateMachine>();
+  // WP-5U12C: Blocks-page Show in Hex / Show inflated output navigate through
+  // the shared CompressionSelectionStore and the selection controller; only
+  // the explicit Open Decode Trace action reaches this controller, and it
+  // reuses the existing bounded request path once per interval.
   connect(w_.block_inspector,
-          &pnga::ui::qt::BlockInspector::showInHexSpansRequested, this,
-          [this](const QVector<QPair<quint64, quint64>>& ranges) {
-            if (ranges.isEmpty()) {
+          &pnga::ui::qt::BlockInspector::decodeTraceRequested, this,
+          [this](std::uint64_t generation, std::uint64_t /*block_index*/,
+                 pnga::trace_model::InflatedByteRange output_range) {
+            if (w_.trace_binding == nullptr || trace_state_ == nullptr ||
+                trace_ == nullptr || !trace_->has_index() ||
+                generation != generation_ || !output_range.valid() ||
+                output_range.empty()) {
               return;
             }
-            emit hexSourceRequested(pnga::ui::qt::HexSource::kFile);
-            w_.hex->clearHighlight();
-            std::vector<pnga::ui::qt::HexHighlightSpan> highlights;
-            highlights.reserve(static_cast<std::size_t>(ranges.size()));
-            for (const auto& range : ranges) {
-              if (range.second != 0) {
-                highlights.push_back({range.first, range.second,
-                                      QColor(0x42, 0xA5, 0xF5)});
+            // The explicit action goes through the same bounded request path
+            // as a committed pixel: it re-arms the trace status display.
+            w_.trace_binding->setNotIndexed(false);
+            const std::uint64_t begin = output_range.begin.value;
+            const std::uint64_t end = output_range.end.value;
+            if (trace_interval_.has_value() &&
+                trace_request_generation_ == generation_ &&
+                trace_interval_->first == begin &&
+                trace_interval_->second == end) {
+              if (trace_result_ != nullptr) {
+                const bool accepted = trace_state_->publish(
+                    *trace_result_, std::nullopt,
+                    trace_selected_output_offset_.value_or(
+                        trace_result_->inflated_begin),
+                    trace_scanline_);
+                if (accepted) {
+                  w_.trace_binding->publishState(trace_state_->state());
+                }
               }
+              return;  // identical committed interval already submitted
             }
-            w_.hex->navigateTo(ranges.front().first);
-            w_.hex->setHighlight(std::move(highlights));
-          });
-  connect(w_.block_inspector,
-          &pnga::ui::qt::BlockInspector::showInDeflateRequested, this,
-          [this](quint64 bit_begin, quint64 bit_end) {
-            // Block input bits are absolute logical (zlib/IDAT) stream bits,
-            // including the zlib header.
-            emit hexSourceRequested(pnga::ui::qt::HexSource::kIdatStream);
-            const auto range = byte_range_for_bits(bit_begin, bit_end);
-            if (!range.has_value()) {
-              return;
+            pending_trace_coordinate_.reset();
+            trace_interval_ = std::make_pair(begin, end);
+            trace_request_generation_ = generation_;
+            if (trace_handle_ != nullptr && trace_handle_->accepted()) {
+              trace_->cancel(*trace_handle_);
+#ifdef PNGA_TRACE_CONTROLLER_TESTING
+              ++cancelled_requests_;
+#endif
+              trace_handle_.reset();
             }
-            w_.hex->setHighlight({{range->first, range->second,
-                                   QColor(0x42, 0xA5, 0xF5)}});
-            w_.hex->navigateTo(range->first);
+            pnga::analysis_engine::TraceOrchestrationRequest request;
+            request.generation = generation_;
+            pnga::trace_model::Selection selection;
+            selection.stage = pnga::trace_model::Stage::kDelivered;
+            request.selection = selection;
+            request.inflated_begin = begin;
+            request.inflated_end = end;
+            request.max_tokens = kMaxTraceTokens;
+            request.trace_output_budget_bytes = kTraceOutputBudgetBytes;
+            request.priority =
+                pnga::analysis_engine::JobPriority::kSelection;
+            trace_state_->markReplaying(generation_);
+            w_.trace_binding->publishState(trace_state_->state());
+            const auto handle = trace_->submit(request);
+#ifdef PNGA_TRACE_CONTROLLER_TESTING
+            if (handle.accepted()) {
+              ++accepted_requests_;
+            }
+#endif
+            trace_handle_ =
+                handle.accepted()
+                    ? std::make_unique<
+                          pnga::analysis_engine::TraceTaskHandle>(handle)
+                    : nullptr;
           });
   connect(w_.decode_trace_inspector,
           &pnga::ui::qt::DecodeTraceInspector::showInHexRequested, this,
