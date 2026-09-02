@@ -67,11 +67,17 @@ void TraceInspectorPerformanceTest::largeViewsAreCappedAndFast() {
   }
   huffman.tables.push_back(table);
   pnga::analysis_engine::DecodeTraceInspectorView decode;
-  decode.status = pnga::analysis_engine::DecodeTraceInspectorStatus::kReady;
+  // WP-5U12E mechanism migration: the Decode Trace projection gained a typed
+  // scope (status/output range/count) and typed step ranges, so the former
+  // legacy view status field and step.output_end assignment become the scope
+  // and InflatedByteRange facts below with the identical values (ready, one
+  // output byte per step).
+  decode.scope.status = pnga::analysis_engine::TraceQueryStatus::kReady;
   for (std::uint64_t i = 0; i < 10000; ++i) {
     pnga::analysis_engine::DecodeTraceStep step;
     step.token_index = i;
-    step.output_end = i + 1;
+    step.output_range = {pnga::trace_model::InflatedByteOffset{i},
+                         pnga::trace_model::InflatedByteOffset{i + 1}};
     decode.steps.push_back(step);
   }
 
@@ -112,10 +118,17 @@ void TraceInspectorPerformanceTest::largeViewsAreCappedAndFast() {
   QVERIFY(huffman_table != nullptr);
   QVERIFY(huffman_table->model() != nullptr);
   QCOMPARE(huffman_table->model()->rowCount(), 5000);
-  QCOMPARE(decode_widget.findChild<QTableWidget*>(
-                QStringLiteral("decodeTraceInspectorTable"))
-                ->rowCount(),
-           pnga::ui::qt::DecodeTraceInspector::kMaxVisibleRows + 1);
+  // WP-5U12E mechanism migration: the Decode Trace page is model-backed
+  // (QTableView compressionDecodeTraceTable, no QTableWidget), so the former
+  // capped QTableWidget row count kMaxVisibleRows + 1 is asserted as the
+  // virtualized model row count equal to the complete source fact (10000
+  // steps), mirroring the Blocks and Huffman rulings above. The cold/hot
+  // thresholds and every other assertion are unchanged.
+  auto* decode_table = decode_widget.findChild<QTableView*>(
+      QStringLiteral("compressionDecodeTraceTable"));
+  QVERIFY(decode_table != nullptr);
+  QVERIFY(decode_table->model() != nullptr);
+  QCOMPARE(decode_table->model()->rowCount(), 10000);
 }
 
 void TraceInspectorPerformanceTest::hexHighlightsAreCapped() {

@@ -366,8 +366,26 @@ void CrossPlatformGuiGateTest::inspectorTruncationContractsRemainBounded() {
   }
   pnga::ui::qt::DecodeTraceInspector decode_widget;
   decode_widget.setView(decode);
-  verify_bounded_table(
-      decode_widget, pnga::ui::qt::DecodeTraceInspector::kMaxVisibleRows + 1);
+  // WP-5U12E mechanism migration: the Decode Trace page is model-backed
+  // (QTableView compressionDecodeTraceTable, no QTableWidget), so the former
+  // verify_bounded_table call (capped QTableWidget row count plus a
+  // "truncated" marker row) is asserted as the virtualized model row count
+  // equal to the same input volume with a real last row, mirroring the
+  // Blocks and Huffman rulings above. The input volume is unchanged.
+  auto* decode_table = decode_widget.findChild<QTableView*>(
+      QStringLiteral("compressionDecodeTraceTable"));
+  QVERIFY(decode_table != nullptr);
+  QVERIFY(decode_table->model() != nullptr);
+  QCOMPARE(decode_table->model()->rowCount(),
+           pnga::ui::qt::DecodeTraceInspector::kMaxVisibleRows + 1);
+  QCOMPARE(decode_table->model()
+                ->data(decode_table->model()->index(
+                          pnga::ui::qt::DecodeTraceInspector::kMaxVisibleRows,
+                          1),
+                       Qt::DisplayRole)
+                .toString(),
+            QString::number(static_cast<qulonglong>(
+                pnga::ui::qt::DecodeTraceInspector::kMaxVisibleRows)));
 }
 
 QTEST_MAIN(CrossPlatformGuiGateTest)
