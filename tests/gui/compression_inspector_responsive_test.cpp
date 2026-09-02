@@ -85,6 +85,78 @@ QTableView* blocksTable(pnga::ui::qt::BlockInspector& widget) {
   return widget.findChild<QTableView*>(QStringLiteral("compressionBlocksTable"));
 }
 
+// Dynamic block #7 with a literal/length and a distance table; the fixture
+// carries the projection's own bit strings so no Qt code reverses bits.
+pnga::analysis_engine::HuffmanInspectorView ready_huffman() {
+  pnga::analysis_engine::HuffmanInspectorView view;
+  view.status = pnga::analysis_engine::HuffmanInspectorStatus::kReady;
+  view.generation = 3;
+  pnga::analysis_engine::HuffmanInspectorTable literal;
+  literal.block_index = 7;
+  literal.mode = pnga::analysis_engine::HuffmanTableMode::kDynamic;
+  literal.kind = pnga::deflate_trace::HuffmanTableKind::kLiteralLength;
+  literal.selector_label = "Literal / Length";
+  literal.build_order = 1;
+  literal.declared_entry_count = 3;
+  literal.bounded_token_count = 3;
+  pnga::analysis_engine::HuffmanInspectorEntry e65;
+  e65.symbol = 65;
+  e65.bit_length = 3;
+  e65.canonical_code = 4;
+  e65.read_order_code = 1;
+  e65.meaning = "literal 65";
+  e65.canonical_bits = "100";
+  e65.read_order_bits = "001";
+  e65.occurrence_token_indices = {3};
+  literal.entries.push_back(e65);
+  pnga::analysis_engine::HuffmanInspectorEntry e268;
+  e268.symbol = 268;
+  e268.bit_length = 3;
+  e268.canonical_code = 5;
+  e268.read_order_code = 5;
+  e268.meaning = "length 17-18";
+  e268.canonical_bits = "101";
+  e268.read_order_bits = "101";
+  e268.occurrence_token_indices = {4};
+  literal.entries.push_back(e268);
+  pnga::analysis_engine::HuffmanInspectorEntry e256;
+  e256.symbol = 256;
+  e256.bit_length = 1;
+  e256.meaning = "end-of-block";
+  e256.canonical_bits = "0";
+  e256.read_order_bits = "0";
+  e256.occurrence_token_indices = {5};
+  literal.entries.push_back(e256);
+  view.tables.push_back(literal);
+  pnga::analysis_engine::HuffmanInspectorTable distance;
+  distance.block_index = 7;
+  distance.mode = pnga::analysis_engine::HuffmanTableMode::kDynamic;
+  distance.kind = pnga::deflate_trace::HuffmanTableKind::kDistance;
+  distance.selector_label = "Distance";
+  distance.build_order = 2;
+  distance.declared_entry_count = 1;
+  distance.bounded_token_count = 3;
+  pnga::analysis_engine::HuffmanInspectorEntry d0;
+  d0.symbol = 0;
+  d0.bit_length = 1;
+  d0.meaning = "distance 1";
+  d0.canonical_bits = "0";
+  d0.read_order_bits = "0";
+  distance.entries.push_back(d0);
+  view.tables.push_back(distance);
+  pnga::analysis_engine::HuffmanBlockScope scope;
+  scope.block_index = 7;
+  scope.deflate_range = pnga::trace_model::DeflateBitRange{
+      pnga::trace_model::DeflateBitOffset{0},
+      pnga::trace_model::DeflateBitOffset{64}};
+  scope.physical_spans.push_back(
+      pnga::trace_model::ProvenanceSpan{
+          pnga::trace_model::ProvenanceSpace::kPhysicalFile, 100, 10, 0, 80,
+          true});
+  view.block_scopes.push_back(scope);
+  return view;
+}
+
 }  // namespace
 
 class CompressionInspectorResponsiveTest : public QObject {
@@ -92,6 +164,7 @@ class CompressionInspectorResponsiveTest : public QObject {
  private slots:
   void pagesHonorNarrowWidthsWithoutGrowth();
   void blocksColumnsFollowWidthMatrix();
+  void huffmanColumnsFollowWidthMatrix();
   void blocksGeometryFooterAndSplitter();
   void currentAndSelectionCoexistAtAnyWidth();
   void accessibleNamesArePresent();
@@ -166,6 +239,53 @@ void CompressionInspectorResponsiveTest::blocksColumnsFollowWidthMatrix() {
       // Narrow widths scroll inside the viewport instead of growing.
       QVERIFY(table->horizontalScrollBarPolicy() == Qt::ScrollBarAsNeeded);
       QVERIFY(table->minimumWidth() <= width_case.width);
+    }
+  }
+}
+
+void CompressionInspectorResponsiveTest::huffmanColumnsFollowWidthMatrix() {
+  // Normative Huffman behavior (flow-ui §20.4/§20.5): the six required
+  // columns stay present at every width; Canonical and Uses in result live
+  // in the viewport's horizontal scroll on narrow pages, and the selected
+  // row's details keep both bit orders.
+  for (const int width : {600, 480, 360, 320}) {
+    pnga::ui::qt::HuffmanInspector huffman;
+    huffman.setView(ready_huffman());
+    huffman.setFixedWidth(width);
+    huffman.show();
+    QCoreApplication::processEvents();
+    QCOMPARE(huffman.width(), width);
+    QVERIFY2(huffman.minimumWidth() <= width,
+             qPrintable(QStringLiteral("Huffman minimum width %1 exceeds %2")
+                            .arg(huffman.minimumWidth())
+                            .arg(width)));
+    auto* table = huffman.findChild<QTableView*>(
+        QStringLiteral("compressionHuffmanTable"));
+    QVERIFY(table != nullptr);
+    for (int column = 0;
+         column < pnga::ui::qt::HuffmanInspectorModel::ColumnCount;
+         ++column) {
+      QVERIFY2(!table->isColumnHidden(column),
+               qPrintable(QStringLiteral("column %1 hidden at %2 px")
+                              .arg(column)
+                              .arg(width)));
+    }
+    QVERIFY(table->horizontalScrollBarPolicy() == Qt::ScrollBarAsNeeded);
+    if (width == 360) {
+      table->selectRow(0);
+      bool found_canonical = false;
+      bool found_read_order = false;
+      const auto labels = huffman.findChildren<QLabel*>();
+      for (const auto* label : labels) {
+        if (label->text().contains(QStringLiteral("100 · 3 bits"))) {
+          found_canonical = true;
+        }
+        if (label->text().contains(QStringLiteral("001"))) {
+          found_read_order = true;
+        }
+      }
+      QVERIFY(found_canonical);
+      QVERIFY(found_read_order);
     }
   }
 }
@@ -288,10 +408,10 @@ void CompressionInspectorResponsiveTest::accessibleNamesArePresent() {
   decode.setView(ready_decode());
 
   QVERIFY(!blocksTable(block)->accessibleName().isEmpty());
-  QVERIFY(!huffman.findChild<QTableWidget*>(
-               QStringLiteral("huffmanInspectorTable"))
-               ->accessibleName()
-               .isEmpty());
+  QVERIFY(!huffman.findChild<QTableView*>(
+                QStringLiteral("compressionHuffmanTable"))
+                ->accessibleName()
+                .isEmpty());
   QVERIFY(!decode.findChild<QTableWidget*>(
                QStringLiteral("decodeTraceInspectorTable"))
                ->accessibleName()

@@ -53,6 +53,7 @@ class TracePipelineIntegrationTest : public QObject {
   void rowSelectionSubmitsZeroTraces();
   void openDecodeTracePublishesBoundedBundle();
   void typedTargetsRoundTripAcrossTwoIdats();
+  void huffmanOccurrenceNavigationAndBackRestoresSymbol();
 };
 
 void TracePipelineIntegrationTest::init() {
@@ -761,6 +762,134 @@ void TracePipelineIntegrationTest::typedTargetsRoundTripAcrossTwoIdats() {
   // generation are untouched and the context stays ready.
   QCOMPARE(block->view().generation, generation);
   QCOMPARE(block->view().rows.size(), rows_before);
+  QVERIFY(context_status->text().contains(QStringLiteral("ready")));
+}
+
+void TracePipelineIntegrationTest::
+    huffmanOccurrenceNavigationAndBackRestoresSymbol() {
+  MainWindow window;
+  window.resize(1200, 760);
+  window.show();
+  QCoreApplication::processEvents();
+
+  QTemporaryFile png;
+  QVERIFY(png.open());
+  const QByteArray bytes = QByteArray::fromBase64(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAABElEQVR42mP4OQCd2AAA"
+      "AAZJREFUDwABAQEAYcWXBgAAAABJRU5ErkJggg==");
+  QCOMPARE(png.write(bytes), bytes.size());
+  png.flush();
+  QVERIFY(window.openFile(png.fileName()));
+  QCoreApplication::processEvents();
+
+  auto* image = window.findChild<pnga::ui::qt::DeliveredImageView*>();
+  QVERIFY(image != nullptr);
+  QTRY_VERIFY_WITH_TIMEOUT(!image->image().isNull(), 5000);
+  auto* context_status = window.findChild<QLabel*>(
+      QStringLiteral("compressionContextStatus"));
+  QVERIFY(context_status != nullptr);
+  QTRY_VERIFY_WITH_TIMEOUT(
+      context_status->text().contains(QStringLiteral("ready")), 5000);
+
+  auto* block = window.findChild<pnga::ui::qt::BlockInspector*>(
+      QStringLiteral("blockInspector"));
+  auto* huffman = window.findChild<pnga::ui::qt::HuffmanInspector*>(
+      QStringLiteral("huffmanInspector"));
+  QVERIFY(block != nullptr);
+  QVERIFY(huffman != nullptr);
+  auto* block_table = block->findChild<QTableView*>(
+      QStringLiteral("compressionBlocksTable"));
+  QVERIFY(block_table != nullptr);
+  QTRY_VERIFY_WITH_TIMEOUT(block_table->model()->rowCount() >= 1, 5000);
+
+  const auto stores =
+      window.findChildren<pnga::ui::qt::CompressionSelectionStore*>();
+  QCOMPARE(stores.size(), 1);
+  auto* store = stores.front();
+
+  // Blocks → Huffman keeps the selected block.
+  block_table->selectRow(0);
+  auto* compression =
+      window.findChild<QTabWidget*>(QStringLiteral("compressionInspectorPages"));
+  QVERIFY(compression != nullptr);
+  compression->setCurrentIndex(1);
+  QCoreApplication::processEvents();
+  auto* heading =
+      huffman->findChild<QLabel*>(QStringLiteral("huffmanInspectorHeading"));
+  QVERIFY(heading != nullptr);
+  QVERIFY(heading->text().contains(QStringLiteral("Block #0")));
+  QVERIFY(heading->text().contains(QStringLiteral("Fixed Huffman")));
+
+  // Switching the table keeps the block.
+  auto* distance_button = huffman->findChild<QPushButton*>(
+      QStringLiteral("huffmanTableKindDistance"));
+  auto* literal_button = huffman->findChild<QPushButton*>(
+      QStringLiteral("huffmanTableKindLiteralLength"));
+  QVERIFY(distance_button != nullptr);
+  QVERIFY(literal_button != nullptr);
+  distance_button->click();
+  QVERIFY(heading->text().contains(QStringLiteral("Block #0")));
+  literal_button->click();
+  QVERIFY(heading->text().contains(QStringLiteral("Block #0")));
+
+  // A symbol with a bounded occurrence navigates to that token; the typed
+  // target stays in the selected block's scope.
+  auto* table = huffman->findChild<QTableView*>(
+      QStringLiteral("compressionHuffmanTable"));
+  QVERIFY(table != nullptr);
+  auto* model = table->model();
+  QVERIFY(model != nullptr);
+  int used_row = -1;
+  for (int row = 0; row < model->rowCount(); ++row) {
+    if (model->data(model->index(row, pnga::ui::qt::HuffmanInspectorModel::
+                                           UsesInResult),
+                    Qt::DisplayRole)
+            .toInt() > 0) {
+      used_row = row;
+      break;
+    }
+  }
+  QVERIFY(used_row >= 0);
+  const auto entry =
+      model->data(model->index(used_row, 0), pnga::ui::qt::HuffmanEntryRole)
+          .value<pnga::analysis_engine::HuffmanInspectorEntry>();
+  QVERIFY(!entry.occurrence_token_indices.empty());
+  const std::uint64_t expected_token =
+      entry.occurrence_token_indices.front();
+  table->selectRow(used_row);
+
+  QCOMPARE(store->history().size(), std::size_t{0});
+  auto* open = huffman->findChild<QPushButton*>(
+      QStringLiteral("huffmanOpenOccurrence"));
+  QVERIFY(open != nullptr);
+  open->click();
+  QCOMPARE(store->history().size(), std::size_t{1});
+  QCOMPARE(store->history().back().token_index,
+           std::optional<std::uint64_t>{expected_token});
+  QCOMPARE(store->history().back().symbol,
+           std::optional<std::uint16_t>{entry.symbol});
+  QCOMPARE(store->history().back().block_index,
+           std::optional<std::uint64_t>{0});
+  // The bounded occurrence list cycles; no occurrence index is grown.
+  open->click();
+  QCOMPARE(store->history().size(), std::size_t{2});
+
+  // Back returns the symbol (and the earlier occurrence).
+  QVERIFY(store->goBack());
+  QCOMPARE(store->state().manual->token_index,
+           std::optional<std::uint64_t>{expected_token});
+  QCOMPARE(store->state().manual->symbol,
+           std::optional<std::uint16_t>{entry.symbol});
+
+  // Returning to Huffman preserves Block, table, symbol and occurrence.
+  compression->setCurrentIndex(0);
+  QCoreApplication::processEvents();
+  compression->setCurrentIndex(1);
+  QCoreApplication::processEvents();
+  QVERIFY(heading->text().contains(QStringLiteral("Block #0")));
+  QVERIFY(heading->text().contains(QStringLiteral("Fixed Huffman")));
+  QVERIFY(table->selectionModel()->isRowSelected(used_row, QModelIndex()));
+  QCOMPARE(store->history().size(), std::size_t{2});
   QVERIFY(context_status->text().contains(QStringLiteral("ready")));
 }
 

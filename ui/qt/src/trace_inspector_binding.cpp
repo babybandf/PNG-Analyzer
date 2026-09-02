@@ -93,6 +93,13 @@ TraceInspectorBinding::TraceInspectorBinding(BlockInspector* block,
       block_->setSelectionStore(store);
     }
   }
+  // WP-5U12D: the Huffman page joins the same store so the selected Block,
+  // symbol and occurrence state survive page switches and Back/Forward.
+  if (huffman_ != nullptr) {
+    if (auto* store = find_compression_store(huffman_); store != nullptr) {
+      huffman_->setSelectionStore(store);
+    }
+  }
 }
 
 void TraceInspectorBinding::publishFastIndex(
