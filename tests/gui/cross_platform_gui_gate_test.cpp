@@ -38,6 +38,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 namespace {
 
@@ -314,16 +315,47 @@ void CrossPlatformGuiGateTest::inspectorTruncationContractsRemainBounded() {
   pnga::analysis_engine::HuffmanInspectorView huffman;
   pnga::analysis_engine::HuffmanInspectorTable table;
   table.kind = pnga::deflate_trace::HuffmanTableKind::kLiteralLength;
+  // WP-5U12D mechanism migration: the entry projection gained a meaning and
+  // a typed provenance range, so the former positional aggregate init
+  // {static_cast<std::uint16_t>(i), 1, 0, 0, 1, false} becomes the field
+  // assignments below with the identical values (symbol i, 1 bit, canonical
+  // 0, provenance [0, 1), unselected).
   for (int i = 0; i < pnga::ui::qt::HuffmanInspector::kMaxVisibleRows + 1;
        ++i) {
-    table.entries.push_back({static_cast<std::uint16_t>(i), 1, 0, 0, 1,
-                             false});
+    pnga::analysis_engine::HuffmanInspectorEntry entry;
+    entry.symbol = static_cast<std::uint16_t>(i);
+    entry.meaning = "literal " + std::to_string(i);
+    entry.bit_length = 1;
+    entry.canonical_code = 0;
+    entry.read_order_code = 0;
+    entry.canonical_bits = "0";
+    entry.read_order_bits = "0";
+    entry.provenance_range = {pnga::trace_model::DeflateBitOffset{0},
+                              pnga::trace_model::DeflateBitOffset{1}};
+    table.entries.push_back(entry);
   }
   huffman.tables.push_back(table);
   pnga::ui::qt::HuffmanInspector huffman_widget;
   huffman_widget.setView(huffman);
-  verify_bounded_table(
-      huffman_widget, pnga::ui::qt::HuffmanInspector::kMaxVisibleRows + 1);
+  // WP-5U12D mechanism migration: the Huffman page is model-backed
+  // (QTableView compressionHuffmanTable, no QTableWidget), so the former
+  // verify_bounded_table call (capped QTableWidget row count plus a
+  // "truncated" marker row) is asserted as the virtualized model row count
+  // equal to the same input volume with a real last row, mirroring the
+  // Blocks ruling above. The Decode Trace call site below is untouched.
+  auto* huffman_table = huffman_widget.findChild<QTableView*>(
+      QStringLiteral("compressionHuffmanTable"));
+  QVERIFY(huffman_table != nullptr);
+  QVERIFY(huffman_table->model() != nullptr);
+  QCOMPARE(huffman_table->model()->rowCount(),
+           pnga::ui::qt::HuffmanInspector::kMaxVisibleRows + 1);
+  QCOMPARE(huffman_table->model()
+               ->data(huffman_table->model()->index(
+                          pnga::ui::qt::HuffmanInspector::kMaxVisibleRows, 0),
+                      Qt::DisplayRole)
+               .toString(),
+           QString::number(static_cast<qulonglong>(
+               pnga::ui::qt::HuffmanInspector::kMaxVisibleRows)));
 
   pnga::analysis_engine::DecodeTraceInspectorView decode;
   for (int i = 0; i < pnga::ui::qt::DecodeTraceInspector::kMaxVisibleRows + 1;

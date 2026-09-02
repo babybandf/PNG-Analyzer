@@ -15,6 +15,10 @@
 #include <QTableView>
 #include <QTableWidget>
 
+#include <string>
+
+#include <cstdint>
+
 class TraceInspectorPerformanceTest : public QObject {
   Q_OBJECT
  private slots:
@@ -43,8 +47,23 @@ void TraceInspectorPerformanceTest::largeViewsAreCappedAndFast() {
   pnga::analysis_engine::HuffmanInspectorTable table;
   table.mode = pnga::analysis_engine::HuffmanTableMode::kDynamic;
   table.kind = pnga::deflate_trace::HuffmanTableKind::kLiteralLength;
+  // WP-5U12D mechanism migration: the entry projection gained a meaning and
+  // a typed provenance range, so the former positional aggregate init
+  // {i, 1, 0, 0, 1, false} becomes the field assignments below with the
+  // identical values (symbol i, 1 bit, canonical 0, provenance [0, 1),
+  // unselected).
   for (std::uint16_t i = 0; i < 5000; ++i) {
-    table.entries.push_back({i, 1, 0, 0, 1, false});
+    pnga::analysis_engine::HuffmanInspectorEntry entry;
+    entry.symbol = i;
+    entry.meaning = "literal " + std::to_string(i);
+    entry.bit_length = 1;
+    entry.canonical_code = 0;
+    entry.read_order_code = 0;
+    entry.canonical_bits = "0";
+    entry.read_order_bits = "0";
+    entry.provenance_range = {pnga::trace_model::DeflateBitOffset{0},
+                              pnga::trace_model::DeflateBitOffset{1}};
+    table.entries.push_back(entry);
   }
   huffman.tables.push_back(table);
   pnga::analysis_engine::DecodeTraceInspectorView decode;
@@ -82,10 +101,17 @@ void TraceInspectorPerformanceTest::largeViewsAreCappedAndFast() {
   QVERIFY(blocks_table != nullptr);
   QVERIFY(blocks_table->model() != nullptr);
   QCOMPARE(blocks_table->model()->rowCount(), 10000);
-  QCOMPARE(huffman_widget.findChild<QTableWidget*>(
-                QStringLiteral("huffmanInspectorTable"))
-                ->rowCount(),
-           pnga::ui::qt::HuffmanInspector::kMaxVisibleRows + 1);
+  // WP-5U12D mechanism migration: the Huffman page is model-backed
+  // (QTableView compressionHuffmanTable, no QTableWidget), so the former
+  // capped QTableWidget row count kMaxVisibleRows + 1 is asserted as the
+  // virtualized model row count equal to the complete source fact (5000
+  // entries), mirroring the Blocks ruling above. The cold/hot thresholds
+  // and every other assertion are unchanged.
+  auto* huffman_table = huffman_widget.findChild<QTableView*>(
+      QStringLiteral("compressionHuffmanTable"));
+  QVERIFY(huffman_table != nullptr);
+  QVERIFY(huffman_table->model() != nullptr);
+  QCOMPARE(huffman_table->model()->rowCount(), 5000);
   QCOMPARE(decode_widget.findChild<QTableWidget*>(
                 QStringLiteral("decodeTraceInspectorTable"))
                 ->rowCount(),
