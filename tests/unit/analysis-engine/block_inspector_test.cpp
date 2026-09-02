@@ -119,7 +119,6 @@ TEST_CASE("fast compression index retains complete blocks and segmented IDAT") {
   REQUIRE(view.stream.adler.expected == view.stream.adler.actual);
   REQUIRE_FALSE(view.stream.stop_input.has_value());
   REQUIRE_FALSE(view.stream.stop_output.has_value());
-  REQUIRE(view.stream.idat_segment_count == 2);
   REQUIRE(view.stream.idat_spans.size() == 2);
   REQUIRE(view.stream.idat_spans[0].logical_range ==
           pnga::trace_model::ZlibByteRange{
@@ -281,4 +280,96 @@ TEST_CASE("fast compression index preserves verified partial blocks") {
   REQUIRE(view.status == FastCompressionIndexStatus::kPartial);
   REQUIRE(view.error == "truncated zlib stream (no end marker)");
   REQUIRE(view.blocks.size() == 1);
+  REQUIRE(view.blocks[0].stored_length == std::uint64_t{1});
+}
+
+TEST_CASE(
+    "fast block rows project stored length and leave unproven metadata empty") {
+  pnga::png_format::ChunkIndex chunks;
+  chunks.chunks = {idat(10, 8)};
+  const pnga::png_format::VirtualIDATStream stream(chunks);
+  pnga::deflate_index::BlockIndexResult index;
+  index.success = true;
+  index.zlib_header_bits = 16;
+  index.total_output_bytes = 12;
+  index.adler.status = Adler32Status::kMatch;
+  // Stored output [0, 3), Fixed output [3, 9), Dynamic output [9, 12).
+  index.blocks.push_back({0, pnga::deflate_index::BlockType::kStored, false,
+                          8, 24, 0, 3});
+  index.blocks.push_back({1, pnga::deflate_index::BlockType::kFixed, false,
+                          24, 40, 3, 9});
+  index.blocks.push_back({2, pnga::deflate_index::BlockType::kDynamic, true,
+                          40, 56, 9, 12});
+
+  const auto view = pnga::analysis_engine::build_fast_compression_index(
+      90, index, stream);
+  REQUIRE(view.status == FastCompressionIndexStatus::kReady);
+  // The complete generation-level list is projected without any
+  // TraceQueryResult or current-pixel input.
+  REQUIRE(view.blocks.size() == 3);
+  REQUIRE(view.blocks[0].type == pnga::deflate_index::BlockType::kStored);
+  REQUIRE(view.blocks[0].stored_length == std::uint64_t{3});
+  REQUIRE(view.blocks[1].type == pnga::deflate_index::BlockType::kFixed);
+  REQUIRE_FALSE(view.blocks[1].stored_length.has_value());
+  REQUIRE(view.blocks[2].type == pnga::deflate_index::BlockType::kDynamic);
+  REQUIRE_FALSE(view.blocks[2].stored_length.has_value());
+  for (const auto& row : view.blocks) {
+    REQUIRE_FALSE(row.event_count.has_value());
+    REQUIRE_FALSE(row.first_scanline.has_value());
+    REQUIRE_FALSE(row.last_scanline.has_value());
+  }
+}
+
+TEST_CASE(
+    "fast block rows preserve every ordered cross-IDAT span bit field") {
+  pnga::png_format::ChunkIndex chunks;
+  chunks.chunks = {idat(100, 3), idat(200, 3), idat(300, 3)};
+  const pnga::png_format::VirtualIDATStream stream(chunks);
+  pnga::deflate_index::BlockIndexResult index;
+  index.success = true;
+  index.zlib_header_bits = 16;
+  index.total_output_bytes = 2;
+  index.adler.status = Adler32Status::kMatch;
+  index.blocks.push_back({0, pnga::deflate_index::BlockType::kStored, true,
+                          4, 26, 0, 2});
+
+  const auto view = pnga::analysis_engine::build_fast_compression_index(
+      91, index, stream);
+  REQUIRE(view.status == FastCompressionIndexStatus::kReady);
+  REQUIRE(view.blocks.size() == 1);
+  const std::vector<pnga::trace_model::ProvenanceSpan> expected{
+      {pnga::trace_model::ProvenanceSpace::kPhysicalFile, 100, 3, 4, 20, true},
+      {pnga::trace_model::ProvenanceSpace::kPhysicalFile, 200, 1, 0, 2, true}};
+  REQUIRE(view.blocks[0].physical_spans == expected);
+  for (const auto& span : view.blocks[0].physical_spans) {
+    REQUIRE(span.space == pnga::trace_model::ProvenanceSpace::kPhysicalFile);
+  }
+  // Order is preserved: the first span belongs to the first IDAT payload.
+  REQUIRE(view.blocks[0].physical_spans.front().offset == 100);
+  REQUIRE(view.blocks[0].physical_spans.back().offset == 200);
+}
+
+TEST_CASE("fast compression index retains verified rows when a span fails") {
+  pnga::png_format::ChunkIndex chunks;
+  chunks.chunks = {idat(100, 2), idat(200, 2)};
+  const pnga::png_format::VirtualIDATStream stream(chunks);
+  pnga::deflate_index::BlockIndexResult index;
+  index.error = "index scan stopped early";
+  index.zlib_header_bits = 16;
+  index.blocks.push_back({0, pnga::deflate_index::BlockType::kStored, false,
+                          8, 16, 0, 1});
+  // Block 1 claims input bits beyond the logical stream; its physical
+  // provenance cannot be mapped and the projection must fail without
+  // discarding the already verified row.
+  index.blocks.push_back({1, pnga::deflate_index::BlockType::kFixed, false,
+                          16, 200, 1, 2});
+
+  const auto view = pnga::analysis_engine::build_fast_compression_index(
+      92, index, stream);
+  REQUIRE(view.status == FastCompressionIndexStatus::kError);
+  REQUIRE(view.error == "fast block input provenance is unavailable");
+  REQUIRE(view.blocks.size() == 1);
+  REQUIRE(view.blocks[0].block_index == 0);
+  REQUIRE(view.blocks[0].stored_length == std::uint64_t{1});
+  REQUIRE(view.blocks[0].physical_spans.size() == 1);
 }

@@ -226,8 +226,6 @@ FastCompressionIndexView build_fast_compression_index(
   summary.wrapper = block_index.wrapper;
   summary.adler = block_index.adler;
   summary.total_output_bytes = block_index.total_output_bytes;
-  summary.adler_ok = block_index.adler.status ==
-                     pnga::deflate_index::Adler32Status::kMatch;
   if (block_index.stop_input_bit.has_value()) {
     summary.stop_input =
         pnga::trace_model::ZlibBitOffset{*block_index.stop_input_bit};
@@ -272,7 +270,6 @@ FastCompressionIndexView build_fast_compression_index(
     summary.idat_spans.push_back(
         FastCompressionIdatSpan{*logical, *physical});
   }
-  summary.idat_segment_count = summary.idat_spans.size();
 
   // Complete Block list with every physical bit span.
   view.blocks.reserve(block_index.blocks.size());
@@ -287,6 +284,13 @@ FastCompressionIndexView build_fast_compression_index(
     row.output_range = {
         pnga::trace_model::InflatedByteOffset{block.output_begin},
         pnga::trace_model::InflatedByteOffset{block.output_end}};
+    // Stored payload length is proven only by the block's own inflated
+    // output range; checked against a reversed or unproven range.
+    if (row.type == pnga::deflate_index::BlockType::kStored &&
+        row.output_range.valid() && !row.output_range.empty()) {
+      row.stored_length =
+          row.output_range.end.value - row.output_range.begin.value;
+    }
     if (!append_physical_bit_spans(stream, row.input_range,
                                    &row.physical_spans)) {
       view.status = FastCompressionIndexStatus::kError;

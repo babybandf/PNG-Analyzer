@@ -97,10 +97,6 @@ struct FastCompressionStreamSummary {
   pnga::deflate_index::Adler32Info adler;
   std::optional<pnga::trace_model::ZlibBitOffset> stop_input;
   std::optional<pnga::trace_model::InflatedByteOffset> stop_output;
-  // Legacy GUI-facing projections retained until the Compression Inspector UI
-  // stage rewrites the Qt binding; derived from idat_spans and adler.status.
-  std::uint64_t idat_segment_count = 0;
-  bool adler_ok = false;
 
   bool operator==(const FastCompressionStreamSummary&) const = default;
 };
@@ -113,6 +109,13 @@ struct FastCompressionBlockRow {
   pnga::trace_model::ZlibBitRange input_range{};
   pnga::trace_model::InflatedByteRange output_range{};
   std::vector<pnga::trace_model::ProvenanceSpan> physical_spans;
+  // Stored payload byte count, proven by the block's inflated output range.
+  // Event/scanline fields stay empty until a structured index fact exists;
+  // they are never guessed from PNG geometry or a token trace here.
+  std::optional<std::uint64_t> stored_length;
+  std::optional<std::uint64_t> event_count;
+  std::optional<std::uint64_t> first_scanline;
+  std::optional<std::uint64_t> last_scanline;
 
   bool operator==(const FastCompressionBlockRow&) const = default;
 };
