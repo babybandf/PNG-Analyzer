@@ -10,7 +10,7 @@
 ## 一、结论摘要
 
 - Stage A/B/C/D/E 全部实施完成：每阶段 TDD 红绿循环、逐任务 commit、聚焦门禁、全量 CTest、`git diff --check`、allowed-path 审计、退出门禁全绿。
-- 全分支最终审查（15,270 行 diff，6 遍分域通读）：**0 Critical / 0 Important，结论 "Ready to merge — Yes, proceed to WP-607C/F"**。
+- 全分支最终审查（范围 `27d7012..81f322f`，25 commits；审查包 15,270 行含上下文，对应变更行 9,963+/1,555−；6 遍分域通读）：**0 Critical / 0 Important，结论 "Ready to merge — Yes, proceed to WP-607C/F"**。其后的 pre-F 清理波 `7b3fd4a` 经独立 scoped 复审逐项 ADDRESSED。
 - Task 6（WP-5U12F Product Gate）按 master Handoff Rule 触发 `BLOCKED: WP-607C fixture prerequisite`：`tests/corpus/manifest.yaml` 为空（`[]`），受控类别无 manifest 支持；且 WP-607C 工作包状态为 "design approved; pending written-package review"（未批准，不得擅自启动）。
 - 收尾门禁：verify_repository_layout / verify_dependencies 均 0 failure 0 warning；构建 exit 0；CTest **47/47 (100%)**；`git diff --check` 干净；`git status --short` 空。
 
@@ -59,7 +59,7 @@ C/D/E 的接口演进使 `tests/gui/trace_inspector_performance_test.cpp` 与 `t
 
 ## 五、Deferred minors 与 triage（最终审查裁定）
 
-**已清理**（`7b3fd4a`）：`DecodeTraceInspectorStatus` 死词汇、`applying_state_` 死标志、Huffman 无 occurrence 路径死 `setDetailsInstruction` 调用、`make_deflate_range` 恒假溢出检查→直接形式、`dynamic_trace()` 过期注释。
+**已清理**（`7b3fd4a`）：`DecodeTraceInspectorStatus` 死词汇、`applying_state_` 死标志、Huffman 无 occurrence 路径死 `setDetailsInstruction` 调用、`make_deflate_range` 恒假溢出检查→直接形式（注：第二子句 `end > UINT64_MAX` 对 uint64_t 仍恒假，实质守卫为 `end < begin`；已列 F 后清理）、`dynamic_trace()` 过期注释。
 
 **留给 F**（F 开场显式 commit 或其门禁范围）：no-block fallback 孤儿动态表的 focused test（`block_index 0` 归属病态路径）；`index_cache read_data` 跨字段校验加固（untrusted cache）；WP-5U15 not-indexed-flag 竞态根因（已缓解：显式路径 `setNotIndexed(false)`）。
 
