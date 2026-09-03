@@ -44,5 +44,6 @@ git status --short                           → 空
 
 - 分支 HEAD：`e442293`，工作树干净，CTest 47/47。
 - 三项行为发现：**CLOSED**（含实现与回归测试证据）。
+- **外部审计确认（2026-09-03）：通过**——外部核对方对三项修复完成情况审计通过，本闭环正式结束。
 - WP-5U12：**未完成**——Task 6（WP-5U12F Product Gate）仍待 WP-607C（`tests/corpus/manifest.yaml` 为空；工作包状态 "design approved; pending written-package review"）。
 - 恢复路径：完成 WP-607C → 批准 → 实施 → 在本 worktree 重验并执行 F 的完整 product gate。
