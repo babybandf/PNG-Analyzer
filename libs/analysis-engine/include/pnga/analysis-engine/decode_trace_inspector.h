@@ -68,6 +68,11 @@ struct DecodeTraceStep {
   // Zero-based position of the Current output byte inside this event; set
   // only when the Current output intersects the step.
   std::optional<std::uint64_t> selected_byte_offset_in_event;
+  // WP-5U12 audit 7.3: source logical offset of the Current output byte in
+  // the DEFLATE byte-by-byte copy (current - distance); set only for Match
+  // steps whose target contains the Current byte and only when the
+  // subtraction is well-defined.
+  std::optional<std::uint64_t> selected_byte_source_offset;
 
   bool operator==(const DecodeTraceStep&) const = default;
 };

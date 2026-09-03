@@ -135,6 +135,7 @@ class DecodeTraceInspectorTest : public QObject {
   void modelRendersTypedRowsWithExactHeaders();
   void scopeHeadingIdentifiesBoundedResult();
   void detailsExposeEveryMatchField();
+  void matchDetailsIncludeSourceLogicalOffset();
   void literalAndEobDetailsStayStructured();
   void currentAndManualSelectionCoexist();
   void partialAndErrorRowsAreRetained();
@@ -300,6 +301,40 @@ void DecodeTraceInspectorTest::detailsExposeEveryMatchField() {
     }
   }
   QVERIFY(selectable_value);
+}
+
+void DecodeTraceInspectorTest::matchDetailsIncludeSourceLogicalOffset() {
+  pnga::ui::qt::DecodeTraceInspector widget;
+  auto view = ready_view();
+  // Audit 7.3 fixture: target [100, 118), distance 7 and the Current byte
+  // at output 104 — event offset +4, copy source 104 - 7 = 97.
+  DecodeTraceStep match = match_step(36);
+  match.output_range = InflatedByteRange{InflatedByteOffset{100},
+                                         InflatedByteOffset{118}};
+  match.match_target = match.output_range;
+  match.selected_byte_offset_in_event = std::uint64_t{4};
+  match.selected_byte_source_offset = std::uint64_t{97};
+  view.steps[1] = match;
+  widget.setView(view);
+  auto* table = traceTable(widget);
+  QVERIFY(table != nullptr);
+  table->selectRow(1);
+
+  const QString expected[] = {
+      QStringLiteral("match offset +4"),
+      QStringLiteral("source logical offset 97"),
+  };
+  const auto labels = widget.findChildren<QLabel*>();
+  for (const auto& text : expected) {
+    bool found = false;
+    for (const auto* label : labels) {
+      if (label->text().contains(text)) {
+        found = true;
+        break;
+      }
+    }
+    QVERIFY2(found, qPrintable(QStringLiteral("missing detail: %1").arg(text)));
+  }
 }
 
 void DecodeTraceInspectorTest::literalAndEobDetailsStayStructured() {

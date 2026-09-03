@@ -185,6 +185,24 @@ TEST_CASE("decode trace marks the current byte at first, middle and last") {
   REQUIRE_FALSE(manual.steps.front().contains_current);
 }
 
+TEST_CASE("decode trace derives the current byte source logical offset") {
+  TraceQueryResult trace;
+  trace.status = TraceQueryStatus::kReady;
+  // A physically consistent forward range: target [100, 118), distance 7,
+  // current output 104 and root source range [82, 100).
+  trace.tokens.push_back(
+      match_token(0, 18, 7, 0, 100,
+                  {TokenOutputRange{82, 100, 0}}));
+  const auto view =
+      build_decode_trace_inspector(trace, std::nullopt, 104);
+  REQUIRE(view.steps.front().selected_byte_offset_in_event ==
+          std::optional<std::uint64_t>{4});
+  // The DEFLATE byte-by-byte copy reads the current byte from
+  // current - distance: 104 - 7 = 97.
+  REQUIRE(view.steps.front().selected_byte_source_offset ==
+          std::optional<std::uint64_t>{97});
+}
+
 TEST_CASE("decode trace copies typed input ranges and physical spans") {
   TraceQueryResult trace;
   trace.status = TraceQueryStatus::kReady;

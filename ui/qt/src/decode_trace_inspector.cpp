@@ -550,11 +550,15 @@ void DecodeTraceInspector::updateDetails() {
                            QStringLiteral("Inflated bytes %1")
                                .arg(bytes_label(step->output_range)));
       if (step->selected_byte_offset_in_event.has_value()) {
-        details.emplace_back(
-            QStringLiteral("Current byte"),
-            QStringLiteral("match offset +%1")
-                .arg(static_cast<qulonglong>(
-                    *step->selected_byte_offset_in_event)));
+        QString value = QStringLiteral("match offset +%1")
+                            .arg(static_cast<qulonglong>(
+                                *step->selected_byte_offset_in_event));
+        if (step->selected_byte_source_offset.has_value()) {
+          value += QStringLiteral(", source logical offset %1")
+                       .arg(static_cast<qulonglong>(
+                           *step->selected_byte_source_offset));
+        }
+        details.emplace_back(QStringLiteral("Current byte"), value);
       }
       break;
     case pnga::analysis_engine::DecodeTracePath::kEndOfBlock:

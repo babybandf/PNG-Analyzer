@@ -172,6 +172,15 @@ DecodeTraceInspectorView build_decode_trace_inspector(
       step.contains_current = true;
       step.selected_byte_offset_in_event =
           *selected_output_offset - step.output_range.begin.value;
+      // The DEFLATE match copy reads byte i of the target from
+      // target_begin + i - distance; the Current byte's copy source offset
+      // is current - distance. The RFC 1951 projection above already
+      // rejects invalid distances, but the subtraction stays guarded.
+      if (step.path == DecodeTracePath::kMatch &&
+          *selected_output_offset >= step.distance) {
+        step.selected_byte_source_offset =
+            *selected_output_offset - step.distance;
+      }
     }
     view.steps.push_back(std::move(step));
   }
