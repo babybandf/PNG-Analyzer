@@ -1,5 +1,6 @@
 # Unit tests for libs/deflate-trace. ZLIB/deflate-runtime are linked here for
-# WP-500/501/502 cross-validation against standard zlib.
+# WP-500/501/502 cross-validation against standard zlib; the WP-607C corpus
+# fixture library adds shared controlled-case assertions.
 
 add_executable(pnga_deflate_trace_tests
   token_decoder_test.cpp
@@ -9,6 +10,8 @@ target_link_libraries(pnga_deflate_trace_tests PRIVATE
   pnga::deflate_trace
   pnga::deflate_runtime
   pnga::io
+  pnga::png_format
+  pnga_test_wp607c_corpus
   ZLIB::ZLIB
   Catch2::Catch2WithMain
 )

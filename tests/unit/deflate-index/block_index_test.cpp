@@ -1,6 +1,11 @@
 // WP-401 block index tests: stored/fixed/dynamic blocks, multiple blocks,
 // header/Adler across IDAT boundaries, mid-byte boundaries, output-range
-// tiling, error handling and block_for_output lookup.
+// tiling, error handling and block_for_output lookup. WP-607C: the four
+// valid controlled corpus cases add exact block-sequence assertions over
+// the shared fixture registry (local builders stay: they exercise sizes,
+// levels and fault shapes the corpus does not).
+
+#include "controlled_fixture.h"
 
 #include <pnga/deflate-index/block_index.h>
 
@@ -347,4 +352,69 @@ TEST_CASE("Truncated stream and output cap are rejected",
   const BlockIndexResult capped = index_blocks(full_src, 100);
   REQUIRE_FALSE(capped.success);
   REQUIRE_FALSE(capped.error.empty());
+}
+
+TEST_CASE("WP-607C controlled cases index into the frozen block sequence",
+          "[deflate-index][wp607c]") {
+  using pnga_test::wp607c::BlockKind;
+  using pnga_test::wp607c::ControlledCaseId;
+  using pnga_test::wp607c::make_controlled_fixture;
+
+  const ControlledCaseId valid_cases[] = {
+      ControlledCaseId::kTraceStoredLiterals,
+      ControlledCaseId::kTraceFixedNonoverlap,
+      ControlledCaseId::kTraceDynamicOverlapRepeats,
+      ControlledCaseId::kTraceMultiblockBfinal,
+      ControlledCaseId::kIdatSplitZlibHeader,
+      ControlledCaseId::kIdatSplitToken,
+      ControlledCaseId::kIdatSplitAdler,
+      ControlledCaseId::kPerfLargeRgba8,
+  };
+  for (const auto id : valid_cases) {
+    const auto fixture = make_controlled_fixture(id);
+    CAPTURE(fixture.stable_id);
+
+    MemoryByteSource file(fixture.png_bytes);
+    const auto index_result = pnga::png_format::index_chunks(file);
+    const pnga::png_format::VirtualIDATStream stream(index_result);
+    VirtualIdatSource logical(stream, file);
+    // The perf case inflates ~3 MB, so the controlled loop uses the same
+    // 16 MiB budget the performance runner and orchestrator use.
+    const BlockIndexResult index = index_blocks(logical, 16u * 1024u * 1024u);
+
+    if (id == ControlledCaseId::kIdatSplitZlibHeader) {
+      REQUIRE(stream.segment_count() == 2);
+    }
+    REQUIRE(index.success);
+    REQUIRE(index.error.empty());
+    REQUIRE(index.zlib_header_bits == 16);
+    REQUIRE(index.adler.status == Adler32Status::kMatch);
+    REQUIRE(index.blocks.size() == fixture.expected.blocks.size());
+    for (std::size_t i = 0; i < index.blocks.size(); ++i) {
+      const auto& produced = index.blocks[i];
+      const auto& expected = fixture.expected.blocks[i];
+      INFO(fixture.stable_id << " block " << i);
+      switch (expected.kind) {
+        case BlockKind::kStored:
+          REQUIRE(produced.type == BlockType::kStored);
+          break;
+        case BlockKind::kFixed:
+          REQUIRE(produced.type == BlockType::kFixed);
+          break;
+        case BlockKind::kDynamic:
+          REQUIRE(produced.type == BlockType::kDynamic);
+          break;
+        case BlockKind::kReserved:
+          FAIL("controlled valid cases never use reserved blocks");
+          break;
+      }
+      REQUIRE(produced.last == expected.bfinal);
+      REQUIRE(produced.input_bit_begin ==
+              expected.input_bits.begin + index.zlib_header_bits);
+      REQUIRE(produced.input_bit_end ==
+              expected.input_bits.end + index.zlib_header_bits);
+      REQUIRE(produced.output_begin == expected.output_bytes.begin);
+      REQUIRE(produced.output_end == expected.output_bytes.end);
+    }
+  }
 }

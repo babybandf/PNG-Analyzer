@@ -1,6 +1,9 @@
 // WP-604A: fixed, generated performance corpus and measurement runner.
 // Threshold enforcement belongs to WP-604B; this executable only checks that
 // each scenario completes successfully and emits a stable record shape.
+// WP-607C: the large scenario consumes the shared perf-large-rgba8 corpus
+// fixture and the record carries the aggregate corpus revision from the
+// compile-time definition.
 
 #include <pnga/analysis-engine/pixel_provenance.h>
 #include <pnga/analysis-engine/scanline_anchor.h>
@@ -8,17 +11,24 @@
 #include <pnga/io/byte_source.h>
 #include <pnga/png-format/chunk_index.h>
 #include <pnga/png-format/virtual_idat_stream.h>
+#include <pnga/png-reconstruction/scanline_layout.h>
 
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
+#include "controlled_fixture.h"
 #include "test_png_helpers.h"
+
+#ifndef PNGA_WP607C_CORPUS_REVISION
+#error "PNGA_WP607C_CORPUS_REVISION must be defined by the build"
+#endif
 
 namespace {
 
@@ -28,7 +38,8 @@ using pnga::analysis_engine::ScanlineAnchorIndexResult;
 using pnga::io::MemoryByteSource;
 using pnga::png_format::ChunkIndex;
 using pnga::png_format::VirtualIDATStream;
-using pnga_test::EncodedPng;
+using pnga::png_reconstruction::ImageHeader;
+using pnga_test::wp607c::ControlledFixture;
 
 struct TimedValue {
   std::uint64_t micros = 0;
@@ -63,7 +74,8 @@ void require(bool condition, const char* message) {
 }
 
 struct LargeScenario {
-  EncodedPng image;
+  ControlledFixture fixture;
+  ImageHeader header{};
   std::shared_ptr<MemoryByteSource> source;
   ChunkIndex chunks;
   std::unique_ptr<VirtualIDATStream> stream;
@@ -76,11 +88,21 @@ struct LargeScenario {
   std::uint64_t checksum = 0;
 
   LargeScenario()
-      : image(pnga_test::encode_png(1024, 768, 8, 6, false, true, 604)),
-        source(std::make_shared<MemoryByteSource>(image.png_bytes)),
+      : fixture(pnga_test::wp607c::make_controlled_fixture(
+              pnga_test::wp607c::ControlledCaseId::kPerfLargeRgba8)),
+        source(std::make_shared<MemoryByteSource>(fixture.png_bytes)),
         chunks(pnga::png_format::index_chunks(*source)),
         stream(std::make_unique<VirtualIDATStream>(chunks)) {
-    require(chunks.valid_signature, "performance corpus: invalid PNG signature");
+    // The production header derives from the fixture's independent facts.
+    const auto& facts = fixture.expected.image;
+    require(facts.has_value(), "performance corpus: missing image facts");
+    require(facts->bit_depth == 8 && facts->color_type == 6 &&
+                facts->interlace == 0,
+            "performance corpus: unexpected perf-large-rgba8 facts");
+    header = ImageHeader{facts->width, facts->height, facts->bit_depth,
+                         facts->color_type, facts->interlace != 0};
+    require(chunks.valid_signature,
+            "performance corpus: invalid PNG signature");
     const auto index_time = timed([&] {
       chunks = pnga::png_format::index_chunks(*source);
     });
@@ -89,10 +111,12 @@ struct LargeScenario {
 
     const auto fast_time = timed([&] {
       anchors = pnga::analysis_engine::build_scanline_anchors(
-          *stream, *source, image.header, 64u * 1024u, 16u * 1024u * 1024u);
+          *stream, *source, header, 64u * 1024u, 16u * 1024u * 1024u);
     });
     fast_index_us = fast_time.micros;
     require(anchors.success, "performance corpus: fast index failed");
+    require(anchors.scanline_count == header.height,
+            "performance corpus: unexpected scanline count");
 
     const auto reopen_time = timed([&] {
       const ChunkIndex reopened = pnga::png_format::index_chunks(*source);
@@ -119,7 +143,7 @@ struct LargeScenario {
 };
 
 struct ProvenanceScenario {
-  EncodedPng image;
+  pnga_test::EncodedPng image;
   std::shared_ptr<MemoryByteSource> source;
   ChunkIndex chunks;
   std::unique_ptr<VirtualIDATStream> stream;
@@ -165,13 +189,18 @@ struct ProvenanceScenario {
 
 void emit_record(const LargeScenario& large,
                  const ProvenanceScenario& provenance) {
+  constexpr const char* kCorpusRevision = PNGA_WP607C_CORPUS_REVISION;
+  require(std::strlen(kCorpusRevision) == 64,
+          "performance corpus revision must be 64 hex characters");
   std::cout << "{\"schema\":\"pnga-performance-v1\","
-               "\"corpus\":\"generated-static-png-v1\","
-               "\"scenarios\":["
-               "{\"id\":\"large-index\",\"width\":1024,\"height\":768,"
-               "\"bit_depth\":8,\"color_type\":6,\"interlace\":0,"
-               "\"png_bytes\":"
-            << large.image.png_bytes.size()
+                "\"corpus\":\"wp607c-static-v1\","
+                "\"corpus_revision\":\"" << kCorpusRevision << "\","
+                "\"large_case\":\"perf-large-rgba8\","
+                "\"scenarios\":["
+                "{\"id\":\"large-index\",\"width\":1024,\"height\":768,"
+                "\"bit_depth\":8,\"color_type\":6,\"interlace\":0,"
+                "\"png_bytes\":"
+             << large.fixture.png_bytes.size()
             << ",\"chunk_index_us\":" << large.chunk_index_us
             << ",\"fast_index_us\":" << large.fast_index_us
             << ",\"reopen_index_us\":" << large.reopen_index_us

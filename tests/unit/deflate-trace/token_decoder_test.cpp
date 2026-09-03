@@ -2,11 +2,17 @@
 // blocks decode into literal/length-distance/EOB tokens whose reconstructed
 // output matches the source byte-for-byte and is cross-checked with zlib.
 // Dynamic table failures, truncated input and LZ source/output boundaries are
-// rejected or traced deterministically.
+// rejected or traced deterministically. WP-607C: the valid controlled corpus
+// cases add exact token-sequence assertions over the shared fixture registry
+// (local builders stay: they cover sizes and strategies the corpus does not).
+
+#include "controlled_fixture.h"
 
 #include <pnga/deflate-trace/token_decoder.h>
 #include <pnga/deflate-runtime/inflate.h>
 #include <pnga/io/byte_source.h>
+#include <pnga/png-format/chunk_index.h>
+#include <pnga/png-format/virtual_idat_stream.h>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -16,6 +22,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 using pnga::deflate_runtime::inflate_stream;
@@ -546,6 +553,93 @@ TEST_CASE("Dynamic huffman tokens record the consumed huffman symbol",
                   std::optional<std::uint16_t>{256});
           break;
       }
+    }
+  }
+}
+
+namespace {
+
+// Adapts a VirtualIDATStream to IByteSource (the corpus cases wrap their
+// DEFLATE streams in real PNG files, possibly across several IDAT chunks).
+class CorpusIdatSource final : public IByteSource {
+ public:
+  CorpusIdatSource(const pnga::png_format::VirtualIDATStream& stream,
+                   const IByteSource& file)
+      : stream_(stream), file_(file) {}
+
+  std::uint64_t size() const noexcept override { return stream_.size(); }
+  bool read(std::uint64_t offset, std::byte* out,
+            std::size_t length) const noexcept override {
+    return stream_.read(file_, offset, out, length);
+  }
+  std::optional<pnga::io::ByteView> view(std::uint64_t,
+                                         std::size_t) const noexcept override {
+    return std::nullopt;
+  }
+
+ private:
+  const pnga::png_format::VirtualIDATStream& stream_;
+  const IByteSource& file_;
+};
+
+}  // namespace
+
+TEST_CASE("WP-607C controlled cases decode into the frozen token sequences",
+          "[deflate-trace][wp607c]") {
+  using pnga_test::wp607c::ControlledCaseId;
+  using pnga_test::wp607c::make_controlled_fixture;
+
+  const ControlledCaseId valid_cases[] = {
+      ControlledCaseId::kTraceStoredLiterals,
+      ControlledCaseId::kTraceFixedNonoverlap,
+      ControlledCaseId::kTraceDynamicOverlapRepeats,
+      ControlledCaseId::kTraceMultiblockBfinal,
+      ControlledCaseId::kIdatSplitZlibHeader,
+      ControlledCaseId::kIdatSplitToken,
+      ControlledCaseId::kIdatSplitAdler,
+  };
+  for (const auto id : valid_cases) {
+    const auto fixture = make_controlled_fixture(id);
+    CAPTURE(fixture.stable_id);
+
+    MemoryByteSource file(fixture.png_bytes);
+    const auto chunks = pnga::png_format::index_chunks(file);
+    const pnga::png_format::VirtualIDATStream stream(chunks);
+    CorpusIdatSource logical(stream, file);
+    const TokenDecodeResult result =
+        decode_stored_and_fixed(logical, 1u << 20);
+
+    REQUIRE(result.success);
+    REQUIRE(result.stream_ended);
+    REQUIRE(result.tokens.size() == fixture.expected.tokens.size());
+    for (std::size_t i = 0; i < result.tokens.size(); ++i) {
+      const auto& produced = result.tokens[i];
+      const auto& expected = fixture.expected.tokens[i];
+      INFO(fixture.stable_id << " token " << i);
+      switch (expected.kind) {
+        case pnga_test::wp607c::TokenKind::kLiteral:
+          REQUIRE(produced.kind == TokenKind::kLiteral);
+          REQUIRE(expected.literal.has_value());
+          REQUIRE(produced.literal == *expected.literal);
+          break;
+        case pnga_test::wp607c::TokenKind::kMatch:
+          REQUIRE(produced.kind == TokenKind::kLengthDistance);
+          REQUIRE(expected.length.has_value());
+          REQUIRE(expected.distance.has_value());
+          REQUIRE(produced.length == *expected.length);
+          REQUIRE(produced.distance == *expected.distance);
+          REQUIRE(expected.match_source.has_value());
+          REQUIRE(produced.match_source_begin == expected.match_source->begin);
+          REQUIRE(produced.match_source_end == expected.match_source->end);
+          break;
+        case pnga_test::wp607c::TokenKind::kEndOfBlock:
+          REQUIRE(produced.kind == TokenKind::kEndOfBlock);
+          break;
+      }
+      REQUIRE(produced.input_bit_begin == expected.input_bits.begin);
+      REQUIRE(produced.input_bit_end == expected.input_bits.end);
+      REQUIRE(produced.output_begin == expected.output_bytes.begin);
+      REQUIRE(produced.output_end == expected.output_bytes.end);
     }
   }
 }

@@ -1,4 +1,5 @@
-# Unit tests for libs/deflate-index.
+# Unit tests for libs/deflate-index. The WP-607C corpus fixture library adds
+# shared controlled-case assertions.
 
 add_executable(pnga_deflate_index_tests
   access_points_test.cpp
@@ -10,6 +11,7 @@ target_link_libraries(pnga_deflate_index_tests PRIVATE
   pnga::deflate_index
   pnga::png_format
   pnga::io
+  pnga_test_wp607c_corpus
   ZLIB::ZLIB
   Catch2::Catch2WithMain
 )

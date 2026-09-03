@@ -5,6 +5,8 @@
 
 #include "differential_harness.h"
 
+#include "controlled_fixture.h"
+
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstdint>
@@ -48,6 +50,35 @@ TEST_CASE("Differential corpus: Trace matches libpng across the legal matrix",
     }
   }
   REQUIRE(count > 100);
+}
+
+// ---------------------------------------------------------------------------
+// WP-607C: the five controlled pixel cases run through the same Trace vs
+// libpng comparison. These are permanent regression assertions over exactly
+// reproducible bytes; the broad generated matrix above stays untouched.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Differential corpus: the five WP-607C pixel cases match libpng",
+          "[wp305][wp607c][oracle]") {
+  using pnga_test::wp607c::ControlledCaseId;
+  const ControlledCaseId pixel_cases[] = {
+      ControlledCaseId::kUiGray1None,
+      ControlledCaseId::kUiIndexed4Trns,
+      ControlledCaseId::kUiRgb8FiveFilters,
+      ControlledCaseId::kUiRgba16ByteSelect,
+      ControlledCaseId::kUiAdam7EmptyPasses,
+  };
+  for (const auto id : pixel_cases) {
+    const auto fixture = pnga_test::wp607c::make_controlled_fixture(id);
+    CAPTURE(fixture.stable_id);
+    const DifferentialResult r = compare_png(fixture.png_bytes);
+    INFO("error: " << r.error);
+    REQUIRE(r.ok);
+    REQUIRE(r.dimensions_match);
+    REQUIRE(r.target_matches);
+    REQUIRE(r.native_matches);
+    REQUIRE_FALSE(r.first.found);
+  }
 }
 
 // ---------------------------------------------------------------------------

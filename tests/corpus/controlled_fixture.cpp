@@ -1545,6 +1545,26 @@ ControlledFixture make_perf_large_rgba8() {
   facts.interlace = 0;
   facts.row_filters.assign(height, 0);
   fixture.expected.image = std::move(facts);
+  // Exact Stored-block tiling facts: every block is 8 bits of header byte
+  // (3 used) + 32 bits of LEN/NLEN + its payload, byte-aligned, so the
+  // deflate-domain ranges tile without gaps.
+  std::uint64_t bit_cursor = 0;
+  std::uint64_t out_cursor = 0;
+  std::size_t offset = 0;
+  while (offset < filtered.size()) {
+    const std::size_t chunk =
+        std::min(filtered.size() - offset, kMaxStoredBlockBytes);
+    BlockFact block;
+    block.kind = BlockKind::kStored;
+    block.bfinal = offset + chunk == filtered.size();
+    block.input_bits = ByteRangeFact{bit_cursor, bit_cursor + 40ull +
+                                                        8ull * chunk};
+    block.output_bytes = ByteRangeFact{out_cursor, out_cursor + chunk};
+    fixture.expected.blocks.push_back(std::move(block));
+    bit_cursor += 40ull + 8ull * chunk;
+    out_cursor += chunk;
+    offset += chunk;
+  }
   return fixture;
 }
 

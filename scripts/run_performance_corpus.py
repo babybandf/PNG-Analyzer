@@ -6,6 +6,7 @@ import json
 import os
 import platform
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -14,6 +15,7 @@ TARGET = "pnga_performance_runner"
 GUI_TEST = "gui_trace_inspector_performance_tests"
 GUI_TARGET = "pnga_gui_trace_inspector_performance_tests"
 DEFAULT_THRESHOLDS = Path("tests/performance/thresholds-v1.json")
+MANIFEST_VERIFIER = Path("scripts/verify_wp607c_manifest.py")
 
 
 def run(command, environment, capture=False):
@@ -43,6 +45,37 @@ def has_ctest_entry(preset, name, environment):
         capture=True,
     )
     return f"{name}" in result.stdout
+
+
+def wp607c_corpus_revision(environment):
+    """Aggregate corpus revision from the WP-607C manifest validator."""
+    result = run(
+        [sys.executable, str(ROOT / MANIFEST_VERIFIER), "--print-revision"],
+        environment,
+        capture=True,
+    )
+    revision = result.stdout.strip()
+    if len(revision) != 64 or any(
+            character not in "0123456789abcdef" for character in revision):
+        raise SystemExit(f"invalid WP-607C corpus revision: {revision!r}")
+    return revision
+
+
+def check_corpus_revision(measurement, expected_revision):
+    """WP-607C: the runner must report the exact manifest corpus revision."""
+    if measurement.get("corpus") != "wp607c-static-v1":
+        raise SystemExit(
+            "performance runner corpus "
+            f"{measurement.get('corpus')!r} != 'wp607c-static-v1'")
+    if measurement.get("large_case") != "perf-large-rgba8":
+        raise SystemExit(
+            "performance runner large_case "
+            f"{measurement.get('large_case')!r} != 'perf-large-rgba8'")
+    runner_revision = measurement.get("corpus_revision")
+    if runner_revision != expected_revision:
+        raise SystemExit(
+            "performance runner corpus revision "
+            f"{runner_revision!r} != manifest revision {expected_revision!r}")
 
 
 def check_thresholds(measurement, threshold_path):
@@ -127,6 +160,9 @@ def main():
     except json.JSONDecodeError as error:
         raise SystemExit(f"performance runner emitted invalid JSON: {error}") from error
 
+    expected_revision = wp607c_corpus_revision(environment)
+    check_corpus_revision(measurement, expected_revision)
+
     ui_status = "not-configured"
     if has_ctest_entry(args.preset, GUI_TEST, environment):
         run(
@@ -157,6 +193,7 @@ def main():
             "python": platform.python_version(),
         },
         "runner": measurement,
+        "corpus_revision": measurement.get("corpus_revision"),
         "ui": {"scenario": GUI_TEST, "status": ui_status},
     }
     output = args.output if args.output.is_absolute() else ROOT / args.output

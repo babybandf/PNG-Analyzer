@@ -717,6 +717,399 @@
     - rgba8
     - stored_blocks
   expected_facts:
+    blocks:
+      - bfinal: false
+        input_bits:
+          - 0
+          - 524320
+        kind: stored
+        output_bytes:
+          - 0
+          - 65535
+      - bfinal: false
+        input_bits:
+          - 524320
+          - 1048640
+        kind: stored
+        output_bytes:
+          - 65535
+          - 131070
+      - bfinal: false
+        input_bits:
+          - 1048640
+          - 1572960
+        kind: stored
+        output_bytes:
+          - 131070
+          - 196605
+      - bfinal: false
+        input_bits:
+          - 1572960
+          - 2097280
+        kind: stored
+        output_bytes:
+          - 196605
+          - 262140
+      - bfinal: false
+        input_bits:
+          - 2097280
+          - 2621600
+        kind: stored
+        output_bytes:
+          - 262140
+          - 327675
+      - bfinal: false
+        input_bits:
+          - 2621600
+          - 3145920
+        kind: stored
+        output_bytes:
+          - 327675
+          - 393210
+      - bfinal: false
+        input_bits:
+          - 3145920
+          - 3670240
+        kind: stored
+        output_bytes:
+          - 393210
+          - 458745
+      - bfinal: false
+        input_bits:
+          - 3670240
+          - 4194560
+        kind: stored
+        output_bytes:
+          - 458745
+          - 524280
+      - bfinal: false
+        input_bits:
+          - 4194560
+          - 4718880
+        kind: stored
+        output_bytes:
+          - 524280
+          - 589815
+      - bfinal: false
+        input_bits:
+          - 4718880
+          - 5243200
+        kind: stored
+        output_bytes:
+          - 589815
+          - 655350
+      - bfinal: false
+        input_bits:
+          - 5243200
+          - 5767520
+        kind: stored
+        output_bytes:
+          - 655350
+          - 720885
+      - bfinal: false
+        input_bits:
+          - 5767520
+          - 6291840
+        kind: stored
+        output_bytes:
+          - 720885
+          - 786420
+      - bfinal: false
+        input_bits:
+          - 6291840
+          - 6816160
+        kind: stored
+        output_bytes:
+          - 786420
+          - 851955
+      - bfinal: false
+        input_bits:
+          - 6816160
+          - 7340480
+        kind: stored
+        output_bytes:
+          - 851955
+          - 917490
+      - bfinal: false
+        input_bits:
+          - 7340480
+          - 7864800
+        kind: stored
+        output_bytes:
+          - 917490
+          - 983025
+      - bfinal: false
+        input_bits:
+          - 7864800
+          - 8389120
+        kind: stored
+        output_bytes:
+          - 983025
+          - 1048560
+      - bfinal: false
+        input_bits:
+          - 8389120
+          - 8913440
+        kind: stored
+        output_bytes:
+          - 1048560
+          - 1114095
+      - bfinal: false
+        input_bits:
+          - 8913440
+          - 9437760
+        kind: stored
+        output_bytes:
+          - 1114095
+          - 1179630
+      - bfinal: false
+        input_bits:
+          - 9437760
+          - 9962080
+        kind: stored
+        output_bytes:
+          - 1179630
+          - 1245165
+      - bfinal: false
+        input_bits:
+          - 9962080
+          - 10486400
+        kind: stored
+        output_bytes:
+          - 1245165
+          - 1310700
+      - bfinal: false
+        input_bits:
+          - 10486400
+          - 11010720
+        kind: stored
+        output_bytes:
+          - 1310700
+          - 1376235
+      - bfinal: false
+        input_bits:
+          - 11010720
+          - 11535040
+        kind: stored
+        output_bytes:
+          - 1376235
+          - 1441770
+      - bfinal: false
+        input_bits:
+          - 11535040
+          - 12059360
+        kind: stored
+        output_bytes:
+          - 1441770
+          - 1507305
+      - bfinal: false
+        input_bits:
+          - 12059360
+          - 12583680
+        kind: stored
+        output_bytes:
+          - 1507305
+          - 1572840
+      - bfinal: false
+        input_bits:
+          - 12583680
+          - 13108000
+        kind: stored
+        output_bytes:
+          - 1572840
+          - 1638375
+      - bfinal: false
+        input_bits:
+          - 13108000
+          - 13632320
+        kind: stored
+        output_bytes:
+          - 1638375
+          - 1703910
+      - bfinal: false
+        input_bits:
+          - 13632320
+          - 14156640
+        kind: stored
+        output_bytes:
+          - 1703910
+          - 1769445
+      - bfinal: false
+        input_bits:
+          - 14156640
+          - 14680960
+        kind: stored
+        output_bytes:
+          - 1769445
+          - 1834980
+      - bfinal: false
+        input_bits:
+          - 14680960
+          - 15205280
+        kind: stored
+        output_bytes:
+          - 1834980
+          - 1900515
+      - bfinal: false
+        input_bits:
+          - 15205280
+          - 15729600
+        kind: stored
+        output_bytes:
+          - 1900515
+          - 1966050
+      - bfinal: false
+        input_bits:
+          - 15729600
+          - 16253920
+        kind: stored
+        output_bytes:
+          - 1966050
+          - 2031585
+      - bfinal: false
+        input_bits:
+          - 16253920
+          - 16778240
+        kind: stored
+        output_bytes:
+          - 2031585
+          - 2097120
+      - bfinal: false
+        input_bits:
+          - 16778240
+          - 17302560
+        kind: stored
+        output_bytes:
+          - 2097120
+          - 2162655
+      - bfinal: false
+        input_bits:
+          - 17302560
+          - 17826880
+        kind: stored
+        output_bytes:
+          - 2162655
+          - 2228190
+      - bfinal: false
+        input_bits:
+          - 17826880
+          - 18351200
+        kind: stored
+        output_bytes:
+          - 2228190
+          - 2293725
+      - bfinal: false
+        input_bits:
+          - 18351200
+          - 18875520
+        kind: stored
+        output_bytes:
+          - 2293725
+          - 2359260
+      - bfinal: false
+        input_bits:
+          - 18875520
+          - 19399840
+        kind: stored
+        output_bytes:
+          - 2359260
+          - 2424795
+      - bfinal: false
+        input_bits:
+          - 19399840
+          - 19924160
+        kind: stored
+        output_bytes:
+          - 2424795
+          - 2490330
+      - bfinal: false
+        input_bits:
+          - 19924160
+          - 20448480
+        kind: stored
+        output_bytes:
+          - 2490330
+          - 2555865
+      - bfinal: false
+        input_bits:
+          - 20448480
+          - 20972800
+        kind: stored
+        output_bytes:
+          - 2555865
+          - 2621400
+      - bfinal: false
+        input_bits:
+          - 20972800
+          - 21497120
+        kind: stored
+        output_bytes:
+          - 2621400
+          - 2686935
+      - bfinal: false
+        input_bits:
+          - 21497120
+          - 22021440
+        kind: stored
+        output_bytes:
+          - 2686935
+          - 2752470
+      - bfinal: false
+        input_bits:
+          - 22021440
+          - 22545760
+        kind: stored
+        output_bytes:
+          - 2752470
+          - 2818005
+      - bfinal: false
+        input_bits:
+          - 22545760
+          - 23070080
+        kind: stored
+        output_bytes:
+          - 2818005
+          - 2883540
+      - bfinal: false
+        input_bits:
+          - 23070080
+          - 23594400
+        kind: stored
+        output_bytes:
+          - 2883540
+          - 2949075
+      - bfinal: false
+        input_bits:
+          - 23594400
+          - 24118720
+        kind: stored
+        output_bytes:
+          - 2949075
+          - 3014610
+      - bfinal: false
+        input_bits:
+          - 24118720
+          - 24643040
+        kind: stored
+        output_bytes:
+          - 3014610
+          - 3080145
+      - bfinal: false
+        input_bits:
+          - 24643040
+          - 25167360
+        kind: stored
+        output_bytes:
+          - 3080145
+          - 3145680
+      - bfinal: true
+        input_bits:
+          - 25167360
+          - 25173928
+        kind: stored
+        output_bytes:
+          - 3145680
+          - 3146496
     image:
       bit_depth: 8
       color_type: 6

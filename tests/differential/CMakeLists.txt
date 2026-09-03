@@ -12,6 +12,7 @@ target_link_libraries(pnga_differential_tests PRIVATE
   pnga::png_format
   pnga::png_reconstruction
   pnga::io
+  pnga_test_wp607c_corpus
   PNG::PNG
   ZLIB::ZLIB
   Catch2::Catch2WithMain
