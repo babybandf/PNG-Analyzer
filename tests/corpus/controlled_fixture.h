@@ -91,6 +91,9 @@ struct ExpectedFacts {
   std::vector<BlockFact> blocks;
   std::vector<TokenFact> tokens;
   std::vector<ByteRangeFact> physical_spans;
+  // Encoded code-length repeat symbols (16/17/18) of a Dynamic block header,
+  // in stream order; verified by a test-side reader, not a production API.
+  std::vector<std::uint8_t> expected_code_length_repeats;
   std::optional<std::string> error;
   std::optional<std::uint64_t> stop_input_bit;
   std::optional<std::uint64_t> stop_output_byte;

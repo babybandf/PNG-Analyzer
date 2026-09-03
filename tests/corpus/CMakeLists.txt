@@ -16,3 +16,12 @@ target_link_libraries(pnga_wp607c_png_facts_tests PRIVATE
 add_test(NAME wp607c_png_facts_tests COMMAND pnga_wp607c_png_facts_tests)
 set_tests_properties(wp607c_png_facts_tests PROPERTIES
   LABELS "corpus;wp607c")
+
+add_executable(pnga_wp607c_trace_facts_tests trace_facts_test.cpp)
+target_link_libraries(pnga_wp607c_trace_facts_tests PRIVATE
+  pnga_test_wp607c_corpus
+  pnga::deflate_index pnga::deflate_trace pnga::png_format pnga::io
+  ZLIB::ZLIB Catch2::Catch2WithMain)
+add_test(NAME wp607c_trace_facts_tests COMMAND pnga_wp607c_trace_facts_tests)
+set_tests_properties(wp607c_trace_facts_tests PROPERTIES
+  LABELS "corpus;wp607c")
