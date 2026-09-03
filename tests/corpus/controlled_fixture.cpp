@@ -1145,6 +1145,378 @@ ControlledFixture make_trace_multiblock_bfinal() {
   return fixture;
 }
 
+// --- test-side chunk scanning over fixture bytes (checked) -------------------
+
+struct ScannedChunk {
+  std::string type;
+  std::uint64_t data_offset = 0;
+  std::uint64_t data_length = 0;
+  std::uint64_t crc_offset = 0;
+};
+
+std::vector<ScannedChunk> scan_png_chunks(const std::vector<std::byte>& png) {
+  constexpr std::uint64_t kSignatureSize = 8;
+  if (png.size() < kSignatureSize) {
+    throw std::invalid_argument("WP-607C fixture signature is truncated");
+  }
+  std::vector<ScannedChunk> chunks;
+  std::uint64_t pos = kSignatureSize;
+  while (pos + 8 <= png.size()) {
+    ScannedChunk chunk;
+    std::uint64_t length = 0;
+    for (unsigned i = 0; i < 4; ++i) {
+      length = (length << 8) | U(png[static_cast<std::size_t>(pos + i)]);
+    }
+    chunk.data_offset = pos + 8;
+    if (length > png.size() - chunk.data_offset) {
+      throw std::invalid_argument("WP-607C fixture chunk data is truncated");
+    }
+    chunk.data_length = length;
+    chunk.crc_offset = chunk.data_offset + length;
+    if (chunk.crc_offset + 4 > png.size()) {
+      throw std::invalid_argument("WP-607C fixture chunk CRC is truncated");
+    }
+    for (unsigned i = 0; i < 4; ++i) {
+      chunk.type.push_back(
+          static_cast<char>(U(png[static_cast<std::size_t>(pos + 4 + i)])));
+    }
+    chunks.push_back(std::move(chunk));
+    pos = chunk.crc_offset + 4;
+  }
+  if (pos != png.size()) {
+    throw std::invalid_argument("WP-607C fixture chunk framing is invalid");
+  }
+  return chunks;
+}
+
+const ScannedChunk& find_single_idat(const std::vector<ScannedChunk>& chunks) {
+  const ScannedChunk* idat = nullptr;
+  for (const auto& chunk : chunks) {
+    if (chunk.type == "IDAT") {
+      if (idat != nullptr) {
+        throw std::invalid_argument(
+            "WP-607C mutation expects a single IDAT chunk");
+      }
+      idat = &chunk;
+    }
+  }
+  if (idat == nullptr) {
+    throw std::invalid_argument("WP-607C fixture has no IDAT chunk");
+  }
+  return *idat;
+}
+
+std::vector<std::byte> single_idat_payload(const std::vector<std::byte>& png) {
+  const auto chunks = scan_png_chunks(png);
+  const ScannedChunk& idat = find_single_idat(chunks);
+  return std::vector<std::byte>(
+      png.begin() + static_cast<std::ptrdiff_t>(idat.data_offset),
+      png.begin() + static_cast<std::ptrdiff_t>(idat.data_offset +
+                                                idat.data_length));
+}
+
+// Rebuilds the fixture PNG with `payload` as its single IDAT payload; every
+// chunk CRC is recomputed by push_chunk.
+std::vector<std::byte> rebuild_png_with_idat(
+    const std::vector<std::byte>& png, const std::vector<std::byte>& payload) {
+  const auto chunks = scan_png_chunks(png);
+  std::vector<std::byte> out(png.begin(), png.begin() + 8);
+  bool replaced = false;
+  for (const auto& chunk : chunks) {
+    if (chunk.type == "IDAT") {
+      push_chunk(out, "IDAT", payload);
+      replaced = true;
+      continue;
+    }
+    push_chunk(out, chunk.type,
+               std::span<const std::byte>(
+                   png.data() + chunk.data_offset,
+                   static_cast<std::size_t>(chunk.data_length)));
+  }
+  if (!replaced) {
+    throw std::invalid_argument("WP-607C fixture has no IDAT chunk");
+  }
+  return out;
+}
+
+// Test-side logical-to-physical mapping over fixture bytes (mirrors the
+// production VirtualIDATStream contract for the ranges the corpus freezes).
+std::vector<ByteRangeFact> map_logical_to_physical(
+    const std::vector<std::byte>& png, std::uint64_t logical_offset,
+    std::uint64_t length) {
+  std::size_t range_end = 0;
+  if (!checked_append_size(static_cast<std::size_t>(logical_offset),
+                           static_cast<std::size_t>(length), range_end)) {
+    throw std::invalid_argument("WP-607C logical range overflows");
+  }
+  const auto chunks = scan_png_chunks(png);
+  std::vector<ByteRangeFact> spans;
+  std::size_t logical = 0;
+  for (const auto& chunk : chunks) {
+    if (chunk.type != "IDAT") {
+      continue;
+    }
+    std::size_t logical_end = 0;
+    if (!checked_append_size(logical,
+                             static_cast<std::size_t>(chunk.data_length),
+                             logical_end)) {
+      throw std::invalid_argument("WP-607C logical stream size overflows");
+    }
+    const std::uint64_t overlap_begin = std::max<std::uint64_t>(
+        logical, logical_offset);
+    const std::uint64_t overlap_end =
+        std::min<std::uint64_t>(logical_end, range_end);
+    if (overlap_begin < overlap_end) {
+      spans.push_back(ByteRangeFact{
+          chunk.data_offset + (overlap_begin - logical),
+          chunk.data_offset + (overlap_end - logical)});
+    }
+    logical = logical_end;
+  }
+  return spans;
+}
+
+// --- split and mutation builders ---------------------------------------------
+
+ControlledFixture split_idat(ControlledFixture base,
+                             std::span<const std::uint64_t> logical_splits) {
+  const std::vector<std::byte> payload = single_idat_payload(base.png_bytes);
+  std::vector<std::uint64_t> splits(logical_splits.begin(),
+                                    logical_splits.end());
+  std::sort(splits.begin(), splits.end());
+  splits.erase(std::unique(splits.begin(), splits.end()), splits.end());
+  if (splits.empty() || splits.front() == 0 ||
+      splits.back() >= payload.size()) {
+    throw std::invalid_argument("WP-607C IDAT split is out of bounds");
+  }
+  std::vector<std::uint64_t> bounds = splits;
+  bounds.push_back(payload.size());
+
+  const auto chunks = scan_png_chunks(base.png_bytes);
+  find_single_idat(chunks);  // the splitter requires a single IDAT
+  std::vector<std::byte> out(base.png_bytes.begin(), base.png_bytes.begin() + 8);
+  bool emitted = false;
+  for (const auto& chunk : chunks) {
+    if (chunk.type != "IDAT") {
+      push_chunk(out, chunk.type,
+                 std::span<const std::byte>(
+                     base.png_bytes.data() + chunk.data_offset,
+                     static_cast<std::size_t>(chunk.data_length)));
+      continue;
+    }
+    // Replace the original payload with the ordered split pieces; every piece
+    // CRC is recomputed by push_chunk.
+    std::uint64_t piece_begin = 0;
+    for (const std::uint64_t bound : bounds) {
+      push_chunk(out, "IDAT",
+                 std::span<const std::byte>(
+                     payload.data() + piece_begin,
+                     static_cast<std::size_t>(bound - piece_begin)));
+      piece_begin = bound;
+    }
+    emitted = true;
+  }
+  if (!emitted) {
+    throw std::invalid_argument("WP-607C fixture has no IDAT chunk");
+  }
+  base.png_bytes = std::move(out);
+  return base;
+}
+
+ControlledFixture truncate_deflate_header(ControlledFixture base,
+                                          std::uint64_t keep_bits) {
+  const std::vector<std::byte> payload = single_idat_payload(base.png_bytes);
+  if (keep_bits == 0 || keep_bits > 56) {
+    throw std::invalid_argument("WP-607C truncation is out of bounds");
+  }
+  // IDAT payloads are byte-granular, so a partially kept byte is dropped: the
+  // cut is exact at the bit level and the stream physically ends before any
+  // partially kept byte's bits.
+  const std::uint64_t keep_bytes = keep_bits / 8;
+  if (payload.size() < 2 + keep_bytes + 4) {
+    throw std::invalid_argument("WP-607C payload is too short to truncate");
+  }
+  std::vector<std::byte> cut(payload.begin(),
+                             payload.begin() + static_cast<std::ptrdiff_t>(
+                                                   2 + keep_bytes));
+  // The untouched trailer keeps the original Adler-32 bytes so the named
+  // fault stays the truncated block header alone.
+  cut.insert(cut.end(), payload.end() - 4, payload.end());
+  base.png_bytes = rebuild_png_with_idat(base.png_bytes, cut);
+  return base;
+}
+
+ControlledFixture truncate_huffman_token(ControlledFixture base,
+                                         std::uint64_t keep_bits) {
+  return truncate_deflate_header(std::move(base), keep_bits);
+}
+
+ControlledFixture make_reserved_btype() {
+  ControlledFixture base = make_trace_stored_literals();
+  std::vector<std::byte> payload = single_idat_payload(base.png_bytes);
+  payload[2] = B(0x06);  // BFINAL=0, BTYPE=11 (the rest is padding)
+  base.png_bytes = rebuild_png_with_idat(base.png_bytes, payload);
+  return base;
+}
+
+ControlledFixture make_invalid_distance() {
+  // Literal A (one output byte) followed by length 3 at distance 2: the match
+  // reaches two bytes back where only one byte exists.
+  BitWriter writer;
+  write_zlib_header(writer);
+  writer.write_lsb(1, 1);  // BFINAL
+  writer.write_lsb(1, 2);  // BTYPE = 01 (fixed)
+  ByteRangeFact unused_range{};
+  write_fixed_literal(writer, 0x41, unused_range);
+  const LengthEncoding length_code = encode_length(3);
+  const HuffmanCode length_symbol =
+      fixed_literal_length_code(length_code.symbol);
+  writer.write_canonical(length_symbol.canonical, length_symbol.length);
+  const LengthEncoding distance_code = encode_distance(2);
+  const HuffmanCode distance_symbol =
+      fixed_distance_code(static_cast<std::uint8_t>(distance_code.symbol));
+  writer.write_canonical(distance_symbol.canonical, distance_symbol.length);
+  write_fixed_end_of_block(writer, unused_range);
+  writer.align_to_byte();
+  const std::vector<std::byte> raw = {B(0x41)};
+  std::vector<std::byte> stream(writer.bytes().begin(), writer.bytes().end());
+  append_u32_be(stream, raw_adler32(raw));
+
+  std::vector<std::byte> png;
+  begin_png(png, 1, 1, 8, 0, 0);
+  ControlledFixture fixture;
+  fixture.id = ControlledCaseId::kErrorInvalidDistance;
+  fixture.stable_id = "error-invalid-distance";
+  fixture.png_bytes = finish_png(std::move(png), std::move(stream));
+  return fixture;
+}
+
+ControlledFixture corrupt_idat_crc(ControlledFixture base) {
+  const auto chunks = scan_png_chunks(base.png_bytes);
+  const ScannedChunk& idat = find_single_idat(chunks);
+  base.png_bytes[static_cast<std::size_t>(idat.crc_offset)] =
+      base.png_bytes[static_cast<std::size_t>(idat.crc_offset)] ^
+      std::byte{0x01};
+  return base;
+}
+
+ControlledFixture corrupt_adler_and_repair_crc(ControlledFixture base) {
+  std::vector<std::byte> payload = single_idat_payload(base.png_bytes);
+  payload[payload.size() - 4] =
+      payload[payload.size() - 4] ^ std::byte{0x01};
+  base.png_bytes = rebuild_png_with_idat(base.png_bytes, payload);
+  return base;
+}
+
+// --- the nine split and malformed case builders -------------------------------
+
+ControlledFixture make_idat_split_zlib_header() {
+  const std::vector<std::uint64_t> kSplitAt = {1};
+  ControlledFixture fixture = split_idat(make_trace_stored_literals(), kSplitAt);
+  fixture.id = ControlledCaseId::kIdatSplitZlibHeader;
+  fixture.stable_id = "idat-split-zlib-header";
+  fixture.expected.physical_spans =
+      map_logical_to_physical(fixture.png_bytes, 0, 2);
+  return fixture;
+}
+
+ControlledFixture make_idat_split_token() {
+  // Token 0 ('A') covers logical bits [19,27) -> bytes [2,4); the split at
+  // byte 3 lands inside the token.
+  const std::vector<std::uint64_t> kSplitAt = {3};
+  ControlledFixture fixture = split_idat(make_trace_fixed_nonoverlap(), kSplitAt);
+  fixture.id = ControlledCaseId::kIdatSplitToken;
+  fixture.stable_id = "idat-split-token";
+  fixture.expected.physical_spans =
+      map_logical_to_physical(fixture.png_bytes, 2, 2);
+  return fixture;
+}
+
+ControlledFixture make_idat_split_adler() {
+  // The Adler trailer occupies the last four logical bytes [13,17); the split
+  // at byte 15 divides it into two spans of two bytes.
+  const std::vector<std::uint64_t> kSplitAt = {15};
+  ControlledFixture fixture = split_idat(make_trace_stored_literals(), kSplitAt);
+  fixture.id = ControlledCaseId::kIdatSplitAdler;
+  fixture.stable_id = "idat-split-adler";
+  fixture.expected.physical_spans =
+      map_logical_to_physical(fixture.png_bytes, 13, 4);
+  return fixture;
+}
+
+ControlledFixture make_error_truncated_header() {
+  ControlledFixture fixture =
+      truncate_deflate_header(make_trace_stored_literals(), 2);
+  fixture.id = ControlledCaseId::kErrorTruncatedHeader;
+  fixture.stable_id = "error-truncated-header";
+  ErrorFacts error;
+  error.decoder_message = "truncated block header";
+  error.stop_input_bit = 16;
+  error.stop_output_byte = 0;
+  fixture.expected.error = std::move(error);
+  return fixture;
+}
+
+ControlledFixture make_error_truncated_token() {
+  // The first Fixed literal code spans deflate bits [3,11); keeping ten
+  // deflate bits cuts the code before its final bit.
+  ControlledFixture fixture =
+      truncate_huffman_token(make_trace_fixed_nonoverlap(), 10);
+  fixture.id = ControlledCaseId::kErrorTruncatedToken;
+  fixture.stable_id = "error-truncated-token";
+  ErrorFacts error;
+  error.decoder_message = "truncated huffman code";
+  // The scan fails before verifying anything past the zlib header boundary
+  // (the untouched trailer bytes are consumed as deflate input first).
+  error.stop_input_bit = 16;
+  error.stop_output_byte = 0;
+  fixture.expected.error = std::move(error);
+  return fixture;
+}
+
+ControlledFixture make_error_reserved_btype() {
+  ControlledFixture fixture = make_reserved_btype();
+  fixture.id = ControlledCaseId::kErrorReservedBtype;
+  fixture.stable_id = "error-reserved-btype";
+  ErrorFacts error;
+  error.decoder_message = "reserved deflate block type";
+  error.stop_input_bit = 19;  // zlib header (16) + three header bits
+  error.stop_output_byte = 0;
+  fixture.expected.error = std::move(error);
+  return fixture;
+}
+
+ControlledFixture make_error_invalid_distance() {
+  ControlledFixture fixture = make_invalid_distance();
+  ErrorFacts error;
+  error.decoder_message = "distance beyond available output";
+  error.stop_input_bit = 16;  // last verified boundary: the zlib header
+  error.stop_output_byte = 0;
+  fixture.expected.error = std::move(error);
+  return fixture;
+}
+
+ControlledFixture make_error_crc_mismatch() {
+  ControlledFixture fixture = corrupt_idat_crc(make_trace_stored_literals());
+  fixture.id = ControlledCaseId::kErrorCrcMismatch;
+  fixture.stable_id = "error-crc-mismatch";
+  ErrorFacts error;
+  error.validation_rule_id = "chunk_crc_mismatch";
+  fixture.expected.error = std::move(error);
+  return fixture;
+}
+
+ControlledFixture make_error_adler_mismatch() {
+  ControlledFixture fixture =
+      corrupt_adler_and_repair_crc(make_trace_stored_literals());
+  fixture.id = ControlledCaseId::kErrorAdlerMismatch;
+  fixture.stable_id = "error-adler-mismatch";
+  ErrorFacts error;
+  error.validation_rule_id = "idat_adler_mismatch";
+  fixture.expected.error = std::move(error);
+  return fixture;
+}
+
 // --- registry ----------------------------------------------------------------
 
 struct CaseInfo {
@@ -1222,6 +1594,24 @@ ControlledFixture make_controlled_fixture(ControlledCaseId id) {
       return make_trace_dynamic_overlap_repeats();
     case ControlledCaseId::kTraceMultiblockBfinal:
       return make_trace_multiblock_bfinal();
+    case ControlledCaseId::kIdatSplitZlibHeader:
+      return make_idat_split_zlib_header();
+    case ControlledCaseId::kIdatSplitToken:
+      return make_idat_split_token();
+    case ControlledCaseId::kIdatSplitAdler:
+      return make_idat_split_adler();
+    case ControlledCaseId::kErrorTruncatedHeader:
+      return make_error_truncated_header();
+    case ControlledCaseId::kErrorTruncatedToken:
+      return make_error_truncated_token();
+    case ControlledCaseId::kErrorReservedBtype:
+      return make_error_reserved_btype();
+    case ControlledCaseId::kErrorInvalidDistance:
+      return make_error_invalid_distance();
+    case ControlledCaseId::kErrorCrcMismatch:
+      return make_error_crc_mismatch();
+    case ControlledCaseId::kErrorAdlerMismatch:
+      return make_error_adler_mismatch();
     default:
       throw std::invalid_argument("WP-607C case is not implemented");
   }

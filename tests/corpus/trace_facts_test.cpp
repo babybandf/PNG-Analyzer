@@ -9,10 +9,13 @@
 #include <pnga/deflate-index/block_index.h>
 #include <pnga/deflate-trace/token_decoder.h>
 #include <pnga/io/byte_source.h>
+#include <pnga/png-format/checksum.h>
 #include <pnga/png-format/chunk_index.h>
 #include <pnga/png-format/virtual_idat_stream.h>
 
 #include <catch2/catch_test_macros.hpp>
+
+#include <zlib.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -367,4 +370,266 @@ TEST_CASE("WP-607C multiblock case freezes three blocks and one BFINAL",
   require_tokens_match(multiblock, production);
   require_reconstructed_output(
       production, {B(0x00), B(0x41), B(0x42), B(0x00), B(0x41), B(0x41)});
+}
+
+// --- cross-IDAT and malformed cases (Task 4) --------------------------------
+
+namespace {
+
+struct TestChunkFrame {
+  std::string type;
+  std::uint64_t data_offset = 0;
+  std::uint64_t data_length = 0;
+};
+
+std::vector<TestChunkFrame> frame_chunks(const std::vector<std::byte>& png) {
+  REQUIRE(png.size() >= 8);
+  std::vector<TestChunkFrame> frames;
+  std::uint64_t pos = 8;
+  while (pos + 8 <= png.size()) {
+    TestChunkFrame frame;
+    std::uint64_t length = 0;
+    for (unsigned i = 0; i < 4; ++i) {
+      length = (length << 8) | std::to_integer<std::uint64_t>(
+                                     png[static_cast<std::size_t>(pos + i)]);
+    }
+    frame.data_offset = pos + 8;
+    frame.data_length = length;
+    for (unsigned i = 0; i < 4; ++i) {
+      frame.type.push_back(static_cast<char>(std::to_integer<unsigned char>(
+          png[static_cast<std::size_t>(pos + 4 + i)])));
+    }
+    frames.push_back(std::move(frame));
+    pos = frame.data_offset + frame.data_length + 4;
+  }
+  REQUIRE(pos == png.size());
+  return frames;
+}
+
+void require_fixture_crcs_valid_except(
+    const ControlledFixture& fixture,
+    const std::optional<std::string>& mismatched_type) {
+  const pnga::io::MemoryByteSource source(fixture.png_bytes);
+  const auto chunks = pnga::png_format::index_chunks(source);
+  REQUIRE(chunks.valid_signature);
+  int mismatches = 0;
+  for (const auto& node : chunks.chunks) {
+    const auto calculated =
+        pnga::png_format::calculate_chunk_crc(source, node);
+    const auto stored = pnga::png_format::read_chunk_crc(source, node);
+    REQUIRE(calculated.has_value());
+    REQUIRE(stored.has_value());
+    if (*calculated != *stored) {
+      ++mismatches;
+      REQUIRE(node.text() == mismatched_type);
+    }
+  }
+  REQUIRE(mismatches == (mismatched_type.has_value() ? 1 : 0));
+}
+
+std::vector<std::uint64_t> idat_payload_lengths(
+    const ControlledFixture& fixture) {
+  std::vector<std::uint64_t> lengths;
+  for (const auto& frame : frame_chunks(fixture.png_bytes)) {
+    if (frame.type == "IDAT") {
+      lengths.push_back(frame.data_length);
+    }
+  }
+  return lengths;
+}
+
+// Maps a logical range through the production VirtualIDATStream and requires
+// every returned range to equal the fixture's physical span facts.
+void require_physical_spans_match(const ControlledFixture& fixture,
+                                  std::uint64_t logical_offset,
+                                  std::uint64_t length) {
+  const pnga::io::MemoryByteSource source(fixture.png_bytes);
+  const auto chunks = pnga::png_format::index_chunks(source);
+  const pnga::png_format::VirtualIDATStream stream(chunks);
+  std::vector<pnga::png_format::PhysicalRange> spans;
+  REQUIRE(stream.logical_to_physical(logical_offset, length, spans));
+  REQUIRE(spans.size() == fixture.expected.physical_spans.size());
+  for (std::size_t i = 0; i < spans.size(); ++i) {
+    INFO("span " << i);
+    REQUIRE(spans[i].offset == fixture.expected.physical_spans[i].begin);
+    REQUIRE(spans[i].length ==
+            fixture.expected.physical_spans[i].end -
+                fixture.expected.physical_spans[i].begin);
+  }
+}
+
+}  // namespace
+
+TEST_CASE("WP-607C header split maps the zlib header onto two IDATs",
+          "[wp607c][corpus]") {
+  const auto header_split =
+      make_controlled_fixture(ControlledCaseId::kIdatSplitZlibHeader);
+  // Split between CMF and FLG: payload lengths {1, remaining}.
+  REQUIRE(idat_payload_lengths(header_split).size() == 2);
+  REQUIRE(idat_payload_lengths(header_split)[0] == 1);
+  // Complete PNG with valid per-chunk CRCs.
+  require_fixture_crcs_valid_except(header_split, std::nullopt);
+  // Two ordered file spans cover the logical zlib header.
+  require_physical_spans_match(header_split, 0, 2);
+
+  // The split stream still verifies end-to-end with the base block facts.
+  const Production production = decode_fixture(header_split);
+  const auto base = make_controlled_fixture(ControlledCaseId::kTraceStoredLiterals);
+  REQUIRE(production.blocks.blocks.size() == 1);
+  require_blocks_match(header_split, production);
+  REQUIRE(header_split.expected.blocks == base.expected.blocks);
+  require_tokens_match(header_split, production);
+}
+
+TEST_CASE("WP-607C token split keeps every ordered file span of the token",
+          "[wp607c][corpus]") {
+  const auto token_split =
+      make_controlled_fixture(ControlledCaseId::kIdatSplitToken);
+  REQUIRE(idat_payload_lengths(token_split).size() == 2);
+  require_fixture_crcs_valid_except(token_split, std::nullopt);
+
+  // Token 0 ('A') covers logical bits [19,27) -> bytes [2,4), so the split
+  // at byte 3 falls inside the token's compressed byte coverage.
+  const auto& token = token_split.expected.tokens.at(0);
+  const std::uint64_t coverage_begin = (token.input_bits.begin + kZlibHeaderBits) / 8;
+  const std::uint64_t coverage_end =
+      (token.input_bits.end + kZlibHeaderBits + 7) / 8;
+  REQUIRE(coverage_begin == 2);
+  REQUIRE(coverage_end == 4);
+  require_physical_spans_match(token_split, 2, 2);
+
+  const Production production = decode_fixture(token_split);
+  const auto base = make_controlled_fixture(ControlledCaseId::kTraceFixedNonoverlap);
+  require_blocks_match(token_split, production);
+  require_tokens_match(token_split, production);
+  REQUIRE(token_split.expected.tokens == base.expected.tokens);
+}
+
+TEST_CASE("WP-607C adler split maps the trailer 2+2 and still verifies",
+          "[wp607c][corpus]") {
+  const auto adler_split =
+      make_controlled_fixture(ControlledCaseId::kIdatSplitAdler);
+  const auto lengths = idat_payload_lengths(adler_split);
+  REQUIRE(lengths.size() == 2);
+  REQUIRE(lengths[1] == 2);  // split after the second Adler byte
+  require_fixture_crcs_valid_except(adler_split, std::nullopt);
+  require_physical_spans_match(adler_split, 13, 4);
+
+  const Production production = decode_fixture(adler_split);
+  REQUIRE(production.blocks.adler.status ==
+          pnga::deflate_index::Adler32Status::kMatch);
+  const auto base = make_controlled_fixture(ControlledCaseId::kTraceStoredLiterals);
+  require_blocks_match(adler_split, production);
+  REQUIRE(adler_split.expected.blocks == base.expected.blocks);
+}
+
+TEST_CASE("WP-607C malformed cases freeze the stable diagnostic registry",
+          "[wp607c][corpus]") {
+  const auto truncated_header =
+      make_controlled_fixture(ControlledCaseId::kErrorTruncatedHeader);
+  REQUIRE(truncated_header.expected.error->decoder_message ==
+          "truncated block header");
+  const auto truncated_token =
+      make_controlled_fixture(ControlledCaseId::kErrorTruncatedToken);
+  REQUIRE(truncated_token.expected.error->decoder_message ==
+          "truncated huffman code");
+  const auto reserved =
+      make_controlled_fixture(ControlledCaseId::kErrorReservedBtype);
+  REQUIRE(reserved.expected.error->decoder_message ==
+          "reserved deflate block type");
+  REQUIRE(reserved.expected.error->stop_input_bit == 19);
+  REQUIRE(reserved.expected.error->stop_output_byte == 0);
+  const auto invalid_distance =
+      make_controlled_fixture(ControlledCaseId::kErrorInvalidDistance);
+  REQUIRE(invalid_distance.expected.error->decoder_message ==
+          "distance beyond available output");
+  const auto crc =
+      make_controlled_fixture(ControlledCaseId::kErrorCrcMismatch);
+  REQUIRE(crc.expected.error->validation_rule_id == "chunk_crc_mismatch");
+  const auto adler =
+      make_controlled_fixture(ControlledCaseId::kErrorAdlerMismatch);
+  REQUIRE(adler.expected.error->validation_rule_id == "idat_adler_mismatch");
+}
+
+namespace {
+
+void require_decoder_error(const ControlledFixture& fixture) {
+  const auto& error = *fixture.expected.error;
+  REQUIRE(error.decoder_message.has_value());
+  const Production production = decode_fixture(fixture);
+  REQUIRE_FALSE(production.trace.success);
+  REQUIRE(production.trace.error == *error.decoder_message);
+  // The block index stops at the exact logical cursors frozen in the fixture.
+  REQUIRE(production.blocks.stop_input_bit == error.stop_input_bit);
+  REQUIRE(production.blocks.stop_output_byte == error.stop_output_byte);
+  require_fixture_crcs_valid_except(fixture, std::nullopt);
+}
+
+}  // namespace
+
+TEST_CASE("WP-607C truncated header stops before the block header completes",
+          "[wp607c][corpus]") {
+  const auto truncated_header =
+      make_controlled_fixture(ControlledCaseId::kErrorTruncatedHeader);
+  require_decoder_error(truncated_header);
+}
+
+TEST_CASE("WP-607C truncated token retains the verified prefix only",
+          "[wp607c][corpus]") {
+  const auto truncated_token =
+      make_controlled_fixture(ControlledCaseId::kErrorTruncatedToken);
+  require_decoder_error(truncated_token);
+}
+
+TEST_CASE("WP-607C reserved BTYPE stops after three header bits",
+          "[wp607c][corpus]") {
+  const auto reserved =
+      make_controlled_fixture(ControlledCaseId::kErrorReservedBtype);
+  require_decoder_error(reserved);
+  // Both production front ends agree on the reserved-type diagnostic.
+  const Production production = decode_fixture(reserved);
+  REQUIRE(production.blocks.error == "reserved deflate block type");
+}
+
+TEST_CASE("WP-607C invalid distance fails with one output byte produced",
+          "[wp607c][corpus]") {
+  const auto invalid_distance =
+      make_controlled_fixture(ControlledCaseId::kErrorInvalidDistance);
+  require_decoder_error(invalid_distance);
+  const Production production = decode_fixture(invalid_distance);
+  REQUIRE(production.trace.output.size() == 1);
+  REQUIRE(production.trace.output[0] == B(0x41));
+}
+
+TEST_CASE("WP-607C CRC mismatch isolates the chunk CRC fault",
+          "[wp607c][corpus]") {
+  const auto crc = make_controlled_fixture(ControlledCaseId::kErrorCrcMismatch);
+  // Only the IDAT CRC mismatches; the payload and every other chunk stay
+  // intact, so parsing and decoding remain fully valid.
+  require_fixture_crcs_valid_except(crc, "IDAT");
+  const Production production = decode_fixture(crc);
+  REQUIRE(production.blocks.success);
+  REQUIRE(production.blocks.adler.status ==
+          pnga::deflate_index::Adler32Status::kMatch);
+  const std::vector<std::byte> base_output = {B(0x00), B(0x41), B(0x42),
+                                              B(0x00), B(0x43), B(0x44)};
+  REQUIRE(production.trace.output == base_output);
+}
+
+TEST_CASE("WP-607C adler mismatch keeps verified blocks and a valid chunk CRC",
+          "[wp607c][corpus]") {
+  const auto adler =
+      make_controlled_fixture(ControlledCaseId::kErrorAdlerMismatch);
+  require_fixture_crcs_valid_except(adler, std::nullopt);
+  const Production production = decode_fixture(adler);
+  // The token decoder ignores the trailer and still reconstructs everything.
+  REQUIRE(production.trace.success);
+  REQUIRE(production.blocks.adler.status ==
+          pnga::deflate_index::Adler32Status::kMismatch);
+  REQUIRE(production.blocks.adler.expected.has_value());
+  REQUIRE(production.blocks.adler.actual.has_value());
+  REQUIRE(*production.blocks.adler.expected != *production.blocks.adler.actual);
+  const std::vector<std::byte> base_output = {B(0x00), B(0x41), B(0x42),
+                                              B(0x00), B(0x43), B(0x44)};
+  REQUIRE(production.trace.output == base_output);
 }

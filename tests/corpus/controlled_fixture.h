@@ -86,6 +86,18 @@ struct ImageFacts {
   friend bool operator==(const ImageFacts&, const ImageFacts&) = default;
 };
 
+// Frozen failure facts of a malformed case. `decoder_message` is the stable
+// text reported by the Trace decoder, `validation_rule_id` the stable rule of
+// the integrity validator and the stop positions the logical-stream bit /
+// inflated-byte cursors reported at the failure.
+struct ErrorFacts {
+  std::optional<std::string> decoder_message;
+  std::optional<std::string> validation_rule_id;
+  std::optional<std::uint64_t> stop_input_bit;
+  std::optional<std::uint64_t> stop_output_byte;
+  friend bool operator==(const ErrorFacts&, const ErrorFacts&) = default;
+};
+
 struct ExpectedFacts {
   std::optional<ImageFacts> image;
   std::vector<BlockFact> blocks;
@@ -94,9 +106,7 @@ struct ExpectedFacts {
   // Encoded code-length repeat symbols (16/17/18) of a Dynamic block header,
   // in stream order; verified by a test-side reader, not a production API.
   std::vector<std::uint8_t> expected_code_length_repeats;
-  std::optional<std::string> error;
-  std::optional<std::uint64_t> stop_input_bit;
-  std::optional<std::uint64_t> stop_output_byte;
+  std::optional<ErrorFacts> error;
   friend bool operator==(const ExpectedFacts&, const ExpectedFacts&) = default;
 };
 
