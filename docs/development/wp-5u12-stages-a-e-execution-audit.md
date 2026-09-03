@@ -71,3 +71,82 @@ ctest -N（dev）                              → Total Tests: 47
    这三项在 A–E 五轮阶段审查、全分支最终审查及 ledger 中均无缺陷记录（grep 证据：相关词条仅出现于实施者报告的特性描述与测试断言，非审查发现）。控制器抽查显示相关守卫存在（如 EOB 空 output_range 时 `inflatedTargetFor` 返回 `nullopt` 不发射、`match_source_ranges` 全程携带并序列化、overlap 用 checked 半开区间交集），但抽查不能推翻未见过的复现场景。
 
    **处置要求**：按 master 纪律，任何修复必须"先有失败回归，后修"。这三项在获得具体复现描述/触发序列并落成失败回归测试之前，保持 OPEN 状态登记于本节；随后进入 fix 循环（实现修复 + 回归证据），全部关闭前 WP-5U12 不得进入 F 的完成判定。
+
+### 三项 OPEN 发现的具体复现序列
+
+以下步骤均针对 `wp-5u12-compression-inspector` 的实现终点（`7b3fd4a`，文档勘误提交为 `d69d7b4`）。每项都应先转换为失败回归测试，再允许修改实现。
+
+#### 7.1 Blocks/Huffman drill-down 不切换到 Decode Trace
+
+已有 PNG/GUI 初始化可复用 `tests/gui/trace_pipeline_integration_test.cpp:509-559` 的 `openDecodeTracePublishesBoundedBundle()`：打开固定 1×1 PNG，等待 Compression context 为 ready，取得 `compressionBlocksTable` 并选择第 0 行。
+
+在点击 `Open Decode Trace` 前取得：
+
+```cpp
+auto* pages = window.findChild<QTabWidget*>(
+    QStringLiteral("compressionInspectorPages"));
+QVERIFY(pages != nullptr);
+pages->setCurrentIndex(0);
+```
+
+点击按钮并等待 bounded trace ready 后增加：
+
+```cpp
+QTRY_COMPARE_WITH_TIMEOUT(pages->currentIndex(), 2, 10000);
+```
+
+期望：Blocks=0、Huffman=1、Decode Trace=2，点击后切到 Decode Trace。当前触发路径为 `ui/qt/src/block_inspector.cpp:387-397` 发出 `decodeTraceRequested`，`apps/png-analyzer-gui/src/trace_controller.cpp:44-109` 只提交 trace，没有改变 `compressionInspectorPages`。
+
+Huffman occurrence 可复用 `tests/gui/trace_pipeline_integration_test.cpp:740-842`：该测试在第 764 行手动切到 Huffman=1、选择有 occurrence 的 symbol、点击 `huffmanOpenOccurrence`。点击后增加：
+
+```cpp
+QCOMPARE(compression->currentIndex(), 2);
+```
+
+当前实现会留在 Huffman=1；`HuffmanInspector::openOccurrence()`（`ui/qt/src/huffman_inspector.cpp:568-599`）只向 selection store 发出 typed target，selection controller 只处理 Hex 导航（`apps/png-analyzer-gui/src/selection_navigation_controller.cpp:179-231`）。
+
+#### 7.2 查询边界的最终 EOB 被过滤
+
+复用 `tests/unit/analysis-engine/trace_query_test.cpp:563-610` 的 `fixed_abc_two_idat_png()`。该 fixture 的 `inputs.trace.tokens` 有 4 项，最后一项为 EOB，且其 output range 为 `[3,3)`。
+
+对现有 compose 调用（第 581-583 行）保留查询范围 `[0, inputs.trace.output_bytes)`，将当前断言：
+
+```cpp
+REQUIRE(result.tokens.size() == 3);
+```
+
+替换/扩展为：
+
+```cpp
+REQUIRE(result.tokens.size() == 4);
+REQUIRE(result.tokens.back().kind ==
+        pnga::deflate_trace::TokenKind::kEndOfBlock);
+REQUIRE(result.tokens.back().output_begin == 3);
+REQUIRE(result.tokens.back().output_end == 3);
+```
+
+当前预期失败：`libs/analysis-engine/src/trace_query.cpp:93-97,336-340` 使用半开区间 overlap；零宽 EOB `[3,3)` 不与查询 `[0,3)` 相交，结果只有 3 个 Literal。规范示例要求最终 Match 后保留 EOB 行（`docs/development/wp-5u12-compression-inspector-flow-ui.md:643-645`）。
+
+#### 7.3 Match Current byte 缺少 source logical offset
+
+复用 `tests/unit/analysis-engine/decode_trace_inspector_test.cpp:139-181` 的 Match 构造方式，构造一个物理一致的正向范围：target `[100,118)`、distance `7`、Current output `104`、root source range `[82,100)`。
+
+最小模型断言为：
+
+```cpp
+trace.tokens.push_back(
+    match_token(0, 18, 7, 0, 100,
+                {TokenOutputRange{82, 100, 0}}));
+const auto view =
+    build_decode_trace_inspector(trace, std::nullopt, 104);
+REQUIRE(view.steps.front().selected_byte_offset_in_event ==
+        std::optional<std::uint64_t>{4});
+```
+
+随后在 `tests/gui/decode_trace_inspector_test.cpp` 选中该 Match 行，要求详情同时包含：
+
+```text
+Current byte … target offset +4 … source logical offset 97
+```
+
+其中 `97 = 104 - distance(7)`。当前模型只有 `selected_byte_offset_in_event`（`libs/analysis-engine/include/pnga/analysis-engine/decode_trace_inspector.h:63-70`），UI 只显示 `match offset +4`（`ui/qt/src/decode_trace_inspector.cpp:552-558`）。`match_source_ranges` 的 root token range（如 `[82,100) token 0`）不能替代当前字节按 DEFLATE overlap 逐字节复制得到的 source logical offset。
