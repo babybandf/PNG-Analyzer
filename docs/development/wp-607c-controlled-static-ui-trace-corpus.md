@@ -1,6 +1,9 @@
 # WP-607C — Controlled Static UI/Trace Corpus
 
-Status: **written package draft; pending review** (2026-09-03)
+Status: **approved; pending implementation** (2026-09-03)
+
+Implementation plan:
+`docs/superpowers/plans/2026-09-03-wp-607c-controlled-static-ui-trace-corpus.md`.
 
 ## 1. Goal
 

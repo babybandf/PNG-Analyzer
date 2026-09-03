@@ -1,6 +1,6 @@
 # WP-607 — Cross-platform Quality Evidence
 
-Status: **design approved; WP-607C written package pending review** (2026-09-03)
+Status: **design approved; WP-607C approved pending implementation** (2026-09-03)
 
 ## Goal
 
