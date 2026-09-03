@@ -267,6 +267,22 @@ QString sha256_of(const QString& path) {
           .toHex());
 }
 
+// QWidget::grab() crashes under the offscreen platform plugin; render() into
+// a device-pixel-ratio-aware image is the equivalent contract. Children are
+// drawn explicitly so the capture shows the full component tree.
+QImage render_widget(QWidget* widget) {
+  const qreal dpr = widget->devicePixelRatioF();
+  QImage image(static_cast<int>(widget->width() * dpr),
+               static_cast<int>(widget->height() * dpr),
+               QImage::Format_ARGB32_Premultiplied);
+  image.setDevicePixelRatio(dpr);
+  image.fill(Qt::white);
+  widget->render(&image, QPoint(), QRegion(),
+                 QWidget::DrawWindowBackground | QWidget::DrawChildren |
+                     QWidget::IgnoreMask);
+  return image;
+}
+
 // §20.8 comparison: identical geometry; a 2 px border envelope and per-channel
 // deltas of at most 2 (antialiasing) are ignored; anything else must stay
 // within a strict tiny fraction. Never loosened to obtain PASS.
@@ -485,6 +501,10 @@ void CompressionInspectorProductGateTest::captureMatrix() {
           : pnga::ui::qt::ApplicationTheme::ThemeMode::kLight,
       /*persist=*/false);
 
+  // Both capture targets live at function scope: the capture code runs after
+  // the state-setup branches end, so the rendered widgets must outlive them.
+  MainWindow window;
+  pnga::ui::qt::DecodeTraceInspector loading_decode;
   QWidget* capture_widget = nullptr;
 
   if (special == QStringLiteral("loading")) {
@@ -508,7 +528,7 @@ void CompressionInspectorProductGateTest::captureMatrix() {
     view.scope.status = TraceQueryStatus::kReplaying;
     view.scope.returned_token_count = 0;
 
-    pnga::ui::qt::DecodeTraceInspector decode;
+    pnga::ui::qt::DecodeTraceInspector& decode = loading_decode;
     decode.setView(view);
     decode.setFixedWidth(width);
     decode.resize(width, 420);
@@ -541,9 +561,8 @@ void CompressionInspectorProductGateTest::captureMatrix() {
     }
     QVERIFY(found_analyzing);
     record.insert(QStringLiteral("fixture"), QStringLiteral("typed-view"));
-    capture_widget = &decode;
+    capture_widget = &loading_decode;
   } else {
-    MainWindow window;
     window.resize(kWindowWidth, kWindowHeight);
     window.show();
     QCoreApplication::processEvents();
@@ -752,7 +771,7 @@ void CompressionInspectorProductGateTest::captureMatrix() {
     QVERIFY(QDir().mkpath(capture_dir));
     const QString path =
         QDir(capture_dir).filePath(name + QStringLiteral(".png"));
-    const QImage grabbed = capture_widget->grab().toImage();
+    const QImage grabbed = render_widget(capture_widget);
     QVERIFY(!grabbed.isNull());
     QVERIFY(grabbed.save(path, "PNG"));
     const QString capture_sha = sha256_of(path);
@@ -783,7 +802,7 @@ void CompressionInspectorProductGateTest::captureMatrix() {
       to_compare = QImage(
           QDir(capture_dir).filePath(name + QStringLiteral(".png")));
     } else {
-      to_compare = capture_widget->grab().toImage();
+      to_compare = render_widget(capture_widget);
     }
     QVERIFY(!to_compare.isNull());
     const QString difference = compare_images(to_compare, baseline);
