@@ -679,12 +679,14 @@ void write_fixed_end_of_block(BitWriter& writer, ByteRangeFact& input_bits) {
 
 // --- frozen Dynamic block header --------------------------------------------
 //
-// The header encodes literal/length code lengths {65:1, 256:2, 260:3, 261:3}
+// The header encodes literal/length code lengths {0:1, 256:2, 260:3, 261:3}
 // and distance code lengths {0:1, 1:1} through a complete code-length
-// alphabet {0:2, 1:3, 2:3, 3:3, 16:3, 17:3, 18:3}. The instruction sequence
-// contains exactly one repeat of each kind, in the order 16, 17, 18:
-//   [0 x59] 16(+3) 1 17(+7) 18(+127) [0 x42] 2 [0 x3] 3 3 1 1
-// which expands to lengths [0x65, 1, 0x190, 2, 0x3, 3, 3, 1, 1].
+// alphabet {0:2, 1:3, 2:3, 3:3, 16:3, 17:3, 18:3}. The first inflated byte of
+// every Dynamic case is a 0x00 literal so it doubles as a None filter byte
+// (WP-607C ruling R6). The instruction sequence still contains at least one
+// repeat of each kind 16, 17 and 18:
+//   1 17(+7) 16(+3) 18(+127) 18(+90) 2 17(+0) 3 3 1 1
+// which expands to lengths [1, 0 x255, 2, 0 x3, 3, 3] plus distances [1, 1].
 
 constexpr std::uint8_t kHeaderCodeLengthLengths[18] = {
     3, 3, 3, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 3, 0, 3};
@@ -716,10 +718,11 @@ DynamicCode header_code_length_code(std::uint8_t symbol) {
   }
 }
 
-// Literal/length and distance codes of the frozen dynamic tables.
+// Literal/length and distance codes of the frozen dynamic tables (R6: the
+// one-bit literal is symbol 0x00 so the first inflated byte is a None filter).
 DynamicCode dynamic_literal_length_code(std::uint16_t symbol) {
   switch (symbol) {
-    case 0x41:
+    case 0x00:
       return {0b0, 1};
     case 256:
       return {0b10, 2};
@@ -747,9 +750,9 @@ DynamicCode dynamic_distance_code(std::uint8_t symbol) {
 
 void write_dynamic_header(BitWriter& writer, bool bfinal,
                           const std::vector<std::uint8_t>& repeats) {
-  if (repeats != std::vector<std::uint8_t>{16, 17, 18}) {
+  if (repeats != std::vector<std::uint8_t>{17, 16, 18, 18, 17}) {
     throw std::invalid_argument(
-        "WP-607C frozen dynamic header only encodes repeats 16, 17, 18");
+        "WP-607C frozen dynamic header repeats must be 17, 16, 18, 18, 17");
   }
   writer.write_lsb(bfinal ? 1u : 0u, 1);
   writer.write_lsb(2, 2);  // BTYPE = 10 (dynamic)
@@ -764,48 +767,26 @@ void write_dynamic_header(BitWriter& writer, bool bfinal,
     std::uint8_t extra_bits;
     std::uint32_t extra_value;
   };
-  const auto instruction_run = [&](std::uint8_t symbol, unsigned count) {
-    for (unsigned i = 0; i < count; ++i) {
-      const DynamicCode code = header_code_length_code(symbol);
-      writer.write_canonical(code.canonical, code.length);
+  const auto emit = [&](std::uint8_t symbol, unsigned extra_bits,
+                        std::uint32_t extra_value) {
+    const DynamicCode code = header_code_length_code(symbol);
+    writer.write_canonical(code.canonical, code.length);
+    if (extra_bits != 0) {
+      writer.write_lsb(extra_value, extra_bits);
     }
   };
-  instruction_run(0, 59);                  // 59 zeros (symbols 0..58)
-  {
-    const DynamicCode code = header_code_length_code(16);
-    writer.write_canonical(code.canonical, code.length);
-    writer.write_lsb(3, 2);                // repeat the zero 6 more times
-  }
-  {
-    const DynamicCode code = header_code_length_code(1);
-    writer.write_canonical(code.canonical, code.length);  // 65 -> length 1
-  }
-  {
-    const DynamicCode code = header_code_length_code(17);
-    writer.write_canonical(code.canonical, code.length);
-    writer.write_lsb(7, 3);                // 10 zeros (66..75)
-  }
-  {
-    const DynamicCode code = header_code_length_code(18);
-    writer.write_canonical(code.canonical, code.length);
-    writer.write_lsb(127, 7);              // 138 zeros (76..213)
-  }
-  instruction_run(0, 42);                  // 42 zeros (214..255)
-  {
-    const DynamicCode code = header_code_length_code(2);
-    writer.write_canonical(code.canonical, code.length);  // 256 -> length 2
-  }
-  instruction_run(0, 3);                   // zeros (257..259)
-  {
-    const DynamicCode code = header_code_length_code(3);
-    writer.write_canonical(code.canonical, code.length);  // 260 -> length 3
-    writer.write_canonical(code.canonical, code.length);  // 261 -> length 3
-  }
-  {
-    const DynamicCode code = header_code_length_code(1);
-    writer.write_canonical(code.canonical, code.length);  // distance 0
-    writer.write_canonical(code.canonical, code.length);  // distance 1
-  }
+  // Symbol 0 -> length 1 (the 0x00 literal / None filter byte).
+  emit(1, 0, 0);
+  emit(17, 3, 7);   // 10 zeros (symbols 1..10)
+  emit(16, 2, 3);   // repeat the zero 6 more times (symbols 11..16)
+  emit(18, 7, 127);  // 138 zeros (symbols 17..154)
+  emit(18, 7, 90);   // 101 zeros (symbols 155..255)
+  emit(2, 0, 0);     // 256 -> length 2 (end of block)
+  emit(17, 3, 0);    // 3 zeros (symbols 257..259)
+  emit(3, 0, 0);     // 260 -> length 3 (length-6 match symbol)
+  emit(3, 0, 0);     // 261 -> length 3
+  emit(1, 0, 0);     // distance code 0 -> length 1
+  emit(1, 0, 0);     // distance code 1 -> length 1
 }
 
 void write_dynamic_literal(BitWriter& writer, std::uint8_t value,
@@ -844,8 +825,8 @@ void write_dynamic_end_of_block(BitWriter& writer, ByteRangeFact& input_bits) {
 // --- shared completion of a bit-written trace case ---------------------------
 
 // Trace-case IHDR geometry (gray8): stored/fixed/multiblock wrap six raw
-// bytes as two 2x2 scanlines; the dynamic case freezes the plan's 8x0x41
-// raw output, declared as one 3x2 stream of matching length.
+// bytes as two 2x2 scanlines; the dynamic case freezes the plan's 8 raw bytes
+// (8x0x00 per ruling R6), declared as one 3x2 stream of matching length.
 struct TraceIhdr {
   std::uint32_t width;
   std::uint32_t height;
@@ -1011,24 +992,25 @@ ControlledFixture make_trace_fixed_nonoverlap() {
 }
 
 ControlledFixture make_trace_dynamic_overlap_repeats() {
-  // Literal A, literal A, then a length-6 distance-1 overlapping match, so
-  // the match is expected token index 2 and the output is eight 0x41 bytes.
+  // Literal 0x00, literal 0x00, then a length-6 distance-1 overlapping match,
+  // so the match is expected token index 2 and the output is eight 0x00
+  // bytes (R6: the first inflated byte is a valid None filter byte).
   const std::uint16_t kLength = 6;
   const std::uint16_t kDistance = 1;
   BitWriter writer;
   write_zlib_header(writer);
   ByteRangeFact block_bits{};
   block_bits.begin = writer.bit_position() - kZlibHeaderBits;
-  write_dynamic_header(writer, true, {16, 17, 18});
+  write_dynamic_header(writer, true, {17, 16, 18, 18, 17});
   std::vector<TokenFact> tokens;
   ByteRangeFact first_input{};
-  write_dynamic_literal(writer, 0x41, first_input);
+  write_dynamic_literal(writer, 0x00, first_input);
   tokens.push_back(make_literal_fact(TokenKind::kLiteral, first_input, 0, 1,
-                                     0x41));
+                                     0x00));
   ByteRangeFact second_input{};
-  write_dynamic_literal(writer, 0x41, second_input);
+  write_dynamic_literal(writer, 0x00, second_input);
   tokens.push_back(make_literal_fact(TokenKind::kLiteral, second_input, 1, 2,
-                                     0x41));
+                                     0x00));
   ByteRangeFact match_input{};
   write_dynamic_match(writer, kLength, kDistance, match_input);
   tokens.push_back(make_match_fact(match_input, 2, 2 + kLength, kLength,
@@ -1041,7 +1023,7 @@ ControlledFixture make_trace_dynamic_overlap_repeats() {
 
   ControlledFixture fixture = finish_png_case(
       ControlledCaseId::kTraceDynamicOverlapRepeats, writer,
-      std::vector<std::byte>(8, B(0x41)));
+      std::vector<std::byte>(8, B(0x00)));
   fixture.stable_id = "trace-dynamic-overlap-repeats";
   BlockFact block;
   block.kind = BlockKind::kDynamic;
@@ -1050,13 +1032,13 @@ ControlledFixture make_trace_dynamic_overlap_repeats() {
   block.output_bytes = ByteRangeFact{0, 2 + kLength};
   fixture.expected.blocks.push_back(std::move(block));
   fixture.expected.tokens = std::move(tokens);
-  fixture.expected.expected_code_length_repeats = {16, 17, 18};
+  fixture.expected.expected_code_length_repeats = {17, 16, 18, 18, 17};
   return fixture;
 }
 
 ControlledFixture make_trace_multiblock_bfinal() {
   // Exact block order Stored, Fixed, Dynamic with BFINAL false, false, true.
-  // The raw stream is a valid 2x2 gray8 filtered frame: [00 41 42][00 41 41].
+  // The raw stream is a valid 2x2 gray8 filtered frame: [00 41 42][00 00 00].
   BitWriter writer;
   write_zlib_header(writer);
   std::vector<BlockFact> blocks;
@@ -1111,16 +1093,17 @@ ControlledFixture make_trace_multiblock_bfinal() {
   fixed_block.output_bytes = ByteRangeFact{2, output_cursor};
   blocks.push_back(std::move(fixed_block));
 
-  // Block 2: dynamic literals 41 41 (reuses the frozen dynamic header).
+  // Block 2: dynamic literals 00 00 (reuses the frozen dynamic header; R6
+  // restricts its one-bit literal to symbol 0x00).
   ByteRangeFact dynamic_bits{};
   dynamic_bits.begin = writer.bit_position() - kZlibHeaderBits;
-  write_dynamic_header(writer, true, {16, 17, 18});
+  write_dynamic_header(writer, true, {17, 16, 18, 18, 17});
   for (unsigned i = 0; i < 2; ++i) {
     ByteRangeFact input{};
-    write_dynamic_literal(writer, 0x41, input);
+    write_dynamic_literal(writer, 0x00, input);
     tokens.push_back(make_literal_fact(TokenKind::kLiteral, input,
                                        output_cursor, output_cursor + 1,
-                                       0x41));
+                                       0x00));
     ++output_cursor;
   }
   ByteRangeFact dynamic_eob_input{};
@@ -1134,14 +1117,15 @@ ControlledFixture make_trace_multiblock_bfinal() {
   dynamic_block.output_bytes = ByteRangeFact{4, output_cursor};
   blocks.push_back(std::move(dynamic_block));
 
+  // The raw stream is a valid 2x2 gray8 filtered frame: [00 41 42][00 00 00].
   const std::vector<std::byte> raw = {B(0x00), B(0x41), B(0x42),
-                                      B(0x00), B(0x41), B(0x41)};
+                                      B(0x00), B(0x00), B(0x00)};
   ControlledFixture fixture = finish_png_case(
       ControlledCaseId::kTraceMultiblockBfinal, writer, raw);
   fixture.stable_id = "trace-multiblock-bfinal";
   fixture.expected.blocks = std::move(blocks);
   fixture.expected.tokens = std::move(tokens);
-  fixture.expected.expected_code_length_repeats = {16, 17, 18};
+  fixture.expected.expected_code_length_repeats = {17, 16, 18, 18, 17};
   return fixture;
 }
 
@@ -1517,6 +1501,53 @@ ControlledFixture make_error_adler_mismatch() {
   return fixture;
 }
 
+// --- the shared large performance case ----------------------------------------
+
+ControlledFixture make_perf_large_rgba8() {
+  // 1024x768 RGBA8 (package §7.5): every sample byte comes from a fixed
+  // formula, every row uses the None filter and the zlib stream is one run of
+  // deterministic final Stored blocks. No clock, randomness or host input.
+  const std::uint32_t width = 1024;
+  const std::uint32_t height = 768;
+  const std::uint64_t row_bytes = static_cast<std::uint64_t>(width) * 4ull;
+  const std::uint64_t filtered_size = height * (row_bytes + 1ull);
+  const auto filtered_alloc = checked_size(filtered_size);
+  if (width == 0 || height == 0 || row_bytes > filtered_size - 1ull ||
+      !filtered_alloc) {
+    throw std::invalid_argument("WP-607C perf case size overflows");
+  }
+  const auto pixel_byte = [](std::uint32_t x, std::uint32_t y, unsigned c) {
+    return static_cast<std::uint8_t>(1u + ((x * 3u + y * 5u + c * 7u + 604u) %
+                                           255u));
+  };
+  std::vector<std::byte> filtered;
+  filtered.reserve(*filtered_alloc);
+  for (std::uint32_t y = 0; y < height; ++y) {
+    filtered.push_back(B(0));  // filter None
+    for (std::uint32_t x = 0; x < width; ++x) {
+      for (unsigned c = 0; c < 4; ++c) {
+        filtered.push_back(B(pixel_byte(x, y, c)));
+      }
+    }
+  }
+
+  std::vector<std::byte> png;
+  begin_png(png, width, height, 8, 6, 0);
+  ControlledFixture fixture;
+  fixture.id = ControlledCaseId::kPerfLargeRgba8;
+  fixture.stable_id = "perf-large-rgba8";
+  fixture.png_bytes = finish_png(std::move(png), make_stored_zlib(filtered));
+  ImageFacts facts;
+  facts.width = width;
+  facts.height = height;
+  facts.bit_depth = 8;
+  facts.color_type = 6;
+  facts.interlace = 0;
+  facts.row_filters.assign(height, 0);
+  fixture.expected.image = std::move(facts);
+  return fixture;
+}
+
 // --- registry ----------------------------------------------------------------
 
 struct CaseInfo {
@@ -1612,6 +1643,8 @@ ControlledFixture make_controlled_fixture(ControlledCaseId id) {
       return make_error_crc_mismatch();
     case ControlledCaseId::kErrorAdlerMismatch:
       return make_error_adler_mismatch();
+    case ControlledCaseId::kPerfLargeRgba8:
+      return make_perf_large_rgba8();
     default:
       throw std::invalid_argument("WP-607C case is not implemented");
   }

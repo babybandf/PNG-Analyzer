@@ -343,14 +343,16 @@ TEST_CASE("WP-607C dynamic case freezes overlap and code-length repeats",
   const Production production = decode_fixture(dynamic);
   require_blocks_match(dynamic, production);
   require_tokens_match(dynamic, production);
+  // R6: the output is eight 0x00 bytes so the first inflated byte doubles as
+  // a None filter byte and the file opens as a valid PNG.
   require_reconstructed_output(production,
-                               std::vector<std::byte>(8, B(0x41)));
+                               std::vector<std::byte>(8, B(0x00)));
 
   const auto& overlap = dynamic.expected.tokens.at(2);
   REQUIRE(overlap.kind == TokenKind::kMatch);
   REQUIRE(*overlap.distance == 1);
   REQUIRE(dynamic.expected.expected_code_length_repeats ==
-          std::vector<std::uint8_t>{16, 17, 18});
+          std::vector<std::uint8_t>{17, 16, 18, 18, 17});
   REQUIRE(read_code_length_repeats(dynamic) ==
           dynamic.expected.expected_code_length_repeats);
 }
@@ -369,7 +371,7 @@ TEST_CASE("WP-607C multiblock case freezes three blocks and one BFINAL",
   require_blocks_match(multiblock, production);
   require_tokens_match(multiblock, production);
   require_reconstructed_output(
-      production, {B(0x00), B(0x41), B(0x42), B(0x00), B(0x41), B(0x41)});
+      production, {B(0x00), B(0x41), B(0x42), B(0x00), B(0x00), B(0x00)});
 }
 
 // --- cross-IDAT and malformed cases (Task 4) --------------------------------

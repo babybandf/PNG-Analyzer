@@ -1,21 +1,1323 @@
 # tests/corpus/manifest.yaml
 #
-# Fixture audit records. Each external test image must appear here with source,
-# license, SHA-256, expected classification and linked tests (bootstrap spec §5,
-# REPOSITORY_LAYOUT.md §11). Programmatically generated boundary files are
-# produced by test generators and do not require a manifest entry.
-#
-# This is a top-level list. Record keys (bootstrap spec §5 example):
-#   - id: stable slug
-#     path: corpus-relative path (pngsuite/basn2c08.png)
-#     source_url: exact download origin (no placeholders)
-#     upstream_version: archive/tag/date
-#     upstream_commit: null or 40-hex
-#     sha256: 64-hex
-#     license: SPDX or reviewed value
-#     expected_class: valid | malformed | boundary | ...
-#     expected_features: [rgb, bit_depth_8, non_interlaced, ...]
-#     linked_tests: [wp-101-chunk-index, ...]
-#
-# Empty for now; the first fixtures arrive with WP-100.
-[]
+# Fixture audit records (bootstrap spec §5, REPOSITORY_LAYOUT.md §11).
+# Every record carries kind: generated or kind: external. Generated
+# records describe files materialized by pnga_generate_wp607c_corpus in
+# the build tree only; their records must equal the generator catalog
+# (index.json) projection exactly, and expected_sha256 values are
+# blessed only through the double-generation flow of
+# scripts/verify_wp607c_manifest.py --refresh-generated-hashes.
+
+- id: error-adler-mismatch
+  kind: generated
+  expected_class: malformed
+  expected_features:
+    - idat_adler_mismatch
+    - malformed
+  expected_facts:
+    blocks:
+      - bfinal: true
+        input_bits:
+          - 0
+          - 88
+        kind: stored
+        output_bytes:
+          - 0
+          - 6
+    error:
+      validation_rule_id: idat_adler_mismatch
+    tokens:
+      - input_bits:
+          - 40
+          - 48
+        kind: literal
+        literal: 0
+        output_bytes:
+          - 0
+          - 1
+      - input_bits:
+          - 48
+          - 56
+        kind: literal
+        literal: 65
+        output_bytes:
+          - 1
+          - 2
+      - input_bits:
+          - 56
+          - 64
+        kind: literal
+        literal: 66
+        output_bytes:
+          - 2
+          - 3
+      - input_bits:
+          - 64
+          - 72
+        kind: literal
+        literal: 0
+        output_bytes:
+          - 3
+          - 4
+      - input_bits:
+          - 72
+          - 80
+        kind: literal
+        literal: 67
+        output_bytes:
+          - 4
+          - 5
+      - input_bits:
+          - 80
+          - 88
+        kind: literal
+        literal: 68
+        output_bytes:
+          - 5
+          - 6
+      - input_bits:
+          - 88
+          - 88
+        kind: end_of_block
+        output_bytes:
+          - 6
+          - 6
+  linked_tests:
+    - wp607c_trace_facts_tests
+  generator:
+    arguments:
+      case: error-adler-mismatch
+    case: error-adler-mismatch
+    executable: pnga_generate_wp607c_corpus
+    schema_version: 1
+  output: malformed/error-adler-mismatch.png
+  expected_sha256: 637312a98dc5387adf0a3d63ddaf64b010bfd5357cec2c0b6212a370d810781e
+- id: error-crc-mismatch
+  kind: generated
+  expected_class: malformed
+  expected_features:
+    - chunk_crc_mismatch
+    - malformed
+  expected_facts:
+    blocks:
+      - bfinal: true
+        input_bits:
+          - 0
+          - 88
+        kind: stored
+        output_bytes:
+          - 0
+          - 6
+    error:
+      validation_rule_id: chunk_crc_mismatch
+    tokens:
+      - input_bits:
+          - 40
+          - 48
+        kind: literal
+        literal: 0
+        output_bytes:
+          - 0
+          - 1
+      - input_bits:
+          - 48
+          - 56
+        kind: literal
+        literal: 65
+        output_bytes:
+          - 1
+          - 2
+      - input_bits:
+          - 56
+          - 64
+        kind: literal
+        literal: 66
+        output_bytes:
+          - 2
+          - 3
+      - input_bits:
+          - 64
+          - 72
+        kind: literal
+        literal: 0
+        output_bytes:
+          - 3
+          - 4
+      - input_bits:
+          - 72
+          - 80
+        kind: literal
+        literal: 67
+        output_bytes:
+          - 4
+          - 5
+      - input_bits:
+          - 80
+          - 88
+        kind: literal
+        literal: 68
+        output_bytes:
+          - 5
+          - 6
+      - input_bits:
+          - 88
+          - 88
+        kind: end_of_block
+        output_bytes:
+          - 6
+          - 6
+  linked_tests:
+    - wp607c_trace_facts_tests
+  generator:
+    arguments:
+      case: error-crc-mismatch
+    case: error-crc-mismatch
+    executable: pnga_generate_wp607c_corpus
+    schema_version: 1
+  output: malformed/error-crc-mismatch.png
+  expected_sha256: e3ccc1c14506a07b53294039011ab76dc59d5157e3637786c4b096dd3903d91c
+- id: error-invalid-distance
+  kind: generated
+  expected_class: malformed
+  expected_features:
+    - distance_beyond_output
+    - malformed
+    - stop_input_bit_16
+    - stop_output_byte_0
+  expected_facts:
+    error:
+      decoder_message: distance beyond available output
+      stop_input_bit: 16
+      stop_output_byte: 0
+  linked_tests:
+    - wp607c_trace_facts_tests
+  generator:
+    arguments:
+      case: error-invalid-distance
+    case: error-invalid-distance
+    executable: pnga_generate_wp607c_corpus
+    schema_version: 1
+  output: malformed/error-invalid-distance.png
+  expected_sha256: e17b98b2d5fb69c467bb0be023cf6ee3ed88c305eb8d193642206d1013ba79f6
+- id: error-reserved-btype
+  kind: generated
+  expected_class: malformed
+  expected_features:
+    - malformed
+    - reserved_btype
+    - stop_input_bit_19
+    - stop_output_byte_0
+  expected_facts:
+    blocks:
+      - bfinal: true
+        input_bits:
+          - 0
+          - 88
+        kind: stored
+        output_bytes:
+          - 0
+          - 6
+    error:
+      decoder_message: reserved deflate block type
+      stop_input_bit: 19
+      stop_output_byte: 0
+    tokens:
+      - input_bits:
+          - 40
+          - 48
+        kind: literal
+        literal: 0
+        output_bytes:
+          - 0
+          - 1
+      - input_bits:
+          - 48
+          - 56
+        kind: literal
+        literal: 65
+        output_bytes:
+          - 1
+          - 2
+      - input_bits:
+          - 56
+          - 64
+        kind: literal
+        literal: 66
+        output_bytes:
+          - 2
+          - 3
+      - input_bits:
+          - 64
+          - 72
+        kind: literal
+        literal: 0
+        output_bytes:
+          - 3
+          - 4
+      - input_bits:
+          - 72
+          - 80
+        kind: literal
+        literal: 67
+        output_bytes:
+          - 4
+          - 5
+      - input_bits:
+          - 80
+          - 88
+        kind: literal
+        literal: 68
+        output_bytes:
+          - 5
+          - 6
+      - input_bits:
+          - 88
+          - 88
+        kind: end_of_block
+        output_bytes:
+          - 6
+          - 6
+  linked_tests:
+    - wp607c_trace_facts_tests
+  generator:
+    arguments:
+      case: error-reserved-btype
+    case: error-reserved-btype
+    executable: pnga_generate_wp607c_corpus
+    schema_version: 1
+  output: malformed/error-reserved-btype.png
+  expected_sha256: 4793f82e362609e5d776c405d6eb0c6b1b7eecf6611c310085fbf760dc00f58e
+- id: error-truncated-header
+  kind: generated
+  expected_class: malformed
+  expected_features:
+    - malformed
+    - stop_input_bit_16
+    - stop_output_byte_0
+    - truncated_block_header
+  expected_facts:
+    blocks:
+      - bfinal: true
+        input_bits:
+          - 0
+          - 88
+        kind: stored
+        output_bytes:
+          - 0
+          - 6
+    error:
+      decoder_message: truncated block header
+      stop_input_bit: 16
+      stop_output_byte: 0
+    tokens:
+      - input_bits:
+          - 40
+          - 48
+        kind: literal
+        literal: 0
+        output_bytes:
+          - 0
+          - 1
+      - input_bits:
+          - 48
+          - 56
+        kind: literal
+        literal: 65
+        output_bytes:
+          - 1
+          - 2
+      - input_bits:
+          - 56
+          - 64
+        kind: literal
+        literal: 66
+        output_bytes:
+          - 2
+          - 3
+      - input_bits:
+          - 64
+          - 72
+        kind: literal
+        literal: 0
+        output_bytes:
+          - 3
+          - 4
+      - input_bits:
+          - 72
+          - 80
+        kind: literal
+        literal: 67
+        output_bytes:
+          - 4
+          - 5
+      - input_bits:
+          - 80
+          - 88
+        kind: literal
+        literal: 68
+        output_bytes:
+          - 5
+          - 6
+      - input_bits:
+          - 88
+          - 88
+        kind: end_of_block
+        output_bytes:
+          - 6
+          - 6
+  linked_tests:
+    - wp607c_trace_facts_tests
+  generator:
+    arguments:
+      case: error-truncated-header
+    case: error-truncated-header
+    executable: pnga_generate_wp607c_corpus
+    schema_version: 1
+  output: malformed/error-truncated-header.png
+  expected_sha256: f533f43d159881d0b68d2f3a163b38f6fccc96a9247d4ebebaa9518c629de2c8
+- id: error-truncated-token
+  kind: generated
+  expected_class: malformed
+  expected_features:
+    - malformed
+    - stop_input_bit_16
+    - stop_output_byte_0
+    - truncated_huffman_code
+  expected_facts:
+    blocks:
+      - bfinal: true
+        input_bits:
+          - 0
+          - 46
+        kind: fixed
+        output_bytes:
+          - 0
+          - 6
+    error:
+      decoder_message: truncated huffman code
+      stop_input_bit: 16
+      stop_output_byte: 0
+    tokens:
+      - input_bits:
+          - 3
+          - 11
+        kind: literal
+        literal: 0
+        output_bytes:
+          - 0
+          - 1
+      - input_bits:
+          - 11
+          - 19
+        kind: literal
+        literal: 65
+        output_bytes:
+          - 1
+          - 2
+      - input_bits:
+          - 19
+          - 27
+        kind: literal
+        literal: 66
+        output_bytes:
+          - 2
+          - 3
+      - distance: 3
+        input_bits:
+          - 27
+          - 39
+        kind: match
+        length: 3
+        match_source:
+          - 0
+          - 3
+        output_bytes:
+          - 3
+          - 6
+      - input_bits:
+          - 39
+          - 46
+        kind: end_of_block
+        output_bytes:
+          - 6
+          - 6
+  linked_tests:
+    - wp607c_trace_facts_tests
+  generator:
+    arguments:
+      case: error-truncated-token
+    case: error-truncated-token
+    executable: pnga_generate_wp607c_corpus
+    schema_version: 1
+  output: malformed/error-truncated-token.png
+  expected_sha256: 578fce0ff1d2b55a888b26973230cb7c95b23b943b2447c350a7739da70e6497
+- id: idat-split-adler
+  kind: generated
+  expected_class: boundary
+  expected_features:
+    - adler_two_spans
+    - cross_idat
+    - two_spans
+  expected_facts:
+    blocks:
+      - bfinal: true
+        input_bits:
+          - 0
+          - 88
+        kind: stored
+        output_bytes:
+          - 0
+          - 6
+    physical_spans:
+      -
+        - 54
+        - 56
+      -
+        - 68
+        - 70
+    tokens:
+      - input_bits:
+          - 40
+          - 48
+        kind: literal
+        literal: 0
+        output_bytes:
+          - 0
+          - 1
+      - input_bits:
+          - 48
+          - 56
+        kind: literal
+        literal: 65
+        output_bytes:
+          - 1
+          - 2
+      - input_bits:
+          - 56
+          - 64
+        kind: literal
+        literal: 66
+        output_bytes:
+          - 2
+          - 3
+      - input_bits:
+          - 64
+          - 72
+        kind: literal
+        literal: 0
+        output_bytes:
+          - 3
+          - 4
+      - input_bits:
+          - 72
+          - 80
+        kind: literal
+        literal: 67
+        output_bytes:
+          - 4
+          - 5
+      - input_bits:
+          - 80
+          - 88
+        kind: literal
+        literal: 68
+        output_bytes:
+          - 5
+          - 6
+      - input_bits:
+          - 88
+          - 88
+        kind: end_of_block
+        output_bytes:
+          - 6
+          - 6
+  linked_tests:
+    - wp607c_trace_facts_tests
+  generator:
+    arguments:
+      case: idat-split-adler
+    case: idat-split-adler
+    executable: pnga_generate_wp607c_corpus
+    schema_version: 1
+  output: valid/idat-split-adler.png
+  expected_sha256: 60471df85b2f0ad6b06f399f9ba968019b783e2b5070ca2cbc891f7a552b4602
+- id: idat-split-token
+  kind: generated
+  expected_class: boundary
+  expected_features:
+    - cross_idat
+    - token_span
+    - two_spans
+  expected_facts:
+    blocks:
+      - bfinal: true
+        input_bits:
+          - 0
+          - 46
+        kind: fixed
+        output_bytes:
+          - 0
+          - 6
+    physical_spans:
+      -
+        - 43
+        - 44
+      -
+        - 56
+        - 57
+    tokens:
+      - input_bits:
+          - 3
+          - 11
+        kind: literal
+        literal: 0
+        output_bytes:
+          - 0
+          - 1
+      - input_bits:
+          - 11
+          - 19
+        kind: literal
+        literal: 65
+        output_bytes:
+          - 1
+          - 2
+      - input_bits:
+          - 19
+          - 27
+        kind: literal
+        literal: 66
+        output_bytes:
+          - 2
+          - 3
+      - distance: 3
+        input_bits:
+          - 27
+          - 39
+        kind: match
+        length: 3
+        match_source:
+          - 0
+          - 3
+        output_bytes:
+          - 3
+          - 6
+      - input_bits:
+          - 39
+          - 46
+        kind: end_of_block
+        output_bytes:
+          - 6
+          - 6
+  linked_tests:
+    - wp607c_trace_facts_tests
+  generator:
+    arguments:
+      case: idat-split-token
+    case: idat-split-token
+    executable: pnga_generate_wp607c_corpus
+    schema_version: 1
+  output: valid/idat-split-token.png
+  expected_sha256: 681772309b6a7d21e0ce2d966718cf79dfa60bdb8ae9064b01b366f0e0a70f45
+- id: idat-split-zlib-header
+  kind: generated
+  expected_class: boundary
+  expected_features:
+    - cross_idat
+    - two_spans
+    - zlib_header_split
+  expected_facts:
+    blocks:
+      - bfinal: true
+        input_bits:
+          - 0
+          - 88
+        kind: stored
+        output_bytes:
+          - 0
+          - 6
+    physical_spans:
+      -
+        - 41
+        - 42
+      -
+        - 54
+        - 55
+    tokens:
+      - input_bits:
+          - 40
+          - 48
+        kind: literal
+        literal: 0
+        output_bytes:
+          - 0
+          - 1
+      - input_bits:
+          - 48
+          - 56
+        kind: literal
+        literal: 65
+        output_bytes:
+          - 1
+          - 2
+      - input_bits:
+          - 56
+          - 64
+        kind: literal
+        literal: 66
+        output_bytes:
+          - 2
+          - 3
+      - input_bits:
+          - 64
+          - 72
+        kind: literal
+        literal: 0
+        output_bytes:
+          - 3
+          - 4
+      - input_bits:
+          - 72
+          - 80
+        kind: literal
+        literal: 67
+        output_bytes:
+          - 4
+          - 5
+      - input_bits:
+          - 80
+          - 88
+        kind: literal
+        literal: 68
+        output_bytes:
+          - 5
+          - 6
+      - input_bits:
+          - 88
+          - 88
+        kind: end_of_block
+        output_bytes:
+          - 6
+          - 6
+  linked_tests:
+    - wp607c_trace_facts_tests
+  generator:
+    arguments:
+      case: idat-split-zlib-header
+    case: idat-split-zlib-header
+    executable: pnga_generate_wp607c_corpus
+    schema_version: 1
+  output: valid/idat-split-zlib-header.png
+  expected_sha256: 9eafad28b29c1ae32e0ef1d7b1d16d76df2432bb4f9fc8c15c78e6bdfb6eac3c
+- id: perf-large-rgba8
+  kind: generated
+  expected_class: performance
+  expected_features:
+    - non_interlaced
+    - rgba8
+    - stored_blocks
+  expected_facts:
+    image:
+      bit_depth: 8
+      color_type: 6
+      height: 768
+      interlace: 0
+      width: 1024
+  linked_tests:
+    - wp607c_trace_facts_tests
+  generator:
+    arguments:
+      case: perf-large-rgba8
+    case: perf-large-rgba8
+    executable: pnga_generate_wp607c_corpus
+    schema_version: 1
+  output: valid/perf-large-rgba8.png
+  expected_sha256: 00f7c9f67e5b01f5bc2ce229e42cd1c9af592307675171a227cd3e3c6efdb263
+- id: trace-dynamic-overlap-repeats
+  kind: generated
+  expected_class: valid
+  expected_features:
+    - bfinal
+    - dynamic_huffman
+    - eob
+    - literal
+    - match_overlap
+    - repeats_16_17_18
+  expected_facts:
+    blocks:
+      - bfinal: true
+        input_bits:
+          - 0
+          - 134
+        kind: dynamic
+        output_bytes:
+          - 0
+          - 8
+    expected_code_length_repeats:
+      - 17
+      - 16
+      - 18
+      - 18
+      - 17
+    tokens:
+      - input_bits:
+          - 126
+          - 127
+        kind: literal
+        literal: 0
+        output_bytes:
+          - 0
+          - 1
+      - input_bits:
+          - 127
+          - 128
+        kind: literal
+        literal: 0
+        output_bytes:
+          - 1
+          - 2
+      - distance: 1
+        input_bits:
+          - 128
+          - 132
+        kind: match
+        length: 6
+        match_source:
+          - 1
+          - 2
+        output_bytes:
+          - 2
+          - 8
+      - input_bits:
+          - 132
+          - 134
+        kind: end_of_block
+        output_bytes:
+          - 8
+          - 8
+  linked_tests:
+    - wp607c_trace_facts_tests
+  generator:
+    arguments:
+      case: trace-dynamic-overlap-repeats
+    case: trace-dynamic-overlap-repeats
+    executable: pnga_generate_wp607c_corpus
+    schema_version: 1
+  output: valid/trace-dynamic-overlap-repeats.png
+  expected_sha256: da5acb18c697e3d15e17b6916f5933582bbbdb8887d47bb290408b7ad4710325
+- id: trace-fixed-nonoverlap
+  kind: generated
+  expected_class: valid
+  expected_features:
+    - bfinal
+    - eob
+    - fixed_huffman
+    - literal
+    - match_nonoverlap
+  expected_facts:
+    blocks:
+      - bfinal: true
+        input_bits:
+          - 0
+          - 46
+        kind: fixed
+        output_bytes:
+          - 0
+          - 6
+    tokens:
+      - input_bits:
+          - 3
+          - 11
+        kind: literal
+        literal: 0
+        output_bytes:
+          - 0
+          - 1
+      - input_bits:
+          - 11
+          - 19
+        kind: literal
+        literal: 65
+        output_bytes:
+          - 1
+          - 2
+      - input_bits:
+          - 19
+          - 27
+        kind: literal
+        literal: 66
+        output_bytes:
+          - 2
+          - 3
+      - distance: 3
+        input_bits:
+          - 27
+          - 39
+        kind: match
+        length: 3
+        match_source:
+          - 0
+          - 3
+        output_bytes:
+          - 3
+          - 6
+      - input_bits:
+          - 39
+          - 46
+        kind: end_of_block
+        output_bytes:
+          - 6
+          - 6
+  linked_tests:
+    - wp607c_trace_facts_tests
+  generator:
+    arguments:
+      case: trace-fixed-nonoverlap
+    case: trace-fixed-nonoverlap
+    executable: pnga_generate_wp607c_corpus
+    schema_version: 1
+  output: valid/trace-fixed-nonoverlap.png
+  expected_sha256: a6ce6212a3abf67090aa6ea11702b6fc6969ebeb73c4f5d4a5180b8c33363be4
+- id: trace-multiblock-bfinal
+  kind: generated
+  expected_class: valid
+  expected_features:
+    - bfinal_false_false_true
+    - dynamic_huffman
+    - fixed_huffman
+    - stored_block
+    - three_blocks
+  expected_facts:
+    blocks:
+      - bfinal: false
+        input_bits:
+          - 0
+          - 56
+        kind: stored
+        output_bytes:
+          - 0
+          - 2
+      - bfinal: false
+        input_bits:
+          - 56
+          - 82
+        kind: fixed
+        output_bytes:
+          - 2
+          - 4
+      - bfinal: true
+        input_bits:
+          - 82
+          - 212
+        kind: dynamic
+        output_bytes:
+          - 4
+          - 6
+    expected_code_length_repeats:
+      - 17
+      - 16
+      - 18
+      - 18
+      - 17
+    tokens:
+      - input_bits:
+          - 40
+          - 48
+        kind: literal
+        literal: 0
+        output_bytes:
+          - 0
+          - 1
+      - input_bits:
+          - 48
+          - 56
+        kind: literal
+        literal: 65
+        output_bytes:
+          - 1
+          - 2
+      - input_bits:
+          - 56
+          - 56
+        kind: end_of_block
+        output_bytes:
+          - 2
+          - 2
+      - input_bits:
+          - 59
+          - 67
+        kind: literal
+        literal: 66
+        output_bytes:
+          - 2
+          - 3
+      - input_bits:
+          - 67
+          - 75
+        kind: literal
+        literal: 0
+        output_bytes:
+          - 3
+          - 4
+      - input_bits:
+          - 75
+          - 82
+        kind: end_of_block
+        output_bytes:
+          - 4
+          - 4
+      - input_bits:
+          - 208
+          - 209
+        kind: literal
+        literal: 0
+        output_bytes:
+          - 4
+          - 5
+      - input_bits:
+          - 209
+          - 210
+        kind: literal
+        literal: 0
+        output_bytes:
+          - 5
+          - 6
+      - input_bits:
+          - 210
+          - 212
+        kind: end_of_block
+        output_bytes:
+          - 6
+          - 6
+  linked_tests:
+    - wp607c_trace_facts_tests
+  generator:
+    arguments:
+      case: trace-multiblock-bfinal
+    case: trace-multiblock-bfinal
+    executable: pnga_generate_wp607c_corpus
+    schema_version: 1
+  output: valid/trace-multiblock-bfinal.png
+  expected_sha256: 8fef27baf33da2074791b3d872be9239636ea50404bfef754fc314b03a6c16d7
+- id: trace-stored-literals
+  kind: generated
+  expected_class: valid
+  expected_features:
+    - bfinal
+    - eob
+    - stored_block
+  expected_facts:
+    blocks:
+      - bfinal: true
+        input_bits:
+          - 0
+          - 88
+        kind: stored
+        output_bytes:
+          - 0
+          - 6
+    tokens:
+      - input_bits:
+          - 40
+          - 48
+        kind: literal
+        literal: 0
+        output_bytes:
+          - 0
+          - 1
+      - input_bits:
+          - 48
+          - 56
+        kind: literal
+        literal: 65
+        output_bytes:
+          - 1
+          - 2
+      - input_bits:
+          - 56
+          - 64
+        kind: literal
+        literal: 66
+        output_bytes:
+          - 2
+          - 3
+      - input_bits:
+          - 64
+          - 72
+        kind: literal
+        literal: 0
+        output_bytes:
+          - 3
+          - 4
+      - input_bits:
+          - 72
+          - 80
+        kind: literal
+        literal: 67
+        output_bytes:
+          - 4
+          - 5
+      - input_bits:
+          - 80
+          - 88
+        kind: literal
+        literal: 68
+        output_bytes:
+          - 5
+          - 6
+      - input_bits:
+          - 88
+          - 88
+        kind: end_of_block
+        output_bytes:
+          - 6
+          - 6
+  linked_tests:
+    - wp607c_trace_facts_tests
+  generator:
+    arguments:
+      case: trace-stored-literals
+    case: trace-stored-literals
+    executable: pnga_generate_wp607c_corpus
+    schema_version: 1
+  output: valid/trace-stored-literals.png
+  expected_sha256: d0ed83f7b8969657e719f1961432bb929c158ea482b440535708d5aa20074274
+- id: ui-adam7-empty-passes
+  kind: generated
+  expected_class: ui
+  expected_features:
+    - adam7
+    - empty_passes
+    - interlaced
+    - rgba8
+  expected_facts:
+    image:
+      bit_depth: 8
+      color_type: 6
+      empty_passes:
+        - 1
+        - 2
+        - 3
+        - 4
+        - 6
+      height: 1
+      interlace: 1
+      row_filters:
+        - 0
+        - 0
+      width: 2
+  linked_tests:
+    - wp607c_png_facts_tests
+  generator:
+    arguments:
+      case: ui-adam7-empty-passes
+    case: ui-adam7-empty-passes
+    executable: pnga_generate_wp607c_corpus
+    schema_version: 1
+  output: valid/ui-adam7-empty-passes.png
+  expected_sha256: 68420c5c5294ef2cb7f1de98f55417006d020ac573e35c835b256c004de7710d
+- id: ui-gray1-none
+  kind: generated
+  expected_class: ui
+  expected_features:
+    - bit_depth_1
+    - grayscale
+    - non_interlaced
+  expected_facts:
+    image:
+      bit_depth: 1
+      color_type: 0
+      height: 3
+      interlace: 0
+      row_filters:
+        - 0
+        - 0
+        - 0
+      width: 9
+  linked_tests:
+    - wp607c_png_facts_tests
+  generator:
+    arguments:
+      case: ui-gray1-none
+    case: ui-gray1-none
+    executable: pnga_generate_wp607c_corpus
+    schema_version: 1
+  output: valid/ui-gray1-none.png
+  expected_sha256: 2cca7510e07eb8107a33fb466a69e110909a7a35156582c4412f25c57cd8878c
+- id: ui-indexed4-trns
+  kind: generated
+  expected_class: ui
+  expected_features:
+    - bit_depth_4
+    - indexed_color
+    - non_interlaced
+    - plte
+    - trns
+  expected_facts:
+    image:
+      alpha_entries:
+        - 0
+        - 15
+        - 30
+        - 45
+        - 60
+        - 75
+        - 90
+        - 105
+        - 120
+        - 135
+        - 150
+        - 165
+        - 180
+        - 195
+        - 210
+        - 225
+      bit_depth: 4
+      color_type: 3
+      height: 3
+      interlace: 0
+      palette_entries:
+        -
+          - 0
+          - 255
+          - 3
+        -
+          - 17
+          - 238
+          - 11
+        -
+          - 34
+          - 221
+          - 19
+        -
+          - 51
+          - 204
+          - 27
+        -
+          - 68
+          - 187
+          - 35
+        -
+          - 85
+          - 170
+          - 43
+        -
+          - 102
+          - 153
+          - 51
+        -
+          - 119
+          - 136
+          - 59
+        -
+          - 136
+          - 119
+          - 67
+        -
+          - 153
+          - 102
+          - 75
+        -
+          - 170
+          - 85
+          - 83
+        -
+          - 187
+          - 68
+          - 91
+        -
+          - 204
+          - 51
+          - 99
+        -
+          - 221
+          - 34
+          - 107
+        -
+          - 238
+          - 17
+          - 115
+        -
+          - 255
+          - 0
+          - 123
+      row_filters:
+        - 0
+        - 0
+        - 0
+      width: 5
+  linked_tests:
+    - wp607c_png_facts_tests
+  generator:
+    arguments:
+      case: ui-indexed4-trns
+    case: ui-indexed4-trns
+    executable: pnga_generate_wp607c_corpus
+    schema_version: 1
+  output: valid/ui-indexed4-trns.png
+  expected_sha256: 3461e0096045d0306c5ce5b3461741f5f311abe4c7c5d509b98e37ae6ea57064
+- id: ui-rgb8-five-filters
+  kind: generated
+  expected_class: ui
+  expected_features:
+    - filter_average
+    - filter_none
+    - filter_paeth
+    - filter_sub
+    - filter_up
+    - non_interlaced
+    - rgb8
+  expected_facts:
+    image:
+      bit_depth: 8
+      color_type: 2
+      height: 5
+      interlace: 0
+      row_filters:
+        - 0
+        - 1
+        - 2
+        - 3
+        - 4
+      width: 8
+  linked_tests:
+    - wp607c_png_facts_tests
+  generator:
+    arguments:
+      case: ui-rgb8-five-filters
+    case: ui-rgb8-five-filters
+    executable: pnga_generate_wp607c_corpus
+    schema_version: 1
+  output: valid/ui-rgb8-five-filters.png
+  expected_sha256: fa2ff70efa2c256761418dff76757a4c6c21a8f3a33a1a0a96e0c04e6edb789f
+- id: ui-rgba16-byte-select
+  kind: generated
+  expected_class: ui
+  expected_features:
+    - big_endian_samples
+    - bit_depth_16
+    - non_interlaced
+    - rgba16
+  expected_facts:
+    image:
+      bit_depth: 16
+      color_type: 6
+      height: 2
+      interlace: 0
+      row_filters:
+        - 0
+        - 0
+      selected_sample_bytes:
+        - 18
+        - 52
+      width: 3
+  linked_tests:
+    - wp607c_png_facts_tests
+  generator:
+    arguments:
+      case: ui-rgba16-byte-select
+    case: ui-rgba16-byte-select
+    executable: pnga_generate_wp607c_corpus
+    schema_version: 1
+  output: valid/ui-rgba16-byte-select.png
+  expected_sha256: 90da805fff3d4bdd9ab6c861c80edbf8cc0f504a400425176c81b806c53aeef2
