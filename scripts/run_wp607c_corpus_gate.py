@@ -87,17 +87,29 @@ def sha256_file(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def cmake_cache_value(cache_path, name):
-    pattern = re.compile(rf"^{re.escape(name)}:[^=]*=(.*)$")
+def compiler_facts(build_dir):
+    """Deterministic compiler identity (id + version, never a path).
+
+    The identity lives in the build tree's CMakeFiles/<version>/
+    CMakeCXXCompiler.cmake; CMakeCache stores only the absolute compiler
+    path, which must never enter the evidence record.
+    """
     try:
-        for line in Path(cache_path).read_text(
-                encoding="utf-8", errors="replace").splitlines():
-            match = pattern.match(line)
-            if match:
-                return match.group(1).strip()
+        candidates = sorted(
+            (ROOT / build_dir / "CMakeFiles").glob("*/CMakeCXXCompiler.cmake"))
     except OSError:
-        pass
-    return None
+        return "unknown"
+    for candidate in candidates:
+        text = candidate.read_text(encoding="utf-8", errors="replace")
+        identifier = re.search(r'set\(CMAKE_CXX_COMPILER_ID "([^"]+)"\)', text)
+        version = re.search(
+            r'set\(CMAKE_CXX_COMPILER_VERSION "([^"]+)"\)', text)
+        if identifier:
+            facts = identifier.group(1)
+            if version:
+                facts = f"{facts} {version.group(1)}"
+            return facts
+    return "unknown"
 
 
 def qt_version(build_dir):
@@ -136,6 +148,14 @@ def serialize_evidence(record):
 
 
 def write_evidence(record):
+    # Package §12 / plan Task 8 Step 2: absolute paths and volatile temporary
+    # directory names are forbidden in the record. Enforced here so a future
+    # field cannot silently reintroduce one.
+    offenders = absolute_path_strings(record)
+    if offenders:
+        raise SystemExit(
+            "WP-607C evidence record would contain absolute path(s) "
+            f"{offenders[:3]}; refusing to write")
     output = ROOT / EVIDENCE_RECORD
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_suffix(".json.tmp")
@@ -143,11 +163,46 @@ def write_evidence(record):
     os.replace(temporary, output)
 
 
+def absolute_path_strings(value):
+    """Every string anywhere in `value` shaped like an absolute path.
+
+    Recurses through mappings and lists; a string offends when it starts with
+    a POSIX separator or a Windows drive prefix.
+    """
+    offenders = []
+    if isinstance(value, str):
+        if value.startswith("/") or re.match(r"^[A-Za-z]:[\\/]", value):
+            offenders.append(value)
+    elif isinstance(value, dict):
+        for entry in value.values():
+            offenders.extend(absolute_path_strings(entry))
+    elif isinstance(value, (list, tuple)):
+        for entry in value:
+            offenders.extend(absolute_path_strings(entry))
+    return offenders
+
+
+def host_facts(preset):
+    build_dir = f"build/{preset}"
+    return {
+        "os": platform.system(),
+        "os_release": platform.release(),
+        "architecture": platform.machine(),
+        "compiler": compiler_facts(build_dir),
+        "qt": qt_version(preset),
+        "display_protocol": os.environ.get("QT_QPA_PLATFORM", "offscreen"),
+        "logical_dpi": "offscreen",
+        "device_pixel_ratio": "offscreen",
+        "cpu": platform.processor() or platform.machine(),
+        "cpu_count": os.cpu_count(),
+        "memory_bytes": host_memory_bytes(),
+    }
+
+
 def build_record(preset, commands, results, catalog, status):
     commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(ROOT),
                             check=True, capture_output=True, text=True)
     now = datetime.datetime.now(datetime.timezone.utc)
-    cache = ROOT / "build" / preset / "CMakeCache.txt"
     cases = [{
         "id": record["id"],
         "output": record["output"],
@@ -159,21 +214,7 @@ def build_record(preset, commands, results, catalog, status):
         "status": status,
         "commit": commit.stdout.strip(),
         "time_utc": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "host": {
-            "os": platform.system(),
-            "os_release": platform.release(),
-            "architecture": platform.machine(),
-            "compiler": (cmake_cache_value(cache, "CMAKE_CXX_COMPILER")
-                         or "unknown"),
-            "qt": qt_version(preset),
-            "display_protocol": os.environ.get("QT_QPA_PLATFORM",
-                                               "offscreen"),
-            "logical_dpi": "offscreen",
-            "device_pixel_ratio": "offscreen",
-            "cpu": platform.processor() or platform.machine(),
-            "cpu_count": os.cpu_count(),
-            "memory_bytes": host_memory_bytes(),
-        },
+        "host": host_facts(preset),
         "preset": preset,
         "manifest_sha256": sha256_file(ROOT / MANIFEST),
         "generator_sources_sha256": {
@@ -286,6 +327,46 @@ def run_self_test():
     # record only ever carries repository-relative paths and fixed tokens.
     if '"/' in first:
         failures.append("evidence serialization contains an absolute path")
+    if absolute_path_strings(record):
+        failures.append(f"synthetic record path check failed: "
+                        f"{absolute_path_strings(record)}")
+    # The recursive sanitizer itself must catch planted absolute paths.
+    if not absolute_path_strings({"a": [{"b": "/absolute/path"}]}):
+        failures.append("sanitizer missed a nested absolute path")
+    if not absolute_path_strings(["C:\\Windows\\path"]):
+        failures.append("sanitizer missed a Windows absolute path")
+
+    # Realistic record: the actual host facts for the dev build tree must be
+    # path-free too (this is what previously leaked an absolute compiler).
+    try:
+        realistic = {"host": host_facts("dev"), "preset": "dev",
+                     "commands": [{"command": plan_commands("dev", 4)[0],
+                                   "exit": 0}]}
+    except (OSError, subprocess.SubprocessError) as error:
+        failures.append(f"realistic host facts unavailable: {error}")
+    else:
+        offenders = absolute_path_strings(realistic)
+        if offenders:
+            failures.append(f"host facts contain absolute path(s): "
+                            f"{offenders[:3]}")
+        if not isinstance(realistic["host"].get("compiler"), str) or \
+                realistic["host"]["compiler"] == "unknown":
+            failures.append("host facts carry no deterministic compiler "
+                            "identity (id + version)")
+
+    # The real evidence record, when present, must be path-free everywhere.
+    evidence_path = ROOT / EVIDENCE_RECORD
+    if evidence_path.is_file():
+        try:
+            real_record = json.loads(
+                evidence_path.read_text(encoding="utf-8"))
+        except ValueError as error:
+            failures.append(f"evidence record is not valid JSON: {error}")
+        else:
+            offenders = absolute_path_strings(real_record)
+            if offenders:
+                failures.append(f"evidence record contains absolute "
+                                f"path(s): {offenders[:3]}")
 
     if failures:
         for failure in failures:
@@ -295,6 +376,8 @@ def run_self_test():
     print("self-test: command planner matches the pinned gate sequence")
     print("self-test: evidence writer is deterministic, sorted, ASCII, "
           "LF-terminated and path-safe")
+    print("self-test: host facts and the evidence record are path-free; "
+          "compiler fact is a deterministic id+version identity")
     return 0
 
 

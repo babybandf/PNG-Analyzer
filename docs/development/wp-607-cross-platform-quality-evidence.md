@@ -28,9 +28,9 @@ Detailed written package:
 `docs/development/wp-607c-controlled-static-ui-trace-corpus.md`.
 
 Status: **PASS** (2026-09-04). Aggregate corpus revision
-`e4ff9c3558be330d6a17d0c188bdc931d864745a621d3aa81579521e77e94a73`;
+`5df99ad82f145a3418a3c6715f76f677ca8194a02e86c0f810c6457aba92f16f`;
 evidence record `build/evidence/wp-607c-corpus.json` (not committed), SHA-256
-`19ba7df238e768c2251dadbe0290099ee1c54c526f88ca84c12dd7e41dbcff46`; full suite
+`8498e1b45f6d99916b88b1bdb85b389ac83e6510981c304e28df26e84182c1c2`; full suite
 52/52 CTest entries; double generation byte-identical; fresh-build rerun
 identical. WP-5U12F must re-run `scripts/run_wp607c_corpus_gate.py` as its
 first preflight step. WP-607A/B/D and overall WP-607 remain incomplete.

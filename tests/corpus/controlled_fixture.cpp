@@ -683,10 +683,13 @@ void write_fixed_end_of_block(BitWriter& writer, ByteRangeFact& input_bits) {
 // and distance code lengths {0:1, 1:1} through a complete code-length
 // alphabet {0:2, 1:3, 2:3, 3:3, 16:3, 17:3, 18:3}. The first inflated byte of
 // every Dynamic case is a 0x00 literal so it doubles as a None filter byte
-// (WP-607C ruling R6). The instruction sequence still contains at least one
-// repeat of each kind 16, 17 and 18:
+// (WP-607C ruling R6). With symbol 0 as the one-bit literal code, the plan's
+// originally pinned leading zero-run (59 zeros) had to be replaced by a
+// leading literal `1`; a 16-first zero-run variant is also valid, and the
+// encoded order {17, 16, 18, 18, 17} was chosen simply for the smallest
+// instruction count. The instruction sequence
 //   1 17(+7) 16(+3) 18(+127) 18(+90) 2 17(+0) 3 3 1 1
-// which expands to lengths [1, 0 x255, 2, 0 x3, 3, 3] plus distances [1, 1].
+// expands to lengths [1, 0 x255, 2, 0 x3, 3, 3] plus distances [1, 1].
 
 constexpr std::uint8_t kHeaderCodeLengthLengths[18] = {
     3, 3, 3, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 3, 0, 3};

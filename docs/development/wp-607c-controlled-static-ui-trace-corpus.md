@@ -22,13 +22,15 @@ are not committed to the repository.
   `wp-5u12-compression-inspector` (Tasks 1–7); a docs-only commit records this
   handoff afterwards.
 - Aggregate corpus revision:
-  `e4ff9c3558be330d6a17d0c188bdc931d864745a621d3aa81579521e77e94a73`
+  `5df99ad82f145a3418a3c6715f76f677ca8194a02e86c0f810c6457aba92f16f`
   (identical from the `dev` build, the fresh non-preset build and
   `verify_wp607c_manifest.py --print-revision`).
 - Evidence record: `build/evidence/wp-607c-corpus.json` (not committed),
-  SHA-256 `19ba7df238e768c2251dadbe0290099ee1c54c526f88ca84c12dd7e41dbcff46`,
+  SHA-256 `8498e1b45f6d99916b88b1bdb85b389ac83e6510981c304e28df26e84182c1c2`,
   schema version 1, status PASS, 19 byte-identical double-generation cases,
-  five `wp607c` CTest entries passed, no absolute paths in the record.
+  five `wp607c` CTest entries passed, no absolute paths in the record (the
+  compiler fact is a deterministic id+version identity, enforced at write
+  time and by `--self-test`).
   Regenerate with
   `python3 scripts/run_wp607c_corpus_gate.py --preset dev --jobs 4`.
 - Full verification matrix (all exit 0): repository layout audit
@@ -251,7 +253,14 @@ wrapper, chunk ordering and unaffected checksums remain valid where applicable.
 `error-reserved-btype` form the real-file UI profile. The GUI test exercises
 them at 320, 360, 480 and 600 logical pixels in light mode and at 360 and 480
 logical pixels in dark mode. It checks state and geometry; screenshot capture
-remains WP-5U12F scope.
+remains WP-5U12F scope. Adjudication (controller ruling, 2026-09-04): for the
+two plan-pinned malformed UI cases the verified DEFLATE prefix contains no
+complete block, so production correctly refuses to index the stream and the
+"keep verified rows and show stable Partial/Error copy" expectation is
+unobservable; the GUI gate instead asserts the stable non-ready context copy
+and the preserved parsed structure, which satisfies that expectation's safety
+intent. Decoder-level Partial/Error facts remain frozen by the trace facts
+tests wherever a verified prefix exists.
 
 ## 8. Test ownership and CMake wiring
 
