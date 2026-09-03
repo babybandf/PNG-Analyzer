@@ -74,7 +74,7 @@ ctest -N（dev）                              → Total Tests: 47
 
 ### 三项 OPEN 发现的具体复现序列
 
-以下步骤均针对 `wp-5u12-compression-inspector` 的实现终点（`7b3fd4a`，文档勘误提交为 `d69d7b4`）。每项都应先转换为失败回归测试，再允许修改实现。
+（外部核对补充，commit `76bd0d8`；以下步骤均针对 `7b3fd4a` 实现终点撰写，作为各修复的需求溯源，原文保留。）
 
 #### 7.1 Blocks/Huffman drill-down 不切换到 Decode Trace
 
@@ -150,3 +150,18 @@ Current byte … target offset +4 … source logical offset 97
 ```
 
 其中 `97 = 104 - distance(7)`。当前模型只有 `selected_byte_offset_in_event`（`libs/analysis-engine/include/pnga/analysis-engine/decode_trace_inspector.h:63-70`），UI 只显示 `match offset +4`（`ui/qt/src/decode_trace_inspector.cpp:552-558`）。`match_source_ranges` 的 root token range（如 `[82,100) token 0`）不能替代当前字节按 DEFLATE overlap 逐字节复制得到的 source logical offset。
+
+### 7.1–7.3 处置结果（2026-09-03，CLOSED）
+
+三项发现已按"失败回归先行"纪律修复并关闭：
+
+| 项 | 失败回归（RED 证据） | 修复 commit | 审查结论 |
+|---|---|---|---|
+| 7.2 边界 EOB 被过滤 | `tests/unit/analysis-engine/trace_query_test.cpp`（4-token 断言，RED 因 `[3,3)` 与 `[0,3)` 半开不相交） | `92239c4`（闭包规则 `query_begin <= pos <= query_end`，仅零宽 EOB 生效） | Approved，无过度包含，兄弟测试被强化 |
+| 7.3 Match source logical offset | 模型编译失败（缺字段）+ GUI 第二子串失败 | `59ebffc`（`DecodeTraceStep` 新增当前字节源偏移，checked 减法 + Match/contains-current 门控；UI 追加 "source logical offset %1"） | Approved，逐字落地审计 fixture（+4 / 97） |
+| 7.1 drill-down 切页 | GUI 集成断言失败（点击后 currentIndex 停留原页） | `1dc8385`（Blocks 路径在既有 `decodeTraceRequested` 连接内切页；Huffman 路径经 store `navigationRequested` 按 `origin == kHuffman` 过滤切页；均不产生额外 trace 提交） | Approved，零回放计数器语义不变 |
+
+- 退出门禁重放：scripts 0 failure 0 warning；构建 exit 0；CTest 47/47；`git diff --check` 干净；树干净（HEAD 见 git log）。
+- 审查裁决：`goBack()`/`goForward()` 导航至 Huffman-origin 目标同样切页——裁定为 drill-down 意图的一致扩展（Back/Forward 恢复完整导航上下文）。
+- 缓办新 Minor：边界 EOB 行 `block_index = -1`（归因循环对空区间不命中，后续可按闭端包含归因）；序列化器未输出新字段（保持 `decode-trace-v2` 稳定，视为正确取舍）。
+- **三项发现状态：CLOSED。WP-5U12 完成状态不变：未完成，Task 6（F）仍待 WP-607C。**
