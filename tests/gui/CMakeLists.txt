@@ -303,6 +303,21 @@ target_compile_features(pnga_gui_compression_inspector_responsive_tests PRIVATE 
 add_test(NAME gui_compression_inspector_responsive_tests
   COMMAND pnga_gui_compression_inspector_responsive_tests)
 
+# WP-5U12F product gate: drives the real three-page inspector over the
+# WP-607C corpus, captures the plan-pinned baseline matrix under build/ and
+# asserts the state/width/theme/action/no-replay contract. The counters are
+# exposed only through PNGA_TRACE_CONTROLLER_TESTING.
+add_pnga_gui_app_test(pnga_gui_compression_inspector_product_gate_tests
+  compression_inspector_product_gate_test.cpp
+  gui_compression_inspector_product_gate_tests)
+target_compile_definitions(pnga_gui_compression_inspector_product_gate_tests PRIVATE
+  PNGA_TRACE_CONTROLLER_TESTING=1
+  PNGA_WP607C_CORPUS_DIR="${CMAKE_BINARY_DIR}/tests/corpus/wp-607c")
+set_tests_properties(gui_compression_inspector_product_gate_tests PROPERTIES
+  FIXTURES_REQUIRED wp607c-generated-corpus
+  ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+  LABELS "gui;wp607c;wp5u12")
+
 add_executable(pnga_gui_cross_platform_gate_tests
   cross_platform_gui_gate_test.cpp
   ${PNGA_GUI_APP_TEST_SOURCES}
@@ -465,6 +480,7 @@ add_custom_target(pnga_gui_tests DEPENDS
   pnga_gui_trace_pipeline_integration_tests
   pnga_gui_wp607c_corpus_tests
   pnga_gui_compression_inspector_responsive_tests
+  pnga_gui_compression_inspector_product_gate_tests
   pnga_gui_cross_platform_gate_tests
   pnga_gui_stage_inspector_tests
   pnga_gui_block_inspector_tests
