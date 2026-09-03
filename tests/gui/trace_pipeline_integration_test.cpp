@@ -540,6 +540,12 @@ void TracePipelineIntegrationTest::openDecodeTracePublishesBoundedBundle() {
   // generation. The request is interval-deduplicated, so retrying the click
   // while the single worker finishes is safe.
   table->selectRow(0);
+  // Audit 7.1: the drill-down must land on the Decode Trace page
+  // (Blocks=0, Huffman=1, Decode Trace=2).
+  auto* pages = window.findChild<QTabWidget*>(
+      QStringLiteral("compressionInspectorPages"));
+  QVERIFY(pages != nullptr);
+  pages->setCurrentIndex(0);
   QPushButton* trace_button = nullptr;
   const auto buttons = block->findChildren<QPushButton*>();
   for (auto* button : buttons) {
@@ -553,6 +559,7 @@ void TracePipelineIntegrationTest::openDecodeTracePublishesBoundedBundle() {
     QCoreApplication::processEvents();
     return context_status->text().contains(QStringLiteral("ready"));
   })(), 10000);
+  QTRY_COMPARE_WITH_TIMEOUT(pages->currentIndex(), 2, 10000);
   QVERIFY(!block->view().rows.empty());
   // The bounded result stays scoped: the bundle generation is unchanged.
   QVERIFY(block->view().generation != 0);
@@ -812,6 +819,8 @@ void TracePipelineIntegrationTest::
       QStringLiteral("huffmanOpenOccurrence"));
   QVERIFY(open != nullptr);
   open->click();
+  // Audit 7.1: the occurrence drill-down switches to the Decode Trace page.
+  QCOMPARE(compression->currentIndex(), 2);
   QCOMPARE(store->history().size(), std::size_t{1});
   QCOMPARE(store->history().back().token_index,
            std::optional<std::uint64_t>{expected_token});

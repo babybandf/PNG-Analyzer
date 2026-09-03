@@ -54,6 +54,12 @@ TraceController::TraceController(MainWindowWidgets widgets, QObject* parent)
             // The explicit action goes through the same bounded request path
             // as a committed pixel: it re-arms the trace status display.
             w_.trace_binding->setNotIndexed(false);
+            // WP-5U12 audit 7.1: the explicit drill-down reveals the Decode
+            // Trace page (Blocks=0, Huffman=1, Decode Trace=2). Switching the
+            // page submits no trace work of its own.
+            if (w_.compression_inspector_tabs != nullptr) {
+              w_.compression_inspector_tabs->setCurrentIndex(2);
+            }
             const std::uint64_t begin = output_range.begin.value;
             const std::uint64_t end = output_range.end.value;
             if (trace_interval_.has_value() &&
@@ -107,6 +113,31 @@ TraceController::TraceController(MainWindowWidgets widgets, QObject* parent)
                           pnga::analysis_engine::TraceTaskHandle>(handle)
                     : nullptr;
           });
+  // WP-5U12 audit 7.1: a Huffman occurrence drill-down navigates through the
+  // shared CompressionSelectionStore (applyNavigation); a Huffman row
+  // selection uses setManual and emits no navigationRequested, so only the
+  // explicit occurrence action reveals the Decode Trace page. No trace work
+  // is submitted here. In standalone controller tests no store exists and
+  // the connection is skipped.
+  auto* compression_store =
+      w_.block_inspector != nullptr
+          ? w_.block_inspector->window()->findChild<
+                pnga::ui::qt::CompressionSelectionStore*>()
+          : nullptr;
+  if (compression_store != nullptr) {
+    connect(compression_store,
+            &pnga::ui::qt::CompressionSelectionStore::navigationRequested,
+            this,
+            [this](const pnga::trace_model::CompressionNavigationTarget&
+                       target) {
+              if (target.origin == pnga::trace_model::
+                                               CompressionNavigationOrigin::
+                                               kHuffman &&
+                  w_.compression_inspector_tabs != nullptr) {
+                w_.compression_inspector_tabs->setCurrentIndex(2);
+              }
+            });
+  }
 }
 
 void TraceController::replaceDocument(
