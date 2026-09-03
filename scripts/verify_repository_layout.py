@@ -14,7 +14,9 @@ repository layout contract:
   * An include of another module's src/ private header.
   * A tracked file under a generated path.
   * Vendored source without a third_party/sources.lock.yaml entry.
-  * Corpus data without a manifest entry.
+  * Corpus data without a manifest entry (records are kind-aware per WP-607C:
+   external records keep provenance; generated records describe build-tree
+   output that must never be tracked under tests/corpus/).
   * An old path name listed in REPOSITORY_LAYOUT.md §10.
 
 Items 8-10 are shared with scripts/verify_dependencies.py; both are expected to
@@ -174,17 +176,43 @@ def check_third_party(rpt):
             rpt.error(f"third_party/{child.name} has no entry in sources.lock.yaml")
 
 
+def check_generated_corpus_record(rpt, index, record):
+    """WP-607C: generated records describe build-tree artifacts; their output
+    must never exist in the source tree and must not invent provenance."""
+    case_id = record.get("id")
+    if not isinstance(case_id, str) or not case_id:
+        rpt.error(f"corpus entry {index}: generated record has no usable id")
+    output = record.get("output")
+    if not isinstance(output, str) or not output:
+        rpt.error(f"corpus entry {index}: generated record has no usable output")
+    elif output.startswith("/") or ".." in output.split("/"):
+        rpt.error(f"corpus entry {index}: generated output escapes the build "
+                  f"tree: {output}")
+    elif not (output.startswith("valid/") or output.startswith("malformed/")):
+        rpt.error(f"corpus entry {index}: generated output must live under "
+                  f"valid/ or malformed/: {output}")
+    sha = record.get("expected_sha256")
+    if not isinstance(sha, str) or re.fullmatch(r"[0-9a-f]{64}", sha) is None:
+        rpt.error(f"corpus entry {index}: generated record needs a 64-hex "
+                  "expected_sha256")
+    for field in ("source_url", "upstream_version", "upstream_commit",
+                  "sha256", "license", "path"):
+        if field in record:
+            rpt.error(f"corpus entry {index}: generated record must not "
+                      f"carry upstream field {field}")
+
+
 def check_corpus(rpt, files):
     manifest = ROOT / "tests" / "corpus" / "manifest.yaml"
     corpus_root = ROOT / "tests" / "corpus"
     binary = [f for f in files
               if f.parts[:3] == ("tests", "corpus", ) and len(f.parts) > 3
               and f.parts[3] != "manifest.yaml" and f.suffix != ".yaml"]
-    if not binary:
-        rpt.ok("tests/corpus: no binary fixtures tracked yet")
-        return
     if not manifest.exists():
-        rpt.error(f"tests/corpus has {len(binary)} fixture(s) but no manifest.yaml")
+        if binary:
+            rpt.error(f"tests/corpus has {len(binary)} fixture(s) but no manifest.yaml")
+        else:
+            rpt.ok("tests/corpus: no binary fixtures tracked yet")
         return
     try:
         import yaml
@@ -192,11 +220,35 @@ def check_corpus(rpt, files):
     except Exception:
         rpt.error("tests/corpus/manifest.yaml is not valid YAML")
         return
-    names = {e.get("path") or e.get("file") for e in data if isinstance(e, dict)} if isinstance(data, list) else set()
+    if not isinstance(data, list):
+        rpt.error("tests/corpus/manifest.yaml must be a list of fixture records")
+        return
+    external_names = set()
+    generated_outputs = set()
+    for i, e in enumerate(data):
+        if not isinstance(e, dict):
+            rpt.error(f"corpus entry {i} is not a mapping")
+            continue
+        # WP-607C: records are kind-aware; absent kind means external for the
+        # pre-WP-607C schema.
+        kind = e.get("kind", "external")
+        if kind == "generated":
+            check_generated_corpus_record(rpt, i, e)
+            output = e.get("output")
+            if isinstance(output, str) and output:
+                generated_outputs.add(output)
+        elif kind == "external":
+            external_names.add(e.get("path") or e.get("file"))
+        else:
+            rpt.error(f"corpus entry {i} has unsupported kind {kind!r}")
     for f in binary:
         rel = f.relative_to(corpus_root).as_posix()
-        if rel not in names:
-            rpt.error(f"tests/corpus fixture without manifest entry: {rel}")
+        if rel in external_names:
+            continue
+        if rel in generated_outputs:
+            rpt.error(f"tests/corpus tracks generated output (build artifact): {rel}")
+            continue
+        rpt.error(f"tests/corpus fixture without manifest entry: {rel}")
 
 
 def main():

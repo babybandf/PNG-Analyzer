@@ -10,7 +10,9 @@ Returns nonzero (and reports each finding) when any of the following holds:
   * A file under third_party/ has no provenance entry in
     third_party/sources.lock.yaml.
   * A tests/corpus/manifest.yaml entry uses a placeholder source URL, or has an
-    empty sha256 / unknown license.
+    empty sha256 / unknown license. Entries are kind-aware (WP-607C): external
+    records keep full provenance checks; generated records validate
+    id/output/hash shape and forbid upstream fields.
   * A tracked file lives under a generated path (.deps/, build/, vcpkg_installed/).
 
 This mirrors the static guarantees the layout verifier (WP-00A/WP-001) enforces
@@ -36,6 +38,8 @@ APPROVED_VERSIONS = {"libpng": "1.6.58", "zlib": "1.3.2", "catch2": "3.11.0"}
 
 # Substrings that indicate an unresolved placeholder rather than real data.
 _PLACEHOLDER = ("<", ">", "fill-", "example.invalid", "WP-00A-FILLS", "TBD")
+
+GENERATED_HASH = re.compile(r"[0-9a-f]{64}")
 
 GENERATED_PATHS = (".deps", "build", "vcpkg_installed", "Testing")
 
@@ -137,6 +141,39 @@ def check_third_party(rpt):
             rpt.error(f"third_party/{key} has no entry in sources.lock.yaml")
 
 
+def check_generated_record(rpt, index, record):
+    """WP-607C: generated records describe build-tree artifacts, never
+    source-tree files, and must not invent upstream provenance fields."""
+    case_id = record.get("id")
+    if not isinstance(case_id, str) or not case_id or is_placeholder(case_id):
+        rpt.error(f"corpus entry {index}: generated record has no usable id")
+    output = record.get("output")
+    if not isinstance(output, str) or not output or is_placeholder(output):
+        rpt.error(f"corpus entry {index}: generated record has no usable output")
+    elif output.startswith("/") or ".." in output.split("/"):
+        rpt.error(f"corpus entry {index}: generated output escapes the build "
+                  f"tree: {output}")
+    elif not (output.startswith("valid/") or output.startswith("malformed/")):
+        rpt.error(f"corpus entry {index}: generated output must live under "
+                  f"valid/ or malformed/: {output}")
+    sha = record.get("expected_sha256")
+    if not isinstance(sha, str) or GENERATED_HASH.fullmatch(sha) is None:
+        rpt.error(f"corpus entry {index}: generated record needs a 64-hex "
+                  "expected_sha256")
+    for field in ("source_url", "upstream_version", "upstream_commit",
+                  "sha256", "license", "path"):
+        if field in record:
+            rpt.error(f"corpus entry {index}: generated record must not "
+                      f"carry upstream field {field}")
+
+
+def check_external_record(rpt, index, record):
+    if is_placeholder(record.get("source_url")):
+        rpt.error(f"corpus entry {index} has a placeholder source_url")
+    if is_placeholder(record.get("sha256")) or is_placeholder(record.get("license")):
+        rpt.error(f"corpus entry {index} has a placeholder sha256 or license")
+
+
 def check_corpus(rpt):
     path = ROOT / "tests" / "corpus" / "manifest.yaml"
     if not path.exists():
@@ -155,10 +192,16 @@ def check_corpus(rpt):
         rpt.error("tests/corpus/manifest.yaml must be a list of fixture records")
         return
     for i, e in enumerate(entries):
-        if is_placeholder(e.get("source_url")):
-            rpt.error(f"corpus entry {i} has a placeholder source_url")
-        if is_placeholder(e.get("sha256")) or is_placeholder(e.get("license")):
-            rpt.error(f"corpus entry {i} has a placeholder sha256 or license")
+        if not isinstance(e, dict):
+            rpt.error(f"corpus entry {i} is not a mapping")
+            continue
+        kind = e.get("kind", "external")
+        if kind == "generated":
+            check_generated_record(rpt, i, e)
+        elif kind == "external":
+            check_external_record(rpt, i, e)
+        else:
+            rpt.error(f"corpus entry {i} has unsupported kind {kind!r}")
 
 
 def check_no_tracked_generated(rpt):
