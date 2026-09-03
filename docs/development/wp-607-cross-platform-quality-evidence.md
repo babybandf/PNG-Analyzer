@@ -1,6 +1,6 @@
 # WP-607 — Cross-platform Quality Evidence
 
-Status: **design approved; WP-607C approved pending implementation** (2026-09-03)
+Status: **design approved; WP-607C PASS** (2026-09-04)
 
 ## Goal
 
@@ -26,6 +26,14 @@ tool result and cannot satisfy a required matrix cell.
 
 Detailed written package:
 `docs/development/wp-607c-controlled-static-ui-trace-corpus.md`.
+
+Status: **PASS** (2026-09-04). Aggregate corpus revision
+`e4ff9c3558be330d6a17d0c188bdc931d864745a621d3aa81579521e77e94a73`;
+evidence record `build/evidence/wp-607c-corpus.json` (not committed), SHA-256
+`19ba7df238e768c2251dadbe0290099ee1c54c526f88ca84c12dd7e41dbcff46`; full suite
+52/52 CTest entries; double generation byte-identical; fresh-build rerun
+identical. WP-5U12F must re-run `scripts/run_wp607c_corpus_gate.py` as its
+first preflight step. WP-607A/B/D and overall WP-607 remain incomplete.
 
 Create deterministic generators and manifest entries for:
 

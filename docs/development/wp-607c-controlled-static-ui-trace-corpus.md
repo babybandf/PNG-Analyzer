@@ -1,6 +1,6 @@
 # WP-607C — Controlled Static UI/Trace Corpus
 
-Status: **approved; pending implementation** (2026-09-03)
+Status: **PASS** (2026-09-04)
 
 Implementation plan:
 `docs/superpowers/plans/2026-09-03-wp-607c-controlled-static-ui-trace-corpus.md`.
@@ -15,6 +15,36 @@ WP-607C completes when every required category has a stable case id, fixed
 generator arguments, exact expected facts, a reproducible output hash and at
 least one owning CTest target. Generated PNG files remain build artifacts; they
 are not committed to the repository.
+
+## 1a. Gate handoff (2026-09-04)
+
+- Implementation commit range: `b603ead..af10e39` on branch
+  `wp-5u12-compression-inspector` (Tasks 1–7); a docs-only commit records this
+  handoff afterwards.
+- Aggregate corpus revision:
+  `e4ff9c3558be330d6a17d0c188bdc931d864745a621d3aa81579521e77e94a73`
+  (identical from the `dev` build, the fresh non-preset build and
+  `verify_wp607c_manifest.py --print-revision`).
+- Evidence record: `build/evidence/wp-607c-corpus.json` (not committed),
+  SHA-256 `19ba7df238e768c2251dadbe0290099ee1c54c526f88ca84c12dd7e41dbcff46`,
+  schema version 1, status PASS, 19 byte-identical double-generation cases,
+  five `wp607c` CTest entries passed, no absolute paths in the record.
+  Regenerate with
+  `python3 scripts/run_wp607c_corpus_gate.py --preset dev --jobs 4`.
+- Full verification matrix (all exit 0): repository layout audit
+  (0 failures / 0 warnings), dependency audit (0/0), dev configure + full
+  build, corpus gate, `QT_QPA_PLATFORM=offscreen ctest --preset dev -j 4`
+  with **52/52 entries passing** (47 baseline +
+  `wp607c_generate_corpus` + `wp607c_manifest_tests` +
+  `gui_wp607c_corpus_tests`), ASan/UBSan fuzz gate
+  (`--preset asan --jobs 4`), performance threshold gate with the
+  corpus-revision cross-check, and `git diff --check`.
+- Fresh-build rerun: explicit non-preset configure
+  (`cmake -S . -B build/wp607c-fresh -G Ninja` with the dev preset's
+  toolchain/manifest/vcpkg settings), full build, `ctest -L wp607c` 5/5,
+  aggregate revision and all 19 file hashes byte-identical to the `dev` run.
+- WP-5U12F must re-run `run_wp607c_corpus_gate.py` as its first preflight
+  step; this PASS supplies fixtures and facts only.
 
 ## 2. Baseline and prerequisites
 

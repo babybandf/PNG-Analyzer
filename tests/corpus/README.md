@@ -30,3 +30,52 @@ mapping, catalog equality, 64-hex hashes, linked CTest names, path traversal
 and the aggregate corpus revision (pinned to `manifest.yaml`,
 `controlled_fixture.h`, `controlled_fixture.cpp` and
 `generate_controlled_corpus.cpp`). No generated PNG is ever committed here.
+
+## WP-607C operator guidance
+
+- Generate the corpus (CTest does this automatically through the
+  `wp607c-generated-corpus` fixture):
+
+  ```sh
+  cmake --build --preset dev --target pnga_generate_wp607c_corpus
+  ./build/dev/tests/corpus/pnga_generate_wp607c_corpus \
+    --output build/dev/tests/corpus/wp-607c
+  ```
+
+  Output lives only under the build tree. The generator refuses destinations
+  resolving inside this source directory and replaces existing output
+  atomically.
+
+- Validate the manifest contract against a generated catalog:
+
+  ```sh
+  python3 scripts/verify_wp607c_manifest.py \
+    --manifest tests/corpus/manifest.yaml \
+    --catalog build/dev/tests/corpus/wp-607c/index.json \
+    --build-dir build/dev
+  ```
+
+- `expected_sha256` values are blessed only through the proven
+  double-generation flow (`--comparison-catalog` is mandatory, the two
+  catalogs must be equal, and only the hash scalars are rewritten):
+
+  ```sh
+  python3 scripts/verify_wp607c_manifest.py \
+    --manifest tests/corpus/manifest.yaml \
+    --catalog build/wp607c-double-generation/run-a/index.json \
+    --comparison-catalog build/wp607c-double-generation/run-b/index.json \
+    --build-dir build/dev --refresh-generated-hashes
+  ```
+
+  Reconfigure afterwards: the manifest bytes are one of the four hashed
+  inputs of the aggregate corpus revision.
+
+- One-shot operator gate (build, double generation, validation, labeled
+  CTest, evidence record under `build/evidence/`):
+
+  ```sh
+  python3 scripts/run_wp607c_corpus_gate.py --preset dev --jobs 4
+  ```
+
+  `--dry-run` prints the pinned command sequence; `--self-test` checks the
+  planner and the deterministic evidence writer.
