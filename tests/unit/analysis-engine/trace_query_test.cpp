@@ -532,8 +532,12 @@ TEST_CASE("Trace query maps every token to exact physical file spans",
   REQUIRE(result.status == TraceQueryStatus::kReady);
   // Literal 'A', the block boundary (empty input range) and literal 'B' all
   // intersect the requested output range; the final boundary sits at the
-  // exclusive query end and stays outside the bounded token list.
-  REQUIRE(result.tokens.size() == 3);
+  // exclusive query end and is retained by the closed-window EOB rule.
+  REQUIRE(result.tokens.size() == 4);
+  REQUIRE(result.tokens.back().kind ==
+          pnga::deflate_trace::TokenKind::kEndOfBlock);
+  REQUIRE(result.tokens.back().output_begin == 2);
+  REQUIRE(result.tokens.back().output_end == 2);
   const auto& literal_a = result.tokens[0];
   REQUIRE(literal_a.kind == pnga::deflate_trace::TokenKind::kLiteral);
   REQUIRE(literal_a.literal == 65);
@@ -583,9 +587,15 @@ TEST_CASE("Trace query keeps every span of a token crossing IDAT chunks",
       0, inputs.trace.output_bytes, 100000);
   REQUIRE(result.status == TraceQueryStatus::kReady);
   REQUIRE(result.deflate_data_begin == 2);
-  // The final end-of-block event sits at the exclusive query end and stays
-  // outside the bounded token list; the three literals are returned.
-  REQUIRE(result.tokens.size() == 3);
+  // The final end-of-block event sits at the exclusive query end; the
+  // closed-window boundary rule keeps the EOB row visible after the last
+  // literal (flow-ui section 9.2), so all three literals are returned plus
+  // the final EOB.
+  REQUIRE(result.tokens.size() == 4);
+  REQUIRE(result.tokens.back().kind ==
+          pnga::deflate_trace::TokenKind::kEndOfBlock);
+  REQUIRE(result.tokens.back().output_begin == 3);
+  REQUIRE(result.tokens.back().output_end == 3);
   using pnga::trace_model::FileByteOffset;
   using pnga::trace_model::FileByteRange;
   // 'A' reads DEFLATE bits [3, 11) -> zlib bits [19, 27) -> bytes [2, 4):

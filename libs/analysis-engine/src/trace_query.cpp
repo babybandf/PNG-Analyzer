@@ -335,7 +335,18 @@ TraceQueryResult compose_trace_query(
     }
     for (std::size_t i = 0; i < trace.tokens.size(); ++i) {
       const auto& token = trace.tokens[i];
-      if (!overlaps(token.output_begin, token.output_end, inflated_begin,
+      // flow-ui section 9.2: the End-of-block row stays visible after the
+      // final Match. A zero-width EOB never intersects a half-open query
+      // window, so it is retained exactly when its boundary position falls
+      // inside the closed query window; every other token keeps the
+      // half-open overlap rule.
+      const bool boundary_eob =
+          token.kind == pnga::deflate_trace::TokenKind::kEndOfBlock &&
+          token.output_begin == token.output_end &&
+          inflated_begin <= token.output_begin &&
+          token.output_begin <= inflated_end;
+      if (!boundary_eob &&
+          !overlaps(token.output_begin, token.output_end, inflated_begin,
                     inflated_end)) {
         continue;
       }
