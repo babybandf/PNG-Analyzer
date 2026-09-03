@@ -259,6 +259,36 @@ target_compile_features(pnga_gui_trace_pipeline_integration_tests PRIVATE cxx_st
 add_test(NAME gui_trace_pipeline_integration_tests
   COMMAND pnga_gui_trace_pipeline_integration_tests)
 
+# WP-607C: real-file corpus gate. Opens generated corpus PNGs through
+# MainWindow::openFile() and asserts state, width and error behavior; depends
+# on the wp607c-generated-corpus CTest fixture for the build-tree files.
+add_executable(pnga_gui_wp607c_corpus_tests
+  controlled_corpus_gate_test.cpp
+  ${PNGA_GUI_APP_TEST_SOURCES}
+)
+set_target_properties(pnga_gui_wp607c_corpus_tests PROPERTIES AUTOMOC ON)
+target_include_directories(pnga_gui_wp607c_corpus_tests PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../apps/png-analyzer-gui/src
+)
+target_link_libraries(pnga_gui_wp607c_corpus_tests PRIVATE
+  pnga::ui_qt
+  pnga::analysis_engine
+  pnga::png_format
+  pnga::io
+  pnga::core
+  Qt6::Test
+)
+target_compile_features(pnga_gui_wp607c_corpus_tests PRIVATE cxx_std_20)
+target_compile_definitions(pnga_gui_wp607c_corpus_tests PRIVATE
+  PNGA_WP607C_CORPUS_DIR="${CMAKE_BINARY_DIR}/tests/corpus/wp-607c")
+
+add_test(NAME gui_wp607c_corpus_tests
+  COMMAND pnga_gui_wp607c_corpus_tests)
+set_tests_properties(gui_wp607c_corpus_tests PROPERTIES
+  FIXTURES_REQUIRED wp607c-generated-corpus
+  ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+  LABELS "corpus;gui;wp607c")
+
 add_executable(pnga_gui_compression_inspector_responsive_tests
   compression_inspector_responsive_test.cpp
 )
@@ -433,6 +463,7 @@ add_custom_target(pnga_gui_tests DEPENDS
   pnga_gui_compression_selection_store_tests
   pnga_gui_main_window_layout_tests
   pnga_gui_trace_pipeline_integration_tests
+  pnga_gui_wp607c_corpus_tests
   pnga_gui_compression_inspector_responsive_tests
   pnga_gui_cross_platform_gate_tests
   pnga_gui_stage_inspector_tests
