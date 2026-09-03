@@ -1,6 +1,6 @@
 # WP-607 — Cross-platform Quality Evidence
 
-Status: **design approved; pending written-package review** (2026-09-01)
+Status: **design approved; WP-607C written package pending review** (2026-09-03)
 
 ## Goal
 
@@ -23,6 +23,9 @@ Allowed final status is `PASS`, `BLOCKED` or `FAIL`. `NOT_CONFIGURED` remains a
 tool result and cannot satisfy a required matrix cell.
 
 ## WP-607C — Controlled static UI/Trace corpus
+
+Detailed written package:
+`docs/development/wp-607c-controlled-static-ui-trace-corpus.md`.
 
 Create deterministic generators and manifest entries for:
 
