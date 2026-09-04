@@ -10,9 +10,10 @@ Statistics export and APNG timeline are explicit `out_of_scope`, never PASS.
 
 **Status so far (Tasks 4–6):** macOS automated matrix executed — 8 PASS,
 1 BLOCKED (A02 harness/filesystem), 2 FAIL (A05, A06 — see notes). Windows
-automated matrix dispatched via CI (section 3). Ubuntu cells BLOCKED (no
-Ubuntu 24.04 LTS desktop available to the product owner). Final WP-607A
-status is set at Task 8, not here.
+automated matrix executed on CI — 9 PASS, 1 BLOCKED (A02 same harness
+issue), 1 FAIL (A06 — see notes). Ubuntu cells BLOCKED (no Ubuntu 24.04 LTS
+desktop available to the product owner). Final WP-607A status is set at
+Task 8, not here.
 
 ## 1. Shared facts
 
@@ -97,12 +98,65 @@ Dispatch-only workflow `.github/workflows/native-gui-accessibility.yml`
 (job `windows-gui-accessibility`, `windows-latest`, 45-minute timeout):
 pinned actions, Python 3.11, `PyYAML==6.0.2`, MSVC DevShell, vcpkg tool +
 binary caches with `VCPKG_BINARY_SOURCES`, aqtinstall 3.3.0 + Qt 6.8.3
-`win64_msvc2022_64`, builds the corpus generator and the WP-607A target,
-runs the bounded Windows runner (Qt runtime PATH derived by the runner, L1),
-uploads `build/dev/evidence/wp-607a/**` and logs under `if: always()`.
+`win64_msvc2022_64`, byte-identical (LF) checkout with a frozen corpus
+revision guard, builds the corpus generator and the WP-607A target, runs the
+bounded Windows runner (Qt runtime PATH derived by the runner, L1), uploads
+`build/evidence/wp-607a/**` and the ctest log under `if: always()`.
 No push/PR triggers.
 
-- Run: see section 3.1 (recorded after artifact validation).
+- Executing run: [33900627092](https://github.com/babybandf/PNG-Analyzer/actions/runs/33900627092)
+  (dispatch `--ref main` at `763067277b40c4a7ea6e838693732aa5993a303f`,
+  the exact commit the CI configure baked into the record).
+- Disclosed pre-execution dispatches (both pre-capture runner refusals,
+  no evidence produced): run 33898311021 — the hosted agent environment
+  lacks `SESSIONNAME`; run 33899043492 — Windows CRLF checkout changed the
+  hashed corpus input bytes (revision `33e10284…` ≠ frozen `5df99a…`).
+  Two environment restorations were added to the workflow, both OS-observed
+  and disclosed: `SESSIONNAME=Console` is exported only when the OS confirms
+  the agent shares its session with the interactive desktop shell
+  (explorer.exe) — the runner's frozen preflight still performs its check —
+  and `core.autocrlf=false` is pinned before checkout plus a fast-failing
+  frozen-revision guard, making the checkout byte-identical.
+- Record facts (from the validated artifact): `qt_platform_plugin`
+  **windows** (native); display session `win32-desktop` (hosted interactive
+  desktop); Windows Server 2025 Version 24H2, x86_64, 15 GiB
+  (`machine_label` is the fixed non-sensitive constant
+  `wp607a-local-desktop`); Qt 6.8.3; logical DPI 96.00; DPR 1.00.
+- Raw evidence tree (artifact `wp607a-native-gui-accessibility-windows`,
+  paths under `evidence/wp-607a/windows-x64/`):
+  - `automated.json` SHA-256
+    `5fbea93cd5e43530b768d0757b65226068ad83db89595b906412468970f22c5a`
+  - Evidence-tree SHA-256
+    `2e2f0b87a8d0be4e0a1d1e1fc585c419f296242d0d276a5ece8ca7c547ebc9cc`
+    (same method as section 2; files: `automated.json`,
+    `logs/probe-functions.log`, `logs/qtest-wp607a-native-gui-gate.txt`,
+    `logs/run-wp607a-native-gui-gate.log`).
+  - `automated.json` passed the runner's frozen schema validation
+    (`validate_record(record, "windows-x64")` — run locally against the
+    downloaded artifact). `evidence.json` was not assembled by CI because
+    the runner refuses assembly after a failed capture (2 failed cells).
+
+### 3.1 Windows cell dispositions
+
+| Cell | Disposition | Note |
+|---|---|---|
+| A01 open-close-reopen | PASS | Open, close and reopen of `ui-rgb8-five-filters.png` kept title, image, chunk tree and Close action coherent. |
+| A02 drag-drop | BLOCKED | Raw record FAIL is the same cell-setup abort as macOS: the second `QFile::copy` failed at `tests/gui/wp_607a_native_gui_gate_test.cpp:793` — case-insensitive NTFS treats `wp607a-drop.png` as the already-created `wp607a-drop.PNG`. No product drag/drop interaction executed; same unblock action as section 2.2 (A02). |
+| A03 menu-shortcuts | PASS | File/View identities, native Open/Close/Quit shortcuts and visibility toggles retained their frozen identities. |
+| A04 dock-float-reset | PASS | Both docks floated and Reset Layout restored areas, visibility and bounded widths. Qt logged a non-fatal hosted-VM geometry clamp (`QWindowsWindow::setGeometry` on `HyperVMonitor`: requested 1200x760, resulting 1028x749); the cell's assertions all passed at the clamped size. |
+| A05 keyboard-focus | PASS | Real Tab/Shift-Tab events covered xCoordinate, yCoordinate, lockCoordinate, numericBase, previewTabs, hexSourceTabs and inspectorTabs; traversal wrapped without a trap. (Windows does not gate button/checkbox Tab-reachability behind Full Keyboard Access, unlike macOS — cf. section 2.2 A05.) |
+| A06 accessible-tree | FAIL | Executed snapshot: `chunksDock:role-9` plus the same six inactive-tab-page invisibles as macOS (`compressionInspectorPages`, `blockInspector`, the three compression tables, `compressionContextStatus`). Role 9 = `Window`: the Windows QAccessible backend maps the `QDockWidget` to `Window`, while the frozen expectation `Pane` was taken from the macOS mapping — platform backend behavior, not a product defect; the dock exposes a non-empty stable name and usable state on both. The six invisibles are the same test over-assertion (correct a11y semantics for hidden pages). Unblock = controller-authorized amendment (per-platform role expectation; visible-state assertions only for currently displayed controls). |
+| A07 clipboard | PASS | Synthetic value round-trip per product-gate precedent (5U12F) through the native clipboard; analysis generation and ready state stayed unchanged. |
+| A08 rapid-switch | PASS | 12 alternating valid/malformed opens published only the twelfth generation with ready context, rows and image; close and reopen stayed responsive and restored a usable document. |
+| A09 chunk-file-bytes | PASS | Selecting the IHDR and IDAT rows navigated File Hex to the exact chunk header offsets 8 and 33 with envelope highlights. |
+| A10 stage-pixel | PASS | Selecting delivered pixel (1, 1) updated the reconstruction report and Compression Current context; a manual Decode Trace row selection stayed independent. |
+| A11 pixel-token-bits | PASS | Match token 2 carried DeflateBitRange [128, 132) mapped to 1 physical File span in Hex (bounded Trace resolved under the 10 s deadline). |
+| statistics-export | out_of_scope | Declared in the record; never PASS. |
+| apng-timeline | out_of_scope | Declared in the record; never PASS. |
+
+Windows automated status: **FAIL** (A06 executed failure recorded honestly;
+A02 recorded BLOCKED with the exact unblock action, disclosed against the
+raw FAIL). No production code changed.
 
 ## 4. Ubuntu 24.04 LTS x86_64 — automated native matrix
 
