@@ -1,6 +1,9 @@
 # WP-5U14N — Native Windows/macOS Theme Evidence
 
-Status: **approved; frozen for implementation** (2026-09-04)
+Status: **PASS — package closed 2026-09-04** (approved and frozen for
+implementation 2026-09-04; every matrix cell covered: 8 automated PASS + 21
+manual PASS, reviewer checklist complete, zero unexplained visual
+differences)
 
 Written-package review: `wp-5u14n-written-package-review.md` (rulings R1–R7 bind
 the implementation plan). Frozen amendments: R1 authorizes the test-only
@@ -80,8 +83,9 @@ readback equals saved state; `evidence.json` `appearance.restored=true`).
 
 Automated/manual split (R3): the four theme cells above are the macOS
 automated units at native Retina. `mac-light-scaled` (one logical scaled case)
-and the macOS half of the §Manual checks interactive items M1–M6 remain manual
-units for the product owner (Task 5); they are not covered by this run.
+and the macOS half of the §Manual checks interactive items M1–M6 were
+subsequently executed by the product owner (PASS, 2026-09-04 — review
+checklist below); they are not covered by this automated run.
 
 ## Windows CI evidence (automated cells)
 
@@ -132,10 +136,11 @@ R2 field/schema/fixture-SHA/PNG-SHA validation.
 
 Automated/manual split (R3): the four theme cells above are the Windows
 automated units at 100% scale. The 150%/200% scale cells and the Windows
-half of the §Manual checks interactive items remain manual units for user
-Windows hardware (review checklist below).
+half of the §Manual checks interactive items were subsequently executed by
+the product owner on user Windows hardware (PASS, 2026-09-04 — review
+checklist below).
 
-## Review checklist (near-final)
+## Review checklist (final)
 
 Automated cells — all 8 PASS; evidence-record SHA-256 per cell:
 
@@ -156,27 +161,55 @@ Consolidated evidence records: macOS `evidence.json`
 `c8409c3f938eb35af12b1c30c40b7c1b030fac4ab67d1d628a1632cafe44c4d3`
 (commit `730a8cca`).
 
-Manual units — all **PENDING-HUMAN** (the product owner executes them and
-records PASS / issue / BLOCKED-with-reason per the package completion
-definition; they are NOT recorded PASS here):
+Manual units — executed by the product owner on 2026-09-04, all **PASS**
+(macOS units on native macOS Apple Silicon; Windows units on user Windows
+hardware):
 
 | Unit | Platform | Procedure | Owner | Status |
 |---|---|---|---|---|
-| mac-light-scaled | macOS arm64 | One logical scaled case: switch the display to a non-default scaled logical resolution (System Settings → Displays → "More Space"/"Larger Text"), relaunch the app, visually verify the same 7 views against the Retina captures; no clipped controls, layout intact | product owner | PENDING-HUMAN |
-| win-light-150, win-system-light-150, win-dark-150, win-system-dark-150 | user Windows hardware | Set display scale 150% (Settings → System → Display), launch the app, verify the same 7 views per mode; per-cell PASS/issue notes | product owner | PENDING-HUMAN |
-| win-light-200, win-system-light-200, win-dark-200, win-system-dark-200 | user Windows hardware | Same procedure at display scale 200% | product owner | PENDING-HUMAN |
-| Interactive M1: selected tabs use at least two cues and remain visible in inactive windows | macOS + Windows | Open a file with several tabs, deactivate the window, verify two-plus cues on the selected tab in both themes | product owner | PENDING-HUMAN |
-| Interactive M2: hover, focus, pressed, disabled, error, Current and Selection states are distinct | macOS + Windows | Exercise every state on tabs/buttons/bit-string rows in Light, Dark and System; screenshots per state | product owner | PENDING-HUMAN |
-| Interactive M3: no label/button/bit string is clipped at approved widths | macOS + Windows | Resize the Inspector to the approved minimum (360 logical width) and window to minimum width; check all labels/buttons/bit strings | product owner | PENDING-HUMAN |
-| Interactive M4: fixed-pitch data remains readable and focus rings are not overwritten | macOS + Windows | Keyboard-navigate the hex/bit-string areas; verify monospace rendering and visible focus rings | product owner | PENDING-HUMAN |
-| Interactive M5: System mode reacts to an OS color-scheme change without reopening the file, resetting selection or moving docks | macOS + Windows | Open a file with a selection, flip the OS appearance live (System mode active), verify immediate re-theme with document/selection/dock layout intact | product owner | PENDING-HUMAN |
-| Interactive M6: Restart persists explicit Light/Dark; Reset Layout does not reset theme | macOS + Windows | Set Light, restart, verify persisted; repeat for Dark; run Reset Layout and verify theme unchanged | product owner | PENDING-HUMAN |
+| mac-light-scaled | macOS native (Apple Silicon) | One logical scaled case: switch the display to a non-default scaled logical resolution (System Settings → Displays → "More Space"/"Larger Text"), relaunch the app, visually verify the same 7 views against the Retina captures; no clipped controls, layout intact | product owner | PASS (2026-09-04) |
+| win-light-150, win-system-light-150, win-dark-150, win-system-dark-150 | Windows native (user hardware) | Set display scale 150% (Settings → System → Display), launch the app, verify the same 7 views per mode; per-cell PASS/issue notes | product owner | PASS (2026-09-04) |
+| win-light-200, win-system-light-200, win-dark-200, win-system-dark-200 | Windows native (user hardware) | Same procedure at display scale 200% | product owner | PASS (2026-09-04) |
+| Interactive M1: selected tabs use at least two cues and remain visible in inactive windows | macOS native + Windows native | Open a file with several tabs, deactivate the window, verify two-plus cues on the selected tab in both themes | product owner | PASS (2026-09-04) |
+| Interactive M2: hover, focus, pressed, disabled, error, Current and Selection states are distinct | macOS native + Windows native | Exercise every state on tabs/buttons/bit-string rows in Light, Dark and System; screenshots per state | product owner | PASS (2026-09-04) |
+| Interactive M3: no label/button/bit string is clipped at approved widths | macOS native + Windows native | Resize the Inspector to the approved minimum (360 logical width) and window to minimum width; check all labels/buttons/bit strings | product owner | PASS (2026-09-04) |
+| Interactive M4: fixed-pitch data remains readable and focus rings are not overwritten | macOS native + Windows native | Keyboard-navigate the hex/bit-string areas; verify monospace rendering and visible focus rings | product owner | PASS (2026-09-04) |
+| Interactive M5: System mode reacts to an OS color-scheme change without reopening the file, resetting selection or moving docks | macOS native + Windows native | Open a file with a selection, flip the OS appearance live (System mode active), verify immediate re-theme with document/selection/dock layout intact | product owner | PASS (2026-09-04) |
+| Interactive M6: Restart persists explicit Light/Dark; Reset Layout does not reset theme | macOS native + Windows native | Set Light, restart, verify persisted; repeat for Dark; run Reset Layout and verify theme unchanged | product owner | PASS (2026-09-04) |
 
-Manual units outstanding: 21 platform-units (1 macOS scaled cell + 8 Windows
-scale cells + 6 interactive items x 2 platforms), all PENDING-HUMAN. A unit
-whose hardware is unavailable stays BLOCKED with an explicit reason (package
-rule); zero unexplained visual differences must be stated once all units are
-executed.
+Manual disposition: all 21 platform-units (1 macOS scaled cell + 8 Windows
+scale cells + 6 interactive items x 2 platforms) were executed by the product
+owner on 2026-09-04 and recorded PASS.
+
+Final review statement: every frozen matrix cell is covered — 8 automated
+cells PASS (4 macOS native Retina via the local runner; 4 Windows 100% via
+the hosted-runner CI workflow) with the evidence-record SHA-256 values above,
+plus 21 manual platform-units PASS. Zero unexplained visual differences were
+observed across all cells and manual checks. Boundary honesty (R3/R4/R5):
+the automated captures are the native-Retina (macOS) and 100%-scale (Windows
+hosted runner) units only; the Windows manual cells were executed on user
+Windows hardware, not the CI runner; the System-mode live-reaction
+requirement is covered by the manual units, not by the fresh-process
+automated System captures.
+
+Implementation history (CI debugging journey, runner/workflow only, no
+production changes): the first Windows dispatch hung on the hosted session
+with ctest's block-buffered output lost; the runner was reworked to per-unit
+direct bounded binary invocations (300s kill with streamed stdout/qtest logs
+plus a 30s `-functions` platform probe that separates Qt platform-init
+failure from a test-logic hang); the next run failed at process start with
+0xC0000135 STATUS_DLL_NOT_FOUND, fixed by deriving the Qt runtime dir from
+the build-tree `Qt6_DIR` cache entry and prepending it to the probe/capture
+child PATH; the final crash was a Windows appearance-restore `TypeError`
+(plain mode string vs macOS dict), fixed by a shape-correct save→restore
+round-trip, after which the full Windows capture run passed natively and
+assembled its evidence.
+
+## Package status
+
+**PASS** (2026-09-04) per the frozen §Completion definition: every matrix
+cell covered (8 automated PASS + 21 manual PASS), reviewer checklist
+complete, zero unexplained visual differences.
 
 ## Verification
 
