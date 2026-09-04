@@ -1,6 +1,12 @@
 # WP-5U14N — Native Windows/macOS Theme Evidence
 
-Status: **design approved; pending written-package review** (2026-09-01)
+Status: **approved; frozen for implementation** (2026-09-04)
+
+Written-package review: `wp-5u14n-written-package-review.md` (rulings R1–R7 bind
+the implementation plan). Frozen amendments: R1 authorizes the test-only
+capture target `pnga_gui_wp_5u14n_native_capture_tests`; R6 corrects this
+section's verification command (`pnga_gui_tests` does not exist — use
+`pnga_gui_application_theme_tests`).
 
 ## Goal
 
@@ -49,7 +55,7 @@ fixture SHA-256 and capture timestamp in UTC.
 ## Verification
 
 ```text
-cmake --build --preset dev --target pnga_analyzer_gui pnga_gui_tests --parallel 4
+cmake --build --preset dev --target pnga_analyzer_gui pnga_gui_application_theme_tests --parallel 4
 ctest --preset dev -R 'application_theme|main_window|cross_platform_gui|compression_inspector' --output-on-failure
 python3 scripts/run_gui_gate.py
 python3 scripts/run_qt_package_smoke.py
