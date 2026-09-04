@@ -318,6 +318,57 @@ set_tests_properties(gui_compression_inspector_product_gate_tests PROPERTIES
   ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
   LABELS "gui;wp607c;wp5u12")
 
+# WP-5U14N native theme evidence capture target (R1: test-only). Renders the
+# real MainWindow on the native platform only; entries skip under offscreen
+# (R7). One CTest entry per requested theme mode; the System entry is
+# decorrelated from the OS appearance through PNGA_WP5U14N_OS_MODE so the
+# orchestrator can capture System Light and System Dark cells in fresh
+# processes. The git commit is baked at configure time and may be overridden
+# per run through PNGA_WP5U14N_COMMIT.
+execute_process(
+  COMMAND git rev-parse HEAD
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  OUTPUT_VARIABLE PNGA_WP5U14N_GIT_COMMIT_VALUE
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  RESULT_VARIABLE PNGA_WP5U14N_GIT_COMMIT_RESULT
+  ERROR_QUIET)
+if(NOT PNGA_WP5U14N_GIT_COMMIT_RESULT EQUAL 0)
+  set(PNGA_WP5U14N_GIT_COMMIT_VALUE "unknown")
+endif()
+
+add_executable(pnga_gui_wp_5u14n_native_capture_tests
+  wp_5u14n_native_capture_test.cpp
+  ${PNGA_GUI_APP_TEST_SOURCES}
+)
+set_target_properties(pnga_gui_wp_5u14n_native_capture_tests PROPERTIES AUTOMOC ON)
+target_include_directories(pnga_gui_wp_5u14n_native_capture_tests PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../apps/png-analyzer-gui/src
+)
+target_link_libraries(pnga_gui_wp_5u14n_native_capture_tests PRIVATE
+  pnga::ui_qt
+  pnga::analysis_engine
+  pnga::png_format
+  pnga::io
+  pnga::core
+  Qt6::Test
+)
+target_compile_features(pnga_gui_wp_5u14n_native_capture_tests PRIVATE cxx_std_20)
+target_compile_definitions(pnga_gui_wp_5u14n_native_capture_tests PRIVATE
+  PNGA_WP607C_CORPUS_DIR="${CMAKE_BINARY_DIR}/tests/corpus/wp-607c"
+  PNGA_WP5U14N_GIT_COMMIT="${PNGA_WP5U14N_GIT_COMMIT_VALUE}")
+
+foreach(pair light:Light system:System dark:Dark)
+  string(REPLACE ":" ";" slot_pair ${pair})
+  list(GET slot_pair 0 mode)
+  list(GET slot_pair 1 slot_name)
+  add_test(NAME wp5u14n_capture_${mode}
+    COMMAND pnga_gui_wp_5u14n_native_capture_tests capture${slot_name})
+  set_tests_properties(wp5u14n_capture_${mode} PROPERTIES
+    FIXTURES_REQUIRED wp607c-generated-corpus
+    ENVIRONMENT "PNGA_WP5U14N_OUT=${CMAKE_BINARY_DIR}/evidence/wp-5u14n"
+    LABELS "native-capture;wp5u14n")
+endforeach()
+
 add_executable(pnga_gui_cross_platform_gate_tests
   cross_platform_gui_gate_test.cpp
   ${PNGA_GUI_APP_TEST_SOURCES}
@@ -481,6 +532,7 @@ add_custom_target(pnga_gui_tests DEPENDS
   pnga_gui_wp607c_corpus_tests
   pnga_gui_compression_inspector_responsive_tests
   pnga_gui_compression_inspector_product_gate_tests
+  pnga_gui_wp_5u14n_native_capture_tests
   pnga_gui_cross_platform_gate_tests
   pnga_gui_stage_inspector_tests
   pnga_gui_block_inspector_tests
