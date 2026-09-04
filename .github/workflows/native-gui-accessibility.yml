@@ -171,6 +171,6 @@ jobs:
         with:
           name: wp607a-native-gui-accessibility-windows
           path: |
-            build/dev/evidence/wp-607a/
+            build/evidence/wp-607a/
             build/dev/Testing/Temporary/LastTest.log
           if-no-files-found: ignore
