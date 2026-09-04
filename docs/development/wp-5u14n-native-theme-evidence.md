@@ -52,6 +52,37 @@ fixture SHA-256 and capture timestamp in UTC.
   resetting selection or moving docks;
 - Restart persists explicit Light/Dark; Reset Layout does not reset theme.
 
+## macOS evidence (automated cells)
+
+Formal clean-directory run, 2026-09-04 (main `a125a5d`), produced by
+`python3 scripts/run_wp_5u14n_capture.py --platform macos --preset dev --jobs 4`;
+runner exit 0, `evidence.json` status `PASS`. Host: macOS Tahoe 26.6.2, arm64,
+Qt 6.11.1, native Retina (logical DPI 72, device-pixel ratio 2.00), window
+1200x760. Evidence tree: `build/dev/evidence/wp-5u14n/` (git-ignored).
+
+Evidence record `evidence.json` SHA-256:
+`c1febc87c91d891232f372bf734c81603349d233ac7721507e2bdc9df3e618b6`
+
+| Cell id | Views captured | Record reference (record SHA-256) | Result |
+|---|---|---|---|
+| mac-light-retina | 7/7 (default, blocks, huffman, decode-trace, narrow-inspector, focus, stored) | `3871305b257918e108ed1a59083c243f1f287474f98bd070f9850123db9521c1` | captured (PASS) |
+| mac-system-light-retina | 7/7 (same views; OS Light via appearance flip, fresh process) | `5b2de5371c0755effdfd8fa9abacef7849ac43e02d3237e09fb469eeee0688a0` | captured (PASS) |
+| mac-dark-retina | 7/7 (same views) | `f2e5e886d2c62f3d9aa842f26e576ebf32002bd229193f224a7749b8b2218491` | captured (PASS) |
+| mac-system-dark-retina | 7/7 (same views; OS Dark via appearance flip, fresh process) | `269fc1679f98301bdd2cd124580b568f543facc0a2d2fbae4fc76e66d1ab1a42` | captured (PASS) |
+
+Captures: 4 cells x 7 views = 28 PNGs under `captures/`, one validated
+`pnga-wp5u14n-native-capture-v1` record per cell under `records/`; every
+record passed the runner's R2 field/schema/fixture-SHA/PNG-SHA validation.
+
+Appearance restore: pre-run state `light` was saved before the first System
+flip and re-applied after the run (`appearance restored: light (verified)`,
+readback equals saved state; `evidence.json` `appearance.restored=true`).
+
+Automated/manual split (R3): the four theme cells above are the macOS
+automated units at native Retina. `mac-light-scaled` (one logical scaled case)
+and the macOS half of the §Manual checks interactive items M1–M6 remain manual
+units for the product owner (Task 5); they are not covered by this run.
+
 ## Verification
 
 ```text
