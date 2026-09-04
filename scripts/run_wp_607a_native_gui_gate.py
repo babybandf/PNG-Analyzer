@@ -335,8 +335,11 @@ def plan_commands(platform_id, preset, jobs):
     a kill and a Qt platform-level hang (the 30s -functions probe) is
     distinguishable from a test-logic hang. The corpus fixture runs as one
     explicit bounded ctest step before the probe and capture, replacing the
-    implicit FIXTURES_REQUIRED dependency. Schema validation and SHA assembly
-    are runner-internal plan steps after the capture.
+    implicit FIXTURES_REQUIRED dependency. The macOS plan alone wraps the
+    capture in enable-fka/restore-fka (Full Keyboard Access flip with
+    read-back verified save/restore, re-execution ruling 2). Schema
+    validation and SHA assembly are runner-internal plan steps after the
+    capture.
     """
     out = out_root(platform_id)
     binary = (f"build/{preset}/tests/gui/{GATE_TARGET}"
@@ -348,7 +351,7 @@ def plan_commands(platform_id, preset, jobs):
         "PNGA_WP607A_PLATFORM": platform_id,
         "PNGA_WP607A_COMMAND": command,
     }
-    return [
+    steps = [
         {"kind": "build",
          "command": ["cmake", "--build", "--preset", preset, "--target",
                      GATE_TARGET, "--parallel", str(jobs)],
@@ -359,12 +362,25 @@ def plan_commands(platform_id, preset, jobs):
          "env": None},
         {"kind": "probe", "command": [binary, "-functions"],
          "env": dict(gate_env)},
+    ]
+    # Re-execution ruling 2: macOS gates Tab traversal behind Full Keyboard
+    # Access (OFF by default), so the runner flips FKA on for the capture
+    # and restores the saved host state with read-back verification. The
+    # restore-fka step runs on the success path; the try/finally in the
+    # executor covers every failure path after the enable.
+    if platform_id == "macos-arm64":
+        steps.append({"kind": "enable-fka", "unit": FKA_UNIT})
+    steps.append(
         {"kind": "capture", "unit": GATE_UNIT,
          "command": [binary, "-o", f"{out}/logs/qtest-{GATE_UNIT}.txt,txt"],
-         "env": dict(gate_env)},
+         "env": dict(gate_env)})
+    if platform_id == "macos-arm64":
+        steps.append({"kind": "restore-fka", "unit": FKA_UNIT})
+    steps.extend([
         {"kind": "validate", "unit": "automated.json"},
         {"kind": "assemble", "unit": "evidence.json"},
-    ]
+    ])
+    return steps
 
 
 def run(command, *, capture=False, env=None):
@@ -458,13 +474,98 @@ def windows_session_ok(session_name):
 
 
 def macos_windowserver_ok(env):
-    """A native cocoa run needs a logged-in WindowServer session."""
+    """A native cocoa run needs a logged-in WindowServer session.
+
+    Note (macOS 26): launchd no longer exports SECURITYSESSIONID into the
+    environment of GUI processes at all, so this check accepts any real
+    Aqua/WindowServer session evidence — such as the genuine session id
+    restored from Security.framework SessionGetInfo by the invoking
+    environment (re-execution ruling 4: no behavior change).
+    """
     return bool(env.get("SECURITYSESSIONID"))
 
 
 def linux_display_ok(env):
     """A native Ubuntu run needs an X11 or Wayland session socket."""
     return bool(env.get("DISPLAY") or env.get("WAYLAND_DISPLAY"))
+
+
+# --- macOS Full Keyboard Access flip (re-execution ruling 2) -------------------
+#
+# macOS gates Tab traversal to buttons/checkboxes behind Full Keyboard
+# Access, which is OFF by default, so the A05 keyboard-only walk cannot
+# reach lockCoordinate at host defaults. The runner enables FKA for the
+# gate with the same save/restore discipline as the WP-5U14N appearance
+# flips: save -> write -> read-back verified -> restore -> read-back
+# verified, and any restore/write mismatch is REFUSED, never a PASS.
+
+FKA_UNIT = "fka-AppleKeyboardUIMode"
+FKA_DOMAIN = "NSGlobalDomain"
+FKA_KEY = "AppleKeyboardUIMode"
+FKA_ENABLED_VALUE = 3
+
+
+def fka_read_command():
+    return ["defaults", "read", FKA_DOMAIN, FKA_KEY]
+
+
+def fka_write_command(value):
+    return ["defaults", "write", FKA_DOMAIN, FKA_KEY, "-int", str(value)]
+
+
+def fka_delete_command():
+    return ["defaults", "delete", FKA_DOMAIN, FKA_KEY]
+
+
+def fka_value_from_output(text):
+    """Parses a `defaults read` value: an integer, or None when the key is
+    absent (a failed read) or holds a non-integer value."""
+    text = (text or "").strip()
+    return int(text) if text.isdigit() else None
+
+
+def fka_current_value():
+    result = subprocess.run(fka_read_command(), cwd=str(ROOT), check=False,
+                            capture_output=True, text=True, timeout=15)
+    if result.returncode != 0:
+        return None
+    return fka_value_from_output(result.stdout)
+
+
+def run_fka_command(command):
+    return subprocess.run(command, cwd=str(ROOT), check=False,
+                          capture_output=True, text=True, timeout=15)
+
+
+def enable_fka():
+    """Saves the current FKA value, enables Full Keyboard Access for the
+    gate and verifies the write by reading back. Refused on any mismatch,
+    after a best-effort restore of the saved value."""
+    saved = fka_current_value()
+    run_fka_command(fka_write_command(FKA_ENABLED_VALUE))
+    if fka_current_value() != FKA_ENABLED_VALUE:
+        try:
+            restore_fka(saved)
+        except Refused:
+            pass
+        raise Refused(
+            f"{FKA_KEY} write did not read back as {FKA_ENABLED_VALUE}; the "
+            "macOS gate refuses to capture without verified FKA state")
+    return saved
+
+
+def restore_fka(saved):
+    """Restores the saved FKA value (None = key was absent, so delete) and
+    verifies by reading back; Refused on mismatch."""
+    command = (fka_delete_command() if saved is None
+               else fka_write_command(saved))
+    run_fka_command(command)
+    actual = fka_current_value()
+    if actual != saved:
+        raise Refused(
+            f"{FKA_KEY} restore mismatch: expected {saved!r}, read back "
+            f"{actual!r}; the host keyboard-access state must be restored "
+            "exactly (appearance save/restore discipline)")
 
 
 def xvfb_marker_in(process_list):
@@ -667,66 +768,83 @@ def run_gate(platform_id, preset, jobs):
     qt_dir = qt_runtime_dir_from_cache(ROOT / "build" / preset /
                                        "CMakeCache.txt")
     record = None
-    for step in steps:
-        kind = step["kind"]
-        if kind in ("build", "fixture"):
-            result = run(step["command"])
-            if result.returncode != 0:
-                raise SystemExit(
-                    f"WP-607A gate: FAIL at {kind} step"
-                    + (f" ({CORPUS_TEST})" if kind == "fixture" else "")
-                    + "; no evidence assembled")
-        elif kind in ("probe", "capture"):
-            env = child_environment(step["env"], qt_dir)
-            unit = step.get("unit", kind)
-            log_name = ("probe-functions.log" if kind == "probe"
-                        else f"run-{unit}.log")
-            timeout = (PROBE_TIMEOUT_SECONDS if kind == "probe"
-                       else GATE_TIMEOUT_SECONDS)
-            code = run_bounded(step["command"], out_dir / "logs" / log_name,
-                               timeout=timeout, env=env)
-            if code is None:
-                detail = ("the Qt platform itself cannot initialize"
-                          if kind == "probe" else
-                          "no evidence assembled. qtest log tail:\n"
-                          + qtest_log_tail(out_dir, unit))
-                raise SystemExit(
-                    f"WP-607A gate: FAIL at {kind} step ({unit} timed out "
-                    f"after {timeout}s; child killed; {detail})")
-            if code != 0:
-                raise SystemExit(
-                    f"WP-607A gate: FAIL at {kind} step ({unit} exited "
-                    f"{code}); no evidence assembled. qtest log tail:\n"
-                    + qtest_log_tail(out_dir, unit))
-        elif kind == "validate":
-            record = validate_and_load_record(out_dir, platform_id,
-                                              fixture_hashes)
-            print(f"WP-607A gate: validated {len(record['cells'])} automated "
-                  f"cells ({record['status']})", flush=True)
-        elif kind == "assemble":
-            if record is None:
-                raise SystemExit("WP-607A gate: assembly ran before "
-                                 "validation; refusing to write evidence")
-            artifacts = {
-                "automated.json": sha256_file(out_dir / "automated.json"),
-            }
-            evidence = {
-                "schema": SCHEMA,
-                "work_package": WORK_PACKAGE,
-                "status": record["status"],
-                "platform": platform_id,
-                "preset": preset,
-                "commit": git_commit(),
-                "time_utc": utc_now(),
-                "corpus_revision": CORPUS_REVISION,
-                "fixtures": fixture_hashes,
-                "out_of_scope": list(OUT_OF_SCOPE_IDS),
-                "artifacts": artifacts,
-                "cells": record["cells"],
-            }
-            write_evidence(out_dir, evidence)
-        else:
-            raise SystemExit(f"WP-607A gate: unknown plan step {kind!r}")
+    saved_fka = None
+    try:
+        for step in steps:
+            kind = step["kind"]
+            if kind in ("build", "fixture"):
+                result = run(step["command"])
+                if result.returncode != 0:
+                    raise SystemExit(
+                        f"WP-607A gate: FAIL at {kind} step"
+                        + (f" ({CORPUS_TEST})" if kind == "fixture" else "")
+                        + "; no evidence assembled")
+            elif kind == "enable-fka":
+                saved_fka = enable_fka()
+            elif kind == "restore-fka":
+                restore_fka(saved_fka)
+                saved_fka = None
+            elif kind in ("probe", "capture"):
+                env = child_environment(step["env"], qt_dir)
+                unit = step.get("unit", kind)
+                log_name = ("probe-functions.log" if kind == "probe"
+                            else f"run-{unit}.log")
+                timeout = (PROBE_TIMEOUT_SECONDS if kind == "probe"
+                           else GATE_TIMEOUT_SECONDS)
+                code = run_bounded(step["command"], out_dir / "logs" /
+                                   log_name, timeout=timeout, env=env)
+                if code is None:
+                    detail = ("the Qt platform itself cannot initialize"
+                              if kind == "probe" else
+                              "no evidence assembled. qtest log tail:\n"
+                              + qtest_log_tail(out_dir, unit))
+                    raise SystemExit(
+                        f"WP-607A gate: FAIL at {kind} step ({unit} timed "
+                        f"out after {timeout}s; child killed; {detail})")
+                if code != 0:
+                    raise SystemExit(
+                        f"WP-607A gate: FAIL at {kind} step ({unit} exited "
+                        f"{code}); no evidence assembled. qtest log tail:\n"
+                        + qtest_log_tail(out_dir, unit))
+            elif kind == "validate":
+                record = validate_and_load_record(out_dir, platform_id,
+                                                  fixture_hashes)
+                print(f"WP-607A gate: validated {len(record['cells'])} "
+                      f"automated cells ({record['status']})", flush=True)
+            elif kind == "assemble":
+                if record is None:
+                    raise SystemExit("WP-607A gate: assembly ran before "
+                                     "validation; refusing to write "
+                                     "evidence")
+                artifacts = {
+                    "automated.json": sha256_file(out_dir / "automated.json"),
+                }
+                evidence = {
+                    "schema": SCHEMA,
+                    "work_package": WORK_PACKAGE,
+                    "status": record["status"],
+                    "platform": platform_id,
+                    "preset": preset,
+                    "commit": git_commit(),
+                    "time_utc": utc_now(),
+                    "corpus_revision": CORPUS_REVISION,
+                    "fixtures": fixture_hashes,
+                    "out_of_scope": list(OUT_OF_SCOPE_IDS),
+                    "artifacts": artifacts,
+                    "cells": record["cells"],
+                }
+                write_evidence(out_dir, evidence)
+            else:
+                raise SystemExit(f"WP-607A gate: unknown plan step {kind!r}")
+    finally:
+        # Re-execution ruling 2: after the FKA enable, EVERY exit path —
+        # capture failure, timeout, signal, validation refusal — restores
+        # the saved host keyboard-access state with read-back verification
+        # (appearance save/restore discipline). The restore-fka plan step
+        # already ran on the success path, so the finally is a no-op there.
+        if saved_fka is not None:
+            restore_fka(saved_fka)
+            saved_fka = None
     status = record["status"] if record is not None else "FAIL"
     print(f"WP-607A native gui gate: {status} evidence="
           f"{out_root(platform_id)}/evidence.json")
@@ -855,8 +973,9 @@ def run_self_test():
         failures.append("manual template must exclude personal fields")
 
     # The gate plan must equal the pinned order exactly: build target ->
-    # bounded wp607c corpus fixture -> native platform probe -> one direct
-    # bounded gate invocation -> schema validation -> SHA assembly.
+    # bounded wp607c corpus fixture -> native platform probe -> (macOS only)
+    # the FKA enable -> one direct bounded gate invocation -> (macOS only)
+    # the FKA restore -> schema validation -> SHA assembly.
     macos_binary = "build/dev/tests/gui/pnga_gui_wp_607a_native_gui_gate_tests"
     windows_binary = macos_binary + ".exe"
     macos_gate_env = {
@@ -877,11 +996,13 @@ def run_self_test():
          "env": None},
         {"kind": "probe", "command": [macos_binary, "-functions"],
          "env": dict(macos_gate_env)},
+        {"kind": "enable-fka", "unit": FKA_UNIT},
         {"kind": "capture", "unit": GATE_UNIT,
          "command": [macos_binary, "-o",
                      "build/evidence/wp-607a/macos-arm64/logs/"
                      f"qtest-{GATE_UNIT}.txt,txt"],
          "env": dict(macos_gate_env)},
+        {"kind": "restore-fka", "unit": FKA_UNIT},
         {"kind": "validate", "unit": "automated.json"},
         {"kind": "assemble", "unit": "evidence.json"},
     ]
@@ -972,6 +1093,24 @@ def run_self_test():
         failures.append("an X11 display must be accepted")
     if not linux_display_ok({"WAYLAND_DISPLAY": "wayland-0"}):
         failures.append("a Wayland display must be accepted")
+
+    # FKA flip helpers (re-execution ruling 2): exact commands and the pure
+    # read parser; the real save/enable/restore flip is exercised only by a
+    # native macOS run (subprocess-bound, host-independent self-test).
+    if fka_read_command() != ["defaults", "read", "NSGlobalDomain",
+                              "AppleKeyboardUIMode"]:
+        failures.append("fka read command drift")
+    if fka_write_command(3) != ["defaults", "write", "NSGlobalDomain",
+                                "AppleKeyboardUIMode", "-int", "3"]:
+        failures.append("fka write command drift")
+    if fka_delete_command() != ["defaults", "delete", "NSGlobalDomain",
+                                "AppleKeyboardUIMode"]:
+        failures.append("fka delete command drift")
+    for fka_text, fka_expected in (("3", 3), (" 2\n", 2),
+                                   ("does not exist", None), ("", None),
+                                   ("off", None)):
+        if fka_value_from_output(fka_text) != fka_expected:
+            failures.append(f"fka value parse drift for {fka_text!r}")
     if not xvfb_marker_in("/usr/bin/Xvfb :99 -screen 0 1024x768x24"):
         failures.append("the Xvfb marker was not detected")
     if xvfb_marker_in("/usr/libexec/Xorg :0 -auth /private/var/x"):
@@ -1142,11 +1281,11 @@ def run_self_test():
         print(f"WP-607A self-test: {len(failures)} failure(s)")
         return 1
     print("WP-607A self-test: PASS")
-    print("self-test: schema/refusal contract, gate command plans, "
-          "preflight refusals, corpus and dirty-dir gates, bounded "
-          "invocation mechanics, Qt runtime derivation (L1), manual "
-          "template and aggregate validation all match the frozen "
-          "contract")
+    print("self-test: schema/refusal contract, gate command plans (incl. "
+          "the macOS FKA enable/restore pair), preflight refusals, corpus "
+          "and dirty-dir gates, bounded invocation mechanics, Qt runtime "
+          "derivation (L1), FKA command/parser helpers, manual template "
+          "and aggregate validation all match the frozen contract")
     return 0
 
 
