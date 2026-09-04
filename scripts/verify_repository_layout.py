@@ -227,8 +227,20 @@ def check_corpus(rpt, files):
         return
     try:
         import yaml
-        data = yaml.safe_load(manifest.read_text()) or []
+    except ImportError:
+        rpt.warn("PyYAML unavailable: corpus manifest records not validated; "
+                 "tracked-file policy still enforced")
+        for f in binary:
+            rpt.error(f"tests/corpus fixture without manifest entry: "
+                      f"{Path(*f.parts[2:]).as_posix()}")
+        return
     except Exception:
+        rpt.error("tests/corpus/manifest.yaml could not be loaded: unexpected "
+                  "PyYAML failure")
+        return
+    try:
+        data = yaml.safe_load(manifest.read_text()) or []
+    except yaml.YAMLError:
         rpt.error("tests/corpus/manifest.yaml is not valid YAML")
         return
     if not isinstance(data, list):

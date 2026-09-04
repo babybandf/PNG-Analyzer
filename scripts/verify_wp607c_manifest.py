@@ -726,6 +726,13 @@ def refresh_generated_hashes(manifest_path, catalog):
 
 
 def main(argv=None):
+    try:
+        import yaml  # noqa: F401 — validated used throughout the module
+    except ImportError:
+        sys.stderr.write(
+            "verify_wp607c_manifest: PyYAML is required for manifest "
+            "validation (python -m pip install PyYAML)\n")
+        return 2
     parser = argparse.ArgumentParser(
         description="WP-607C controlled corpus manifest validator")
     parser.add_argument("--self-test", action="store_true",

@@ -50,6 +50,14 @@ jobs:
         with:
           python-version: "3.11"
 
+      # WP-607C: the corpus manifest verifiers and wp607c_manifest_tests parse
+      # tests/corpus/manifest.yaml with PyYAML. Pinned so CI validates the
+      # same records a developer machine does instead of degrading to
+      # path-policy-only checks.
+      - name: Provide PyYAML
+        shell: bash
+        run: python -m pip install PyYAML==6.0.2
+
       # catch2's vcpkg port runs vcpkg_fixup_pkgconfig and needs pkg-config at
       # build time. Windows obtains it through vcpkg automatically; Linux and
       # macOS require the system tool (bootstrap spec §7.1).
@@ -274,6 +282,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Provide PyYAML
+        shell: bash
+        run: python -m pip install PyYAML==6.0.2
 
       - name: Provide LLVM fuzzer toolchain
         shell: bash
