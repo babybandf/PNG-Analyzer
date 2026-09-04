@@ -34,6 +34,14 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
+      # The WP-607C corpus revision pins the exact bytes of four corpus
+      # source files (ruling R1). Git for Windows' default autocrlf=true
+      # would materialize CRLF line endings on checkout and change the
+      # hashed bytes, so the checkout must be byte-identical (LF).
+      - name: Pin byte-identical checkout (LF, no CRLF translation)
+        shell: bash
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
@@ -45,6 +53,16 @@ jobs:
       - name: Provide PyYAML
         shell: bash
         run: python -m pip install PyYAML==6.0.2
+
+      # Fast-failing guard: the checked-out corpus inputs must hash to the
+      # frozen WP-607C revision before anything expensive runs; a drift here
+      # fails with a clear message instead of the gate runner's refusal.
+      - name: Verify frozen corpus revision of the checkout
+        shell: bash
+        run: |
+          rev=$(python scripts/verify_wp607c_manifest.py --print-revision)
+          echo "corpus revision: $rev"
+          test "$rev" = "5df99ad82f145a3418a3c6715f76f677ca8194a02e86c0f810c6457aba92f16f"
 
       # Official Qt 6.8.3 LTS binaries (win64_msvc2022_64) fetched by the
       # pinned aqtinstall downloader. The project requires Qt 6.8+; QtTest
