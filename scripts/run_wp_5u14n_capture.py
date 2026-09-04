@@ -277,6 +277,27 @@ def qtest_log_tail(out_dir, unit, lines=15):
     return "\n".join(content.splitlines()[-lines:])
 
 
+def qt_runtime_dir_from_cache(cache_path):
+    """The Qt runtime directory derived from a CMakeCache.txt, or None.
+
+    Parses the `Qt6_DIR:PATH=<prefix>/lib/cmake/Qt6` entry; the runtime dir
+    is `<prefix>/bin` on Windows and `<prefix>/lib` on macOS (harmless to
+    prepend). A missing cache file or entry means no Qt kit in that build
+    tree; callers skip the PATH prepend silently (local macOS runs resolve
+    Qt through rpath anyway).
+    """
+    try:
+        text = Path(cache_path).read_text(encoding="utf-8",
+                                          errors="replace")
+    except OSError:
+        return None
+    match = re.search(r"^Qt6_DIR:PATH=(.+)$", text, re.MULTILINE)
+    if not match:
+        return None
+    prefix = Path(match.group(1).strip()).parent.parent.parent
+    return prefix / ("bin" if host_platform.system() == "Windows" else "lib")
+
+
 # --- OS appearance state (save / ensure / restore) ---------------------------
 
 def macos_read_appearance():
@@ -584,6 +605,13 @@ def run_capture(target, preset, jobs):
     fixture_hashes = load_corpus_registry(preset)
     expected_cells = {CELLS[(target, unit)] for unit, _, _ in MODE_UNITS}
     steps = plan_commands(target, preset, jobs)
+    # Resolve the Qt runtime dir once per run from the build-tree cache and
+    # prepend it to PATH for the probe/capture children: a Windows child
+    # fails with 0xC0000135 (STATUS_DLL_NOT_FOUND) when Qt6*.dll are not on
+    # PATH; build-tree PATH first so the freshly built exe always resolves
+    # the configured Qt.
+    qt_dir = qt_runtime_dir_from_cache(ROOT / "build" / preset /
+                                       "CMakeCache.txt")
     saved_appearance = None
     readback = None
     try:
@@ -604,6 +632,8 @@ def run_capture(target, preset, jobs):
             # Records must carry the commit the captures belong to, not the
             # configure-time snapshot baked into the binary.
             env.setdefault("PNGA_WP5U14N_COMMIT", git_commit())
+            if step["kind"] in ("probe", "capture") and qt_dir is not None:
+                env["PATH"] = str(qt_dir) + os.pathsep + env.get("PATH", "")
             if step["kind"] == "build":
                 result = run(step["command"], env=env)
                 if result.returncode != 0:
@@ -893,6 +923,28 @@ def run_self_test():
         if not record_violations(missing_png, out_dir, {cell},
                                  fixture_hashes):
             failures.append("missing capture PNG not rejected")
+
+    # Qt runtime derivation: a Qt6_DIR cache entry yields
+    # <prefix>/bin (Windows) or <prefix>/lib (other hosts); a missing cache
+    # file or entry is skipped silently (None) so rpath-only hosts keep
+    # working.
+    runtime_subdir = "bin" if host_platform.system() == "Windows" else "lib"
+    with tempfile.TemporaryDirectory() as temporary:
+        cache = Path(temporary) / "CMakeCache.txt"
+        cache.write_text("# some cache\n"
+                         "Qt6_DIR:PATH=/qt-prefix/lib/cmake/Qt6\n",
+                         encoding="utf-8")
+        derived = qt_runtime_dir_from_cache(cache)
+        if derived != Path("/qt-prefix") / runtime_subdir:
+            failures.append(f"qt runtime derivation drift: {derived}")
+        bare = Path(temporary) / "without-qt6.txt"
+        bare.write_text("CMAKE_HOME_DIRECTORY:INTERNAL=/x\n",
+                        encoding="utf-8")
+        if qt_runtime_dir_from_cache(bare) is not None:
+            failures.append("missing Qt6_DIR entry must be skipped")
+        if qt_runtime_dir_from_cache(
+                Path(temporary) / "absent-CMakeCache.txt") is not None:
+            failures.append("missing CMakeCache must be skipped")
 
     # The evidence serialization is deterministic, ASCII-only, LF-terminated,
     # sorted and free of absolute paths.

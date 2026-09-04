@@ -55,6 +55,12 @@ jobs:
           python -m pip install aqtinstall==3.3.0
           aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 --outputdir "${{ runner.temp }}\qt"
           Add-Content -Path $env:GITHUB_ENV -Value "CMAKE_PREFIX_PATH=${{ runner.temp }}\qt\6.8.3\msvc2022_64"
+          # Belt-and-suspenders: the Qt runtime DLL dir must be on PATH too —
+          # the capture binary exits 0xC0000135 (STATUS_DLL_NOT_FOUND) at
+          # process start when Qt6*.dll are not resolvable. The runner also
+          # derives this dir from the build-tree Qt6_DIR cache entry and
+          # prepends it to the probe/capture child PATH.
+          Add-Content -Path $env:GITHUB_PATH -Value "${{ runner.temp }}\qt\6.8.3\msvc2022_64\bin"
 
       # ci.yml precedent: windows-latest puts MinGW ahead of MSVC on PATH, so
       # source the official VS DevShell (no third-party action) and persist the
