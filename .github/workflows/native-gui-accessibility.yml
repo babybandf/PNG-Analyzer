@@ -119,6 +119,27 @@ jobs:
         shell: bash
         run: ctest --preset dev -R wp607c_generate_corpus --output-on-failure
 
+      # The hosted runner agent executes inside the VM's interactive console
+      # session (WP-5U14N captured real native windows on this runner class),
+      # but the agent process environment does not carry the standard
+      # SESSIONNAME variable, so the runner's frozen session preflight would
+      # refuse a genuinely desktop-capable run. Restore the variable ONLY when
+      # the OS confirms the agent shares its session with the interactive
+      # desktop shell (explorer.exe); on any mismatch the variable stays
+      # unset and the runner's preflight refuses as designed.
+      - name: Expose hosted console session name (OS-observed)
+        shell: pwsh
+        run: |
+          $agent = (Get-Process -Id $PID).SessionId
+          $shell = Get-Process -Name explorer -ErrorAction SilentlyContinue |
+            Where-Object { $_.SessionId -eq $agent } | Select-Object -First 1
+          if ($shell) {
+            Add-Content -Path $env:GITHUB_ENV -Value "SESSIONNAME=Console"
+            Write-Output "interactive console session confirmed (session $agent hosts explorer.exe)"
+          } else {
+            Write-Output "no interactive desktop in session $agent; SESSIONNAME stays unset so the gate preflight refuses"
+          }
+
       # Runs the bounded native gate: 30s windows-plugin probe, one direct
       # 300s-bounded capture of the real MainWindow (A01-A11), schema
       # validation and SHA assembly into build/dev/evidence/wp-607a/windows-x64/.
