@@ -8,12 +8,13 @@ Result vocabulary follows the package Error and status policy (R9): executed
 defects are FAIL; platform/hardware/screen-reader access gaps are BLOCKED;
 Statistics export and APNG timeline are explicit `out_of_scope`, never PASS.
 
-**Status so far (Tasks 4–6):** macOS automated matrix executed — 8 PASS,
-1 BLOCKED (A02 harness/filesystem), 2 FAIL (A05, A06 — see notes). Windows
-automated matrix executed on CI — 9 PASS, 1 BLOCKED (A02 same harness
-issue), 1 FAIL (A06 — see notes). Ubuntu cells BLOCKED (no Ubuntu 24.04 LTS
-desktop available to the product owner). Final WP-607A status is set at
-Task 8, not here.
+**Status so far (Tasks 4–6):** macOS automated matrix executed and
+re-executed after controller-authorized test fixes — final macOS record
+**PASS (11/11)** (§2.3; original run: 8 PASS, 1 BLOCKED, 2 FAIL, §2.2).
+Windows automated matrix executed and re-executed — final Windows record
+**PASS (11/11)** (§3.2; original run: 9 PASS, 1 BLOCKED, 1 FAIL, §3.1).
+Ubuntu cells BLOCKED (no Ubuntu 24.04 LTS desktop available to the product
+owner). Final WP-607A status is set at Task 8, not here.
 
 ## 1. Shared facts
 
@@ -74,11 +75,11 @@ subsequently authorized amendment.
 | Cell | Disposition | Note |
 |---|---|---|
 | A01 open-close-reopen | PASS | Open, close and reopen of `ui-rgb8-five-filters.png` kept title, image, chunk tree and Close action coherent. |
-| A02 drag-drop | BLOCKED | Raw record FAIL is the cell's own setup abort: the second `QFile::copy` (to `wp607a-drop.png`) failed at `tests/gui/wp_607a_native_gui_gate_test.cpp:793` because case-insensitive APFS treats it as the same name as the earlier `wp607a-drop.PNG` copy (deterministically reproduced standalone). No product drag/drop interaction executed. The platform filesystem property prevents the harness (both extension variants in one temp directory); unblock = controller-authorized test-only amendment (per-extension subdirectories) or a case-sensitive volume. Not a product defect; recorded BLOCKED per R9, disclosed against the raw FAIL. |
+| A02 drag-drop | BLOCKED | **Superseded by the §2.3 re-execution: PASS.** Original record kept below. Raw record FAIL is the cell's own setup abort: the second `QFile::copy` (to `wp607a-drop.png`) failed at `tests/gui/wp_607a_native_gui_gate_test.cpp:793` because case-insensitive APFS treats it as the same name as the earlier `wp607a-drop.PNG` copy (deterministically reproduced standalone). No product drag/drop interaction executed. The platform filesystem property prevents the harness (both extension variants in one temp directory); unblock = controller-authorized test-only amendment (per-extension subdirectories) or a case-sensitive volume. Not a product defect; recorded BLOCKED per R9, disclosed against the raw FAIL. |
 | A03 menu-shortcuts | PASS | File/View identities, native Open/Close/Quit shortcuts and visibility toggles retained their frozen identities. |
 | A04 dock-float-reset | PASS | Both docks floated and Reset Layout restored areas, visibility and bounded widths. |
-| A05 keyboard-focus | FAIL | Executed Tab walk never reached `lockCoordinate`. Host default keyboard navigation: `AppleKeyboardUIMode` unset = macOS Full Keyboard Access off; Qt's macOS style then excludes buttons/checkboxes from Tab traversal, so the product-declared order (x → y → lock → base → preview → hex → inspector, `main_window_ui.cpp:287`) breaks at the lock checkbox. Executed observation not met → FAIL per R9. A product fix (explicit Tab-reachability) requires a separately authorized defect package; the host OS keyboard setting was deliberately NOT flipped to force a PASS. The M02 manual keyboard checklist remains the real-user authority. |
-| A06 accessible-tree | FAIL | Executed snapshot: six named controls report `invisible` — `compressionInspectorPages`, `blockInspector`, `compressionBlocksTable`, `compressionHuffmanTable`, `compressionDecodeTraceTable`, `compressionContextStatus`. All live inside non-current tab pages (`inspectorTabs` "Compression" tab; `compressionInspectorPages` Blocks/Huffman/Decode Trace pages), and QAccessible reporting hidden pages invisible is correct accessibility semantics (hidden controls must not be announced). No role/name/state violations were recorded for any control. The cell's visibility requirement therefore over-asserts at default state — a test-design defect, not a product defect. Unblock = controller-authorized amendment asserting visible state only for currently displayed controls and role/name/state for hidden ones. |
+| A05 keyboard-focus | FAIL | **Superseded by the §2.3 re-execution: PASS.** Original record kept below. Executed Tab walk never reached `lockCoordinate`. Host default keyboard navigation: `AppleKeyboardUIMode` unset = macOS Full Keyboard Access off; Qt's macOS style then excludes buttons/checkboxes from Tab traversal, so the product-declared order (x → y → lock → base → preview → hex → inspector, `main_window_ui.cpp:287`) breaks at the lock checkbox. Executed observation not met → FAIL per R9. A product fix (explicit Tab-reachability) requires a separately authorized defect package; the host OS keyboard setting was deliberately NOT flipped to force a PASS. The M02 manual keyboard checklist remains the real-user authority. |
+| A06 accessible-tree | FAIL | **Superseded by the §2.3 re-execution: PASS.** Original record kept below. Executed snapshot: six named controls report `invisible` — `compressionInspectorPages`, `blockInspector`, `compressionBlocksTable`, `compressionHuffmanTable`, `compressionDecodeTraceTable`, `compressionContextStatus`. All live inside non-current tab pages (`inspectorTabs` "Compression" tab; `compressionInspectorPages` Blocks/Huffman/Decode Trace pages), and QAccessible reporting hidden pages invisible is correct accessibility semantics (hidden controls must not be announced). No role/name/state violations were recorded for any control. The cell's visibility requirement therefore over-asserts at default state — a test-design defect, not a product defect. Unblock = controller-authorized amendment asserting visible state only for currently displayed controls and role/name/state for hidden ones. |
 | A07 clipboard | PASS | Synthetic value round-trip per product-gate precedent (5U12F) through the native clipboard; analysis generation and ready state stayed unchanged. |
 | A08 rapid-switch | PASS | 12 alternating valid/malformed opens published only the twelfth generation with ready context, rows and image; close and reopen stayed responsive and restored a usable document. |
 | A09 chunk-file-bytes | PASS | Selecting the IHDR and IDAT rows navigated File Hex to the exact chunk header offsets 8 and 33 with envelope highlights. |
@@ -87,10 +88,63 @@ subsequently authorized amendment.
 | statistics-export | out_of_scope | Statistics export remains out_of_scope until WP-602H passes; never PASS. |
 | apng-timeline | out_of_scope | APNG timeline behavior remains out_of_scope until WP-706 passes; never PASS. |
 
-macOS automated status: **FAIL** (A05/A06 executed failures recorded
-honestly; A02 recorded BLOCKED with the exact unblock action). Per the
-package policy, production fixes require separate defect packages with
-failing tests; this evidence run changes no production code.
+macOS automated status of the original run: **FAIL** (A05/A06 executed
+failures recorded honestly; A02 recorded BLOCKED with the exact unblock
+action). Superseded by the §2.3 re-execution after controller-authorized
+test-only fixes; per the package policy, production fixes require separate
+defect packages with failing tests, and this evidence run changes no
+production code.
+
+### 2.3 macOS re-execution (controller-authorized test fixes)
+
+Re-executed after the fix commit `fc7aef2` ("repair a02 staging, a05 fka
+and a06 per-page assertions") with the same command and output root, per
+the controller rulings:
+
+1. A02 staging uses distinct temp filenames (`wp607a-drop-upper.PNG`,
+   `wp607a-drop-lower.png`), so no copy ever lands on a case-variant of an
+   existing name; the non-PNG rejection case stays testable.
+2. The runner's macOS plan now wraps the capture in an enable-fka /
+   restore-fka pair: save `AppleKeyboardUIMode` → `defaults write
+   NSGlobalDomain AppleKeyboardUIMode -int 3` → read-back verified → run
+   the gate → restore (delete when the key was absent) → read-back
+   verified; any write/restore mismatch is REFUSED, and the restore also
+   runs on every failure path after the enable (try/finally). This host
+   was observed with the key ABSENT before and after the run (verified).
+3. A06 activates each relevant tab page before asserting that page's
+   controls (Compression container → DEFLATE Blocks → Huffman → Decode
+   Trace) and compares role KINDs (semantic names, e.g. Pane/Window as one
+   container kind), never raw platform role ids.
+4. Preflight: macOS 26 no longer exports `SECURITYSESSIONID`; the same
+   OS-verified session restoration as §2.1 applied (no behavior change).
+
+- Command: `env -u QT_QPA_PLATFORM SECURITYSESSIONID=<genuine session id> python3 scripts/run_wp_607a_native_gui_gate.py --platform macos-arm64 --preset dev --jobs 4`
+  (runner-emitted plan: build → corpus fixture → probe → enable-fka →
+  capture → restore-fka → validate → assemble).
+- Result: **PASS — 11/11 cells**; gate exit 0; validated record and
+  aggregate `evidence.json` assembled.
+- A02 PASS: "local .PNG and .png drops opened the dropped document and the
+  .txt drop was rejected" (product drag/drop behavior now genuinely
+  executed on case-insensitive APFS).
+- A05 PASS: "real Tab/Shift-Tab events covered xCoordinate, yCoordinate,
+  lockCoordinate, numericBase, previewTabs, hexSourceTabs and
+  inspectorTabs; traversal wrapped without a trap" (with FKA enabled by
+  the runner, restored afterwards).
+- A06 PASS: "QAccessible snapshot, 29 entries carrying actual
+  role/name/state/value tokens …" with every control asserted visible in
+  its activated page; chunk-tree fallback + M04 escalation unchanged.
+- Host/Qt facts unchanged from §2 (macOS Tahoe 26.6.2 arm64, Qt 6.11.1,
+  cocoa, aqua, 72.00 DPI, DPR 2.00); record baked `git_commit` remains
+  `c0338735…` (configure-time; compiled source = `fc7aef2`).
+- Raw evidence tree: `build/evidence/wp-607a/macos-arm64/`
+  - `automated.json` SHA-256
+    `8ef8cee49bc9d43fa849bdfef4a70f10aa023796aaafe22c62f54c8f53bfe76c`
+  - Aggregate `evidence.json` SHA-256
+    `abb49ae44ed29415b3b86b0a3ac541f8fe811a76d57d650eb0d145e2f704a768`
+  - Evidence-tree SHA-256 (sorted `sha256  relpath` lines over
+    `automated.json`, `evidence.json` and the three log files; the ignored
+    manual template is excluded)
+    `155683c8ed784c9274d26103fa1a06e264071cd4b317a5f37a24654c558d00a8`
 
 ## 3. Windows x64 — automated native matrix (CI dispatch)
 
@@ -141,11 +195,11 @@ No push/PR triggers.
 | Cell | Disposition | Note |
 |---|---|---|
 | A01 open-close-reopen | PASS | Open, close and reopen of `ui-rgb8-five-filters.png` kept title, image, chunk tree and Close action coherent. |
-| A02 drag-drop | BLOCKED | Raw record FAIL is the same cell-setup abort as macOS: the second `QFile::copy` failed at `tests/gui/wp_607a_native_gui_gate_test.cpp:793` — case-insensitive NTFS treats `wp607a-drop.png` as the already-created `wp607a-drop.PNG`. No product drag/drop interaction executed; same unblock action as section 2.2 (A02). |
+| A02 drag-drop | BLOCKED | **Superseded by the §3.2 re-execution: PASS.** Original record kept below. Raw record FAIL is the same cell-setup abort as macOS: the second `QFile::copy` failed at `tests/gui/wp_607a_native_gui_gate_test.cpp:793` — case-insensitive NTFS treats `wp607a-drop.png` as the already-created `wp607a-drop.PNG`. No product drag/drop interaction executed; same unblock action as section 2.2 (A02). |
 | A03 menu-shortcuts | PASS | File/View identities, native Open/Close/Quit shortcuts and visibility toggles retained their frozen identities. |
 | A04 dock-float-reset | PASS | Both docks floated and Reset Layout restored areas, visibility and bounded widths. Qt logged a non-fatal hosted-VM geometry clamp (`QWindowsWindow::setGeometry` on `HyperVMonitor`: requested 1200x760, resulting 1028x749); the cell's assertions all passed at the clamped size. |
 | A05 keyboard-focus | PASS | Real Tab/Shift-Tab events covered xCoordinate, yCoordinate, lockCoordinate, numericBase, previewTabs, hexSourceTabs and inspectorTabs; traversal wrapped without a trap. (Windows does not gate button/checkbox Tab-reachability behind Full Keyboard Access, unlike macOS — cf. section 2.2 A05.) |
-| A06 accessible-tree | FAIL | Executed snapshot: `chunksDock:role-9` plus the same six inactive-tab-page invisibles as macOS (`compressionInspectorPages`, `blockInspector`, the three compression tables, `compressionContextStatus`). Role 9 = `Window`: the Windows QAccessible backend maps the `QDockWidget` to `Window`, while the frozen expectation `Pane` was taken from the macOS mapping — platform backend behavior, not a product defect; the dock exposes a non-empty stable name and usable state on both. The six invisibles are the same test over-assertion (correct a11y semantics for hidden pages). Unblock = controller-authorized amendment (per-platform role expectation; visible-state assertions only for currently displayed controls). |
+| A06 accessible-tree | FAIL | **Superseded by the §3.2 re-execution: PASS.** Original record kept below. Executed snapshot: `chunksDock:role-9` plus the same six inactive-tab-page invisibles as macOS (`compressionInspectorPages`, `blockInspector`, the three compression tables, `compressionContextStatus`). Role 9 = `Window`: the Windows QAccessible backend maps the `QDockWidget` to `Window`, while the frozen expectation `Pane` was taken from the macOS mapping — platform backend behavior, not a product defect; the dock exposes a non-empty stable name and usable state on both. The six invisibles are the same test over-assertion (correct a11y semantics for hidden pages). Unblock = controller-authorized amendment (per-platform role expectation; visible-state assertions only for currently displayed controls). |
 | A07 clipboard | PASS | Synthetic value round-trip per product-gate precedent (5U12F) through the native clipboard; analysis generation and ready state stayed unchanged. |
 | A08 rapid-switch | PASS | 12 alternating valid/malformed opens published only the twelfth generation with ready context, rows and image; close and reopen stayed responsive and restored a usable document. |
 | A09 chunk-file-bytes | PASS | Selecting the IHDR and IDAT rows navigated File Hex to the exact chunk header offsets 8 and 33 with envelope highlights. |
@@ -154,9 +208,47 @@ No push/PR triggers.
 | statistics-export | out_of_scope | Declared in the record; never PASS. |
 | apng-timeline | out_of_scope | Declared in the record; never PASS. |
 
-Windows automated status: **FAIL** (A06 executed failure recorded honestly;
-A02 recorded BLOCKED with the exact unblock action, disclosed against the
-raw FAIL). No production code changed.
+Windows automated status of the original run: **FAIL** (A06 executed
+failure recorded honestly; A02 recorded BLOCKED with the exact unblock
+action, disclosed against the raw FAIL). Superseded by the §3.2
+re-execution after controller-authorized test-only fixes. No production
+code changed.
+
+### 3.2 Windows re-execution (controller-authorized test fixes)
+
+Re-dispatched after the fix commit `fc7aef2` reached main (same workflow —
+no workflow changes needed for this fix round; the Windows plan carries no
+FKA steps):
+
+- Executing run: [33902790935](https://github.com/babybandf/PNG-Analyzer/actions/runs/33902790935)
+  (dispatch `--ref main` at `fc7aef2e5bbb8ae96afde9c30ba778d111042cad` —
+  the exact commit the CI configure baked into the record). Gate step
+  green; run fully green.
+- Record facts: `qt_platform_plugin` **windows**, session
+  `win32-desktop`, Windows Server 2025 Version 24H2, x86_64, Qt 6.8.3,
+  DPI 96.00, DPR 1.00 (unchanged from §3).
+- Result: **PASS — 11/11 cells**; validated record and aggregate
+  `evidence.json` assembled on CI; `validate_record` passed locally
+  against the downloaded artifact.
+  - A02 PASS: "local .PNG and .png drops opened the dropped document and
+    the .txt drop was rejected" (distinct staging names; product behavior
+    genuinely executed on case-insensitive NTFS).
+  - A06 PASS: 29 snapshot entries with role-kind comparisons
+    (Pane/Window as one container kind) and per-page activation of the
+    Compression container and its three pages; chunk-tree fallback + M04
+    escalation unchanged.
+  - A05 PASS again (Windows unchanged by the FKA ruling).
+- Raw evidence tree (artifact `wp607a-native-gui-accessibility-windows`,
+  paths under `evidence/wp-607a/windows-x64/`):
+  - `automated.json` SHA-256
+    `a86f34169b2f1d6d6462680d4ddbe4fd395d04fe11ef4bdcfb4e121aa200c268`
+  - Aggregate `evidence.json` SHA-256
+    `f467d5ade09a314b1d5c9fdc7d059eeb5939728ca845277f7936fc02e28c3f1b`
+  - Evidence-tree SHA-256 (same method as §2.3, over `automated.json`,
+    `evidence.json` and the three log files)
+    `6094ca3149d76b18b1c3163910c23eb041ca51806ecff829fa495475f52719eb`
+
+Windows re-executed status: **PASS**.
 
 ## 4. Ubuntu 24.04 LTS x86_64 — automated native matrix
 
