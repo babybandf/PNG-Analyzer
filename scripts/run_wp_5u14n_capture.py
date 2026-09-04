@@ -382,7 +382,11 @@ def restore_appearance(target, saved):
 
 
 def windows_restore_appearance(saved):
-    windows_ensure_appearance(saved["mode"])
+    # `saved` is the plain mode string returned by windows_read_appearance
+    # ("light"/"dark"); the macOS restore takes the {"dark": ..., "auto": ...}
+    # dict instead. Round-tripping the wrong shape crashes the appearance
+    # restore in the finally block (TypeError) and discards the run's records.
+    windows_ensure_appearance(saved)
 
 
 def describe_appearance(state):
@@ -682,14 +686,26 @@ def run_capture(target, preset, jobs):
                         "assembled")
     finally:
         if saved_appearance is not None:
-            restore_appearance(target, saved_appearance)
-            readback = read_appearance(target)
-            restored = describe_appearance(readback) == \
-                describe_appearance(saved_appearance)
-            print(f"appearance restored: "
-                  f"{describe_appearance(readback)} "
-                  f"({'verified' if restored else 'RESTORE MISMATCH'})",
-                  flush=True)
+            try:
+                restore_appearance(target, saved_appearance)
+                readback = read_appearance(target)
+                restored = describe_appearance(readback) == \
+                    describe_appearance(saved_appearance)
+                print(f"appearance restored: "
+                      f"{describe_appearance(readback)} "
+                      f"({'verified' if restored else 'RESTORE MISMATCH'})",
+                      flush=True)
+            except Exception as error:
+                # A restore failure must not silently discard the run's
+                # evidence: mention the already-written records, then fail.
+                records_dir = Path(out_dir) / "records"
+                written = (len(list(records_dir.glob("*.json")))
+                           if records_dir.is_dir() else 0)
+                print(f"appearance restore FAILED: {error}; "
+                      f"{written} capture record(s) already written under "
+                      f"{out_root(preset)}/records (evidence not assembled)",
+                      file=sys.stderr, flush=True)
+                raise
     records = load_records(target, out_dir, expected_cells, fixture_hashes)
     # A failed appearance restore must never pass: the evidence stays honest
     # (status REFUSED) and the runner exits non-zero.
@@ -983,6 +999,24 @@ def run_self_test():
     if final_status({"dark": True, "auto": None},
                     {"dark": False, "auto": None}) != "REFUSED":
         failures.append("macos dark restore mismatch not downgraded")
+
+    # Windows saved-state round-trip: restore must receive the plain mode
+    # string produced by windows_read_appearance ("light"/"dark"). A dict
+    # (the macOS shape) would crash the restore in the finally block with
+    # TypeError and discard the run's records (CI run 33857844948). The
+    # ensure step is patched out: no registry/PowerShell runs in self-test.
+    original_windows_ensure = windows_ensure_appearance
+    seen_modes = []
+    globals()["windows_ensure_appearance"] = (
+        lambda mode: seen_modes.append(mode))
+    try:
+        restore_appearance("windows", "light")
+        restore_appearance("windows", "dark")
+    finally:
+        globals()["windows_ensure_appearance"] = original_windows_ensure
+    if seen_modes != ["light", "dark"]:
+        failures.append("windows restore must pass the plain mode string "
+                        f"through the dispatch; observed {seen_modes}")
 
     if failures:
         for failure in failures:
