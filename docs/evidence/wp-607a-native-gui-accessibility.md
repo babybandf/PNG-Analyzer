@@ -166,6 +166,25 @@ Reason: no Ubuntu 24.04 LTS desktop exists that is available to the product
 owner, so the native `xcb`/`wayland` run cannot be executed or faked
 (product-owner decision, 2026-09-04; package Error and status policy).
 
+| Cell | Disposition | Note |
+|---|---|---|
+| A01 open-close-reopen | BLOCKED | No qualifying Ubuntu 24.04 LTS desktop available to the product owner; never executed. |
+| A02 drag-drop | BLOCKED | Same reason; never executed (the macOS/Windows harness note in sections 2.2/3.1 does not apply here — the cell was not run at all). |
+| A03 menu-shortcuts | BLOCKED | No qualifying Ubuntu 24.04 LTS desktop available to the product owner; never executed. |
+| A04 dock-float-reset | BLOCKED | No qualifying Ubuntu 24.04 LTS desktop available to the product owner; never executed. |
+| A05 keyboard-focus | BLOCKED | No qualifying Ubuntu 24.04 LTS desktop available to the product owner; never executed. |
+| A06 accessible-tree | BLOCKED | No qualifying Ubuntu 24.04 LTS desktop available to the product owner; never executed. |
+| A07 clipboard | BLOCKED | No qualifying Ubuntu 24.04 LTS desktop available to the product owner; never executed. |
+| A08 rapid-switch | BLOCKED | No qualifying Ubuntu 24.04 LTS desktop available to the product owner; never executed. |
+| A09 chunk-file-bytes | BLOCKED | No qualifying Ubuntu 24.04 LTS desktop available to the product owner; never executed. |
+| A10 stage-pixel | BLOCKED | No qualifying Ubuntu 24.04 LTS desktop available to the product owner; never executed. |
+| A11 pixel-token-bits | BLOCKED | No qualifying Ubuntu 24.04 LTS desktop available to the product owner; never executed. |
+| statistics-export | out_of_scope | Declared for the package; never PASS. |
+| apng-timeline | out_of_scope | Declared for the package; never PASS. |
+
+No automated record, fixture SHA or artifact hash exists for Ubuntu: no raw
+evidence was produced, and none may be invented.
+
 Required environment to unblock:
 
 - Ubuntu 24.04 LTS x86_64 physical or bare-metal-class machine;
