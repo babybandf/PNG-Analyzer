@@ -202,12 +202,23 @@ def check_generated_corpus_record(rpt, index, record):
                       f"carry upstream field {field}")
 
 
+# WP-607C: the only files allowed to be tracked under tests/corpus/ are the
+# manifest, its README, the corpus CMake rules and the audited generator/test
+# sources. Fixtures and generated outputs (valid/, malformed/, wp-607c/, any
+# depth) live in the build tree only; external fixtures need a manifest record.
+CORPUS_TRACKED_SOURCES = frozenset((
+    "manifest.yaml", "README.md", "CMakeLists.txt",
+    "controlled_fixture.h", "controlled_fixture.cpp",
+    "generate_controlled_corpus.cpp",
+    "png_facts_test.cpp", "trace_facts_test.cpp",
+))
+
+
 def check_corpus(rpt, files):
     manifest = ROOT / "tests" / "corpus" / "manifest.yaml"
-    corpus_root = ROOT / "tests" / "corpus"
     binary = [f for f in files
-              if f.parts[:3] == ("tests", "corpus", ) and len(f.parts) > 3
-              and f.parts[3] != "manifest.yaml" and f.suffix != ".yaml"]
+              if f.parts[:2] == ("tests", "corpus")
+              and Path(*f.parts[2:]).as_posix() not in CORPUS_TRACKED_SOURCES]
     if not manifest.exists():
         if binary:
             rpt.error(f"tests/corpus has {len(binary)} fixture(s) but no manifest.yaml")
@@ -242,7 +253,7 @@ def check_corpus(rpt, files):
         else:
             rpt.error(f"corpus entry {i} has unsupported kind {kind!r}")
     for f in binary:
-        rel = f.relative_to(corpus_root).as_posix()
+        rel = Path(*f.parts[2:]).as_posix()
         if rel in external_names:
             continue
         if rel in generated_outputs:
