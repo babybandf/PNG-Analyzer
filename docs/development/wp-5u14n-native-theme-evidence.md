@@ -54,7 +54,7 @@ fixture SHA-256 and capture timestamp in UTC.
 
 ## macOS evidence (automated cells)
 
-Formal clean-directory run, 2026-09-04 (main `a125a5d`), produced by
+Formal clean-directory run, 2026-09-04 (branch tip `a125a5d`), produced by
 `python3 scripts/run_wp_5u14n_capture.py --platform macos --preset dev --jobs 4`;
 runner exit 0, `evidence.json` status `PASS`. Host: macOS Tahoe 26.6.2, arm64,
 Qt 6.11.1, native Retina (logical DPI 72, device-pixel ratio 2.00), window
@@ -82,6 +82,60 @@ Automated/manual split (R3): the four theme cells above are the macOS
 automated units at native Retina. `mac-light-scaled` (one logical scaled case)
 and the macOS half of the §Manual checks interactive items M1–M6 remain manual
 units for the product owner (Task 5); they are not covered by this run.
+
+## Windows CI evidence (automated cells)
+
+Workflow: `.github/workflows/native-theme-capture.yml` (new; `workflow_dispatch`
+only — never triggered by push/PR, so CI minutes stay bounded), job
+`windows-capture` on `windows-latest`, 45-minute timeout. It mirrors ci.yml
+precedents (setup-python 3.11 + `PyYAML==6.0.2`, official MSVC DevShell with
+persisted environment, pinned vcpkg tool checkout + binary caches,
+`python scripts/bootstrap.py`, `cmake --preset dev`) and builds the corpus
+fixture generator `pnga_generate_wp607c_corpus` plus the R1 capture target
+`pnga_gui_wp_5u14n_native_capture_tests`.
+
+GUI/Qt is REQUIRED for this capture, unlike ci.yml: the target renders the real
+MainWindow on the real windows platform. The workflow therefore installs pinned
+official Qt 6.8.3 binaries (`win64_msvc2022_64`) through the pinned
+aqtinstall 3.3.0 downloader and points `CMAKE_PREFIX_PATH` at the kit. The
+System Light/Dark flips (registry `AppsUseLightTheme` + `WM_SETTINGCHANGE`
+broadcast + verification read-back) are implemented inside the runner, fresh
+process per cell. Evidence is uploaded as artifact
+`wp5u14n-native-capture-windows` (`if: always()`) from
+`build/dev/evidence/wp-5u14n/` plus the ctest log. If the hosted session cannot
+render, the target/runner record honest failures; cells are never faked.
+
+Dispatch outcome: **BLOCKED — no run created.** GitHub requires a
+`workflow_dispatch` workflow to exist on the default branch before it can be
+dispatched against any ref. Commit `ec495f2` pushed the workflow to
+`wp-5u14n-native-theme-evidence` only (`main` still lists only
+ci/deps-smoke/release-portable); both dispatch attempts failed:
+
+- `gh workflow run native-theme-capture.yml --ref wp-5u14n-native-theme-evidence`
+  → `HTTP 404: workflow native-theme-capture.yml not found on the default branch`
+- `gh api -X POST .../actions/workflows/native-theme-capture.yml/dispatches
+  -f ref=wp-5u14n-native-theme-evidence` → `404 Not Found`
+
+Publishing the workflow to `main` is outside this work package's allowed
+paths, so the dispatch was not forced. Unblock step: publish the workflow
+commit to the default branch, then re-run
+`gh workflow run native-theme-capture.yml --ref wp-5u14n-native-theme-evidence`,
+download `wp5u14n-native-capture-windows`, and record the per-cell results in
+this section.
+
+| Cell id | Views | Result |
+|---|---|---|
+| win-light-100 | — | BLOCKED (dispatch unavailable; GitHub requires the workflow on the default branch) |
+| win-system-light-100 | — | BLOCKED (same reason) |
+| win-dark-100 | — | BLOCKED (same reason) |
+| win-system-dark-100 | — | BLOCKED (same reason) |
+
+No Windows capture records or PNG SHA-256 values exist yet; per R5 and the
+package completion definition the Windows automated cells stay `BLOCKED` until
+the dispatch path executes — they are never recorded as PASS without captures.
+The `win-*-150/200` scale cells and the Windows interactive checks M1–M6
+remain manual units for user Windows hardware (R3), unaffected by this
+blocker.
 
 ## Verification
 
