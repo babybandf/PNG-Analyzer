@@ -226,3 +226,24 @@ python3 scripts/run_qt_package_smoke.py
 visual differences. Missing access to one native platform is `BLOCKED`, not
 `NOT_CONFIGURED` PASS. A confirmed product defect makes this package `FAIL`
 until fixed and recaptured.
+
+## Known native test-environment note (non-blocking)
+
+`tests/gui/main_window_layout_test.cpp` contains two offscreen-tuned assertions
+that fail when the test runs on the native macOS platform (the regular exit
+gate runs it offscreen, where it passes):
+
+1. `coordinateInteractionUsesToolbarAndKeyboard` — synthetic hover geometry
+   tuned to offscreen window metrics; natively the synthesized hover does not
+   reach the pixel readout ("No image" default shown).
+2. `dockSeparatorsShowThreeDotAffordance` — hardcoded color-relation
+   (`dot.red() + 5 < background.red()`) that does not hold under the native
+   palette.
+
+Disposition (controller ruling, 2026-09-04): not product defects — the product
+owner's manual cells M-2 (no clipping/overlap at native sizes) and M-5
+(coordinate/X-Y interaction) PASS on the same native platform, corroborating
+correct native behavior; the failures are synthetic-event/geometry and palette
+assumptions in a pre-existing test. Fixing them is a test-hygiene follow-up
+outside this package's allowed paths (no reproducible product defect).
+The authoritative gate context for these tests remains offscreen.
