@@ -28,6 +28,7 @@ import json
 import os
 import platform as host_platform
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -205,7 +206,7 @@ def plan_commands(target, preset, jobs):
             "kind": "ctest",
             "unit": unit,
             "command": ["ctest", "--preset", preset, "-R", entry,
-                        "--output-on-failure"],
+                        "--output-on-failure", "--timeout", "300"],
             "env": env,
         })
     return steps
@@ -545,6 +546,17 @@ def run_capture(target, preset, jobs):
             # configure-time snapshot baked into the binary.
             env.setdefault("PNGA_WP5U14N_COMMIT", git_commit())
             result = run(step["command"], env=env)
+            if step["kind"] == "ctest":
+                # Preserve the ctest log inside the evidence dir: a timed-out
+                # (hung) native test still leaves its partial output behind so
+                # CI artifacts stay diagnosable.
+                last_log = (ROOT / "build" / preset / "Testing" /
+                            "Temporary" / "LastTest.log")
+                if last_log.is_file():
+                    logs_dir = Path(out_dir) / "logs"
+                    logs_dir.mkdir(parents=True, exist_ok=True)
+                    shutil.copy(last_log, logs_dir /
+                                f"ctest-{step.get('unit', 'run')}.log")
             if result.returncode != 0:
                 raise SystemExit(
                     f"WP-5U14N capture: FAIL at {step['kind']} step "
@@ -649,16 +661,16 @@ def run_self_test():
                           dark="false")]]},
         {"kind": "ctest", "unit": "system-light",
          "command": ["ctest", "--preset", "dev", "-R",
-                     "wp5u14n_capture_system", "--output-on-failure"],
+                     "wp5u14n_capture_system", "--output-on-failure", "--timeout", "300"],
          "env": {"PNGA_WP5U14N_OUT": "build/dev/evidence/wp-5u14n",
                  "PNGA_WP5U14N_OS_MODE": "light"}},
         {"kind": "ctest", "unit": "light",
          "command": ["ctest", "--preset", "dev", "-R",
-                     "wp5u14n_capture_light", "--output-on-failure"],
+                     "wp5u14n_capture_light", "--output-on-failure", "--timeout", "300"],
          "env": {"PNGA_WP5U14N_OUT": "build/dev/evidence/wp-5u14n"}},
         {"kind": "ctest", "unit": "dark",
          "command": ["ctest", "--preset", "dev", "-R",
-                     "wp5u14n_capture_dark", "--output-on-failure"],
+                     "wp5u14n_capture_dark", "--output-on-failure", "--timeout", "300"],
          "env": {"PNGA_WP5U14N_OUT": "build/dev/evidence/wp-5u14n"}},
         {"kind": "appearance", "os": "macos", "mode": "dark",
          "commands": [["defaults", "write", "-g", "AppleInterfaceStyle",
@@ -667,7 +679,7 @@ def run_self_test():
                           dark="true")]]},
         {"kind": "ctest", "unit": "system-dark",
          "command": ["ctest", "--preset", "dev", "-R",
-                     "wp5u14n_capture_system", "--output-on-failure"],
+                     "wp5u14n_capture_system", "--output-on-failure", "--timeout", "300"],
          "env": {"PNGA_WP5U14N_OUT": "build/dev/evidence/wp-5u14n",
                  "PNGA_WP5U14N_OS_MODE": "dark"}},
     ]
@@ -689,16 +701,16 @@ def run_self_test():
                        WINDOWS_BROADCAST_POWERSHELL]]},
         {"kind": "ctest", "unit": "system-light",
          "command": ["ctest", "--preset", "dev", "-R",
-                     "wp5u14n_capture_system", "--output-on-failure"],
+                     "wp5u14n_capture_system", "--output-on-failure", "--timeout", "300"],
          "env": {"PNGA_WP5U14N_OUT": "build/dev/evidence/wp-5u14n",
                  "PNGA_WP5U14N_OS_MODE": "light"}},
         {"kind": "ctest", "unit": "light",
          "command": ["ctest", "--preset", "dev", "-R",
-                     "wp5u14n_capture_light", "--output-on-failure"],
+                     "wp5u14n_capture_light", "--output-on-failure", "--timeout", "300"],
          "env": {"PNGA_WP5U14N_OUT": "build/dev/evidence/wp-5u14n"}},
         {"kind": "ctest", "unit": "dark",
          "command": ["ctest", "--preset", "dev", "-R",
-                     "wp5u14n_capture_dark", "--output-on-failure"],
+                     "wp5u14n_capture_dark", "--output-on-failure", "--timeout", "300"],
          "env": {"PNGA_WP5U14N_OUT": "build/dev/evidence/wp-5u14n"}},
         {"kind": "appearance", "os": "windows", "mode": "dark",
          "commands": [["reg", "add", WINDOWS_PERSONALIZE_KEY, "/v",
@@ -708,7 +720,7 @@ def run_self_test():
                        WINDOWS_BROADCAST_POWERSHELL]]},
         {"kind": "ctest", "unit": "system-dark",
          "command": ["ctest", "--preset", "dev", "-R",
-                     "wp5u14n_capture_system", "--output-on-failure"],
+                     "wp5u14n_capture_system", "--output-on-failure", "--timeout", "300"],
          "env": {"PNGA_WP5U14N_OUT": "build/dev/evidence/wp-5u14n",
                  "PNGA_WP5U14N_OS_MODE": "dark"}},
     ]
