@@ -312,6 +312,15 @@ def describe_appearance(state):
     return state
 
 
+def final_status(saved_appearance, readback):
+    """PASS only when the post-run appearance equals the pre-run state."""
+    if saved_appearance is None:
+        return "PASS"
+    if describe_appearance(readback) == describe_appearance(saved_appearance):
+        return "PASS"
+    return "REFUSED"
+
+
 # --- frozen refusals ----------------------------------------------------------
 
 def preflight(target):
@@ -551,10 +560,17 @@ def run_capture(target, preset, jobs):
                   f"({'verified' if restored else 'RESTORE MISMATCH'})",
                   flush=True)
     records = load_records(target, out_dir, expected_cells, fixture_hashes)
+    # A failed appearance restore must never pass: the evidence stays honest
+    # (status REFUSED) and the runner exits non-zero.
+    status = final_status(saved_appearance, readback)
+    if status == "REFUSED":
+        print("WP-5U14N capture runner: appearance restore mismatch; "
+              "recording status REFUSED and refusing PASS",
+              file=sys.stderr)
     evidence = {
         "schema": SCHEMA,
         "work_package": WORK_PACKAGE,
-        "status": "PASS",
+        "status": status,
         "platform": target,
         "preset": preset,
         "commit": git_commit(),
@@ -571,9 +587,9 @@ def run_capture(target, preset, jobs):
             "readback": describe_appearance(readback),
         }
     write_evidence(out_dir, evidence)
-    print(f"WP-5U14N native capture: PASS ({len(records)} cells x "
+    print(f"WP-5U14N native capture: {status} ({len(records)} cells x "
           f"{len(VIEWS)} views) evidence={out_root(preset)}/evidence.json")
-    return 0
+    return 3 if status == "REFUSED" else 0
 
 
 # --- self-test ------------------------------------------------------------------
@@ -771,6 +787,24 @@ def run_self_test():
         failures.append("sanitizer missed a nested absolute path")
     if not absolute_path_strings(["C:\\Windows\\path"]):
         failures.append("sanitizer missed a Windows absolute path")
+
+    # Restore-mismatch honesty: a failed appearance restore must downgrade
+    # the run to REFUSED (exit 3), never PASS; matching restores stay PASS.
+    if final_status(None, None) != "PASS":
+        failures.append("run without appearance flips must stay PASS")
+    if final_status("dark", "dark") != "PASS":
+        failures.append("matching windows restore must stay PASS")
+    if final_status("light", "dark") != "REFUSED":
+        failures.append("windows restore mismatch not downgraded to REFUSED")
+    if final_status({"dark": False, "auto": None},
+                    {"dark": True, "auto": None}) != "REFUSED":
+        failures.append("macos restore mismatch not downgraded to REFUSED")
+    if final_status({"dark": False, "auto": True},
+                    {"dark": False, "auto": True}) != "PASS":
+        failures.append("matching macos auto restore must stay PASS")
+    if final_status({"dark": True, "auto": None},
+                    {"dark": False, "auto": None}) != "REFUSED":
+        failures.append("macos dark restore mismatch not downgraded")
 
     if failures:
         for failure in failures:

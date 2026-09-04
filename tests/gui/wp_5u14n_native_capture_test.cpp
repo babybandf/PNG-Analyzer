@@ -17,6 +17,7 @@
 
 #include <QCryptographicHash>
 #include <QDateTime>
+#include <QDebug>
 #include <QDir>
 #include <QDockWidget>
 #include <QFile>
@@ -31,6 +32,7 @@
 #include <QSettings>
 #include <QSysInfo>
 #include <QTabWidget>
+#include <QTemporaryDir>
 
 #include <QStringList>
 #include <QVector>
@@ -319,6 +321,19 @@ QString fixtureSha256(const QString& fixture_id) {
   return sha256OfFile(fixturePath(fixtureRelativePath(fixture_id)));
 }
 
+// True when `path` holds a parsed record whose result is "captured" —
+// native evidence an offscreen skip write must never destroy.
+bool isCapturedRecord(const QString& path) {
+  QFile file(path);
+  if (!file.open(QIODevice::ReadOnly)) {
+    return false;
+  }
+  const auto document = QJsonDocument::fromJson(file.readAll());
+  return document.isObject() &&
+         document.object().value(QStringLiteral("result")).toString() ==
+             QStringLiteral("captured");
+}
+
 }  // namespace wp5u14n_capture
 
 namespace {
@@ -554,6 +569,39 @@ void Wp5U14nNativeCaptureTest::initTestCase() {
                                            QStringLiteral("dark"))
                .cell,
            QStringLiteral("win-system-dark-100"));
+
+  // Native-record preservation: only a parsed "captured" record blocks an
+  // offscreen skip write; skip records and residue stay overwritable.
+  QTemporaryDir scratch;
+  QVERIFY(scratch.isValid());
+  const QString captured_record = scratch.filePath(QStringLiteral("native.json"));
+  {
+    QJsonObject object;
+    object.insert(QStringLiteral("result"), QStringLiteral("captured"));
+    QFile output(captured_record);
+    QVERIFY(output.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    output.write(QJsonDocument(object).toJson(QJsonDocument::Compact));
+  }
+  QVERIFY(wp5u14n_capture::isCapturedRecord(captured_record));
+  const QString skip_record = scratch.filePath(QStringLiteral("skip.json"));
+  {
+    QJsonObject object;
+    object.insert(QStringLiteral("result"),
+                  QString::fromLatin1(wp5u14n_capture::kResultSkippedOffscreen));
+    QFile output(skip_record);
+    QVERIFY(output.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    output.write(QJsonDocument(object).toJson(QJsonDocument::Compact));
+  }
+  QVERIFY(!wp5u14n_capture::isCapturedRecord(skip_record));
+  const QString garbage_record = scratch.filePath(QStringLiteral("garbage.json"));
+  {
+    QFile output(garbage_record);
+    QVERIFY(output.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    output.write("not json");
+  }
+  QVERIFY(!wp5u14n_capture::isCapturedRecord(garbage_record));
+  QVERIFY(!wp5u14n_capture::isCapturedRecord(
+      scratch.filePath(QStringLiteral("missing.json"))));
 }
 
 void Wp5U14nNativeCaptureTest::captureLight() {
@@ -576,8 +624,17 @@ void Wp5U14nNativeCaptureTest::writeOffscreenSkipRecord(
       os_mode.isEmpty() ? QStringLiteral("light") : os_mode);
   const QString out_root = wp5u14n_capture::outputRoot();
   QVERIFY(QDir().mkpath(out_root + QStringLiteral("/records")));
-  QFile output(out_root + QStringLiteral("/records/") + record.cell +
-               QStringLiteral(".json"));
+  const QString record_path = out_root + QStringLiteral("/records/") +
+                              record.cell + QStringLiteral(".json");
+  // A routine offscreen dev-suite run must never clobber native evidence;
+  // the runner's dirty-dir refusal stays the formal gate. Only a parsed
+  // "captured" record blocks the skip write; overwriting another skip
+  // record (or unparsable residue) remains allowed.
+  if (wp5u14n_capture::isCapturedRecord(record_path)) {
+    qInfo().noquote() << QStringLiteral("skip-preserved:") << record.cell;
+    return;
+  }
+  QFile output(record_path);
   QVERIFY(output.open(QIODevice::WriteOnly | QIODevice::Truncate));
   output.write(QJsonDocument(record.to_json()).toJson(QJsonDocument::Compact));
 }
