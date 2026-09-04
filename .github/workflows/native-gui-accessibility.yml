@@ -1,0 +1,137 @@
+name: native-gui-accessibility
+
+# WP-607A native Windows GUI/accessibility evidence. Dispatch-only by design
+# (WP-5U14N native-theme-capture precedent): the native gate is expensive
+# (full Qt toolchain + a real interactive desktop capture) and must never run
+# on push/PR, so CI minutes stay bounded and evidence collection stays
+# deliberate.
+#
+# GUI/Qt is REQUIRED here, unlike ci.yml: the WP-607A gate
+# (pnga_gui_wp_607a_native_gui_gate_tests) drives the real MainWindow on the
+# real `windows` platform plugin through the hosted interactive console
+# desktop session. Qt is not preinstalled on hosted runners, so this workflow
+# installs pinned official Qt binaries via aqtinstall (pinned downloader,
+# official Qt archive content) and points CMAKE_PREFIX_PATH at them. The
+# runner additionally derives the Qt runtime DLL dir from the build-tree
+# Qt6_DIR cache entry and prepends it to the probe/capture child PATH (L1),
+# which is what saves the capture from 0xC0000135 (STATUS_DLL_NOT_FOUND).
+#
+# Cells are never faked: if the hosted session cannot render native windows,
+# the runner/gate records honest refusals/failures. Evidence lands under
+# build/dev/evidence/wp-607a/ (ignored) and is uploaded as an artifact; it is
+# never committed.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: native-gui-accessibility-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-gui-accessibility:
+    name: wp607a native gui accessibility gate (windows-latest)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # ci.yml precedent: corpus configure/manifest checks parse
+      # tests/corpus/manifest.yaml with a pinned PyYAML.
+      - name: Provide PyYAML
+        shell: bash
+        run: python -m pip install PyYAML==6.0.2
+
+      # Official Qt 6.8.3 LTS binaries (win64_msvc2022_64) fetched by the
+      # pinned aqtinstall downloader. The project requires Qt 6.8+; QtTest
+      # ships in qtbase. CMAKE_PREFIX_PATH makes find_package(Qt6) discover
+      # the kit at configure time.
+      - name: Install pinned Qt 6.8.3 (official binaries via aqtinstall)
+        shell: pwsh
+        run: |
+          python -m pip install aqtinstall==3.3.0
+          aqt install-qt windows desktop 6.8.3 win64_msvc2022_64 --outputdir "${{ runner.temp }}\qt"
+          Add-Content -Path $env:GITHUB_ENV -Value "CMAKE_PREFIX_PATH=${{ runner.temp }}\qt\6.8.3\msvc2022_64"
+          # Belt-and-suspenders (L1): the Qt runtime DLL dir must be on PATH too
+          # — the gate binary exits 0xC0000135 (STATUS_DLL_NOT_FOUND) at
+          # process start when Qt6*.dll are not resolvable. The runner also
+          # derives this dir from the build-tree Qt6_DIR cache entry and
+          # prepends it to the probe/capture child PATH.
+          Add-Content -Path $env:GITHUB_PATH -Value "${{ runner.temp }}\qt\6.8.3\msvc2022_64\bin"
+
+      # ci.yml precedent: windows-latest puts MinGW ahead of MSVC on PATH, so
+      # source the official VS DevShell (no third-party action) and persist the
+      # environment so CMake selects cl and matches the vcpkg x64-windows ABI.
+      - name: Set up MSVC environment (Windows)
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw "Visual Studio C++ tools not found via vswhere" }
+          Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments "-arch=x64 -host_arch=x64"
+          Get-ChildItem env: | ForEach-Object {
+            Add-Content -Path $env:GITHUB_ENV -Value "$($_.Name)=$($_.Value)"
+          }
+
+      # Download-only caches, ci.yml precedent (L4: without the vcpkg binary
+      # cache the dependency build exceeds the 45-minute job limit).
+      - name: Cache vcpkg tool checkout
+        uses: actions/cache@v4
+        with:
+          path: .deps/vcpkg
+          key: vcpkg-tool-${{ runner.os }}-${{ hashFiles('scripts/bootstrap.py') }}
+          restore-keys: |
+            vcpkg-tool-${{ runner.os }}-
+
+      - name: Cache vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-cache
+          key: vcpkg-bin-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'cmake/dependencies.lock.json') }}
+          restore-keys: |
+            vcpkg-bin-${{ runner.os }}-
+
+      - name: Bootstrap pinned vcpkg
+        shell: bash
+        run: python scripts/bootstrap.py
+
+      - name: Configure dev
+        shell: bash
+        env:
+          VCPKG_BINARY_SOURCES: "clear;files,${{ runner.temp }}/vcpkg-cache,readwrite"
+        run: cmake --preset dev
+
+      # Build the WP-607C corpus generator (CTest fixture setup) and the
+      # WP-607A gate target (R1, test-only).
+      - name: Build corpus fixture generator and WP-607A gate target
+        shell: bash
+        run: cmake --build --preset dev --target pnga_generate_wp607c_corpus pnga_gui_wp_607a_native_gui_gate_tests --parallel 4
+
+      # Materialize the WP-607C corpus + index.json before the runner's
+      # preflight reads the registry catalog (the runner runs this step again,
+      # bounded, as its own plan fixture step).
+      - name: Generate corpus fixture
+        shell: bash
+        run: ctest --preset dev -R wp607c_generate_corpus --output-on-failure
+
+      # Runs the bounded native gate: 30s windows-plugin probe, one direct
+      # 300s-bounded capture of the real MainWindow (A01-A11), schema
+      # validation and SHA assembly into build/dev/evidence/wp-607a/windows-x64/.
+      - name: Run WP-607A native gui accessibility gate
+        shell: bash
+        run: python scripts/run_wp_607a_native_gui_gate.py --platform windows-x64 --preset dev --jobs 4
+
+      - name: Upload WP-607A native gui accessibility evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wp607a-native-gui-accessibility-windows
+          path: |
+            build/dev/evidence/wp-607a/
+            build/dev/Testing/Temporary/LastTest.log
+          if-no-files-found: ignore
