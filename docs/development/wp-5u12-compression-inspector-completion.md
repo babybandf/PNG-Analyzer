@@ -1,6 +1,7 @@
 # WP-5U12 Completion — Product Compression Inspector
 
-Status: **design approved; pending written-package review** (2026-09-01)
+Status: **PASS — WP-5U12 complete** (closed 2026-09-04 via the WP-5U12F
+product gate; closing record below)
 
 Normative UI contract: `wp-5u12-compression-inspector-flow-ui.md` section 20.
 This document converts that audited contract into ordered coding increments.
@@ -118,3 +119,116 @@ All requirements in normative WP-5U12 section 19 and this document must pass.
 Any missing offset origin, truncated physical range, falsely complete bounded
 count, unbounded retention or unresolved UI state is `FAIL`, not a known
 limitation. Architecture/dependency conflicts are `BLOCKED`.
+
+## Closing record — WP-5U12 PASS (2026-09-04)
+
+Per the completion definition above: every automated command exited 0, every
+manual-only cell is explicitly recorded PASS, the side-effect audit found no
+production change, and no required evidence is missing. Status: **PASS**.
+Full requirement-to-evidence mapping: `docs/evidence/wp-5u12-product-gate.md`.
+
+### Final command matrix (all exit 0)
+
+Executed 2026-09-04 on `wp-5u12-compression-inspector` at `630b8cb` (macOS
+26.6.2 arm64, Qt 6.11.1, `QT_QPA_PLATFORM=offscreen` where applicable;
+packaging smoke intentionally excluded):
+
+| Command | Result |
+|---|---|
+| `python3 scripts/verify_repository_layout.py` | 0 failures, 0 warnings |
+| `python3 scripts/verify_dependencies.py` | 0 failures, 0 warnings |
+| `cmake --preset dev` | configured |
+| `cmake --build --preset dev --parallel 4` | up to date |
+| `ctest --preset dev -R 'block_inspector\|huffman_inspector\|decode_trace\|compression_inspector\|trace_pipeline\|selection_navigation'` | 8/8 passed |
+| `ctest --preset dev` | 53/53 passed |
+| `python3 scripts/run_gui_gate.py --preset dev --jobs 4` | PASS, 3/3 suites |
+| `python3 scripts/run_wp_5u12_gui_gate.py … --compare-baselines` | PASS, 22/22 |
+| `cmake --preset asan && cmake --build --preset asan --parallel 4 && ctest --preset asan` | 53/53 passed |
+| `python3 scripts/run_sanitizer_fuzz_gate.py --preset asan --jobs 4` | PASS (2 deterministic replays + fuzz smoke) |
+| `python3 scripts/run_performance_corpus.py --preset dev --enforce-thresholds` | PASS, thresholds enforced |
+| `git diff --check` | clean |
+
+### Test, sanitizer and performance counts
+
+- CTest: focused inspector set 8/8; full dev suite 53/53; ASan+UBSan suite
+  53/53; product-gate test binary 25/25 test functions
+  (`CompressionInspectorProductGateTest`).
+- Sanitizer: ASan+UBSan clean across 53/53; fuzz gate PASS.
+- Enforced performance scenario `compression-inspector` (corpus
+  `wp607c-static-v1`, revision
+  `5df99ad82f145a3418a3c6715f76f677ca8194a02e86c0f810c6457aba92f16f`,
+  `perf-large-rgba8` 1024×768 RGBA8, 49 Stored blocks) — threshold (µs) →
+  measured (µs): `fast_index` 250,000 → 9,444; `trace_query_4096` 1,000,000 →
+  198,191; `huffman_model` 50,000 → 684; `decode_trace_model` 50,000 → 4,142;
+  `first_visible_rows` 25,000 → 23; `visible_row_reads` 25,000 → 9. Checksum
+  13,258,482. All reviewed maxima in `tests/performance/thresholds-v1.json`
+  enforced and passing.
+
+### 22 visual baselines
+
+22/22 baseline comparisons PASS (2 px border + antialias envelope only),
+exact plan-pinned matrix, no missing/unexpected baseline. Baselines reviewed
+and APPROVED by the product owner (2026-09-03) and locked in `630b8cb`;
+per-baseline SHA-256 table in the evidence doc §2.3. The 320 px row is
+asserted but never captured (below the lowest capture width, per contract).
+
+### Accessibility and manual matrix
+
+- QAccessible metadata: exact accessible names/roles asserted per row by the
+  product gate and `gui_compression_inspector_responsive_tests` — PASS.
+- Manual native-OS cells M-1…M-11 (screen-reader observations, native
+  rendering, open/close/reload/rapid-switch, Chunk/Reconstruction/Pixels/
+  Filtered/Defiltered panels, image/X/Y/Lock/DEC-HEX, all Hex sources,
+  Inspector workspace restore, keyboard-only workflow, clipboard, native
+  theme, high-DPI): **11/11 PASS**, executed by the product owner on native
+  macOS (Apple Silicon), 2026-09-03 (VoiceOver observations for M-1 recorded
+  by the product owner).
+
+### No-replay statement
+
+The gate's no-replay assertions (via `PNGA_TRACE_CONTROLLER_TESTING`
+counters) verify that page switch, row selection, resize, DEC/HEX toggle,
+history navigation, theme switch and copy submit enqueue **zero trace
+replays** (`acceptedRequestCountForTest` unchanged across the full action
+matrix); stale generations are rejected. Gate: `no_replay: pass`.
+
+### Terminal commits (A–F)
+
+```text
+A (offset + fast index):  1c29246 1df02c2 2f2d8f2 3eed97b
+B (selection/navigation): 2b2e4e7 9dcc1a1 d12197f
+C (blocks page):          59b48c4 e0d99a7 ba0196d 9a17c70 992d0a3
+D (huffman page):         e30b1f1 657fb75 dea6458 4fb43e3 e2daf18 f672720
+E (decode trace page):    a99ce15 e3e1469 d2b6edc edd0c07 157c5d3 81f322f
+F (product gate):         bd2f40d bb14819 41609ab 958c6d3 37593da 630b8cb d22c089 + this closing commit
+```
+
+### Evidence hashes
+
+- Corpus revision:
+  `5df99ad82f145a3418a3c6715f76f677ca8194a02e86c0f810c6457aba92f16f`
+  (covers exactly `tests/corpus/manifest.yaml`, `controlled_fixture.h`,
+  `controlled_fixture.cpp`, `generate_controlled_corpus.cpp`).
+- Final-gate GUI evidence record (schema `pnga-wp5u12-gui-evidence-v1`,
+  generated, untracked):
+  `06649ef6984b2fe2b3298446fa8e97d9930ae37f693dd0518d75a2e2ab84ef71`;
+  the Mandatory Task Exit Gate replay after this commit re-runs the 22/22
+  comparison at the closing commit and rewrites the record with fresh
+  commit/timestamp fields (tracked record of the recorded run: hash above).
+- Baseline set: exactly the 22 plan-pinned names under
+  `tests/gui/baselines/wp-5u12/` (SHA-256 per file in evidence doc §2.3).
+- Performance record (generated, untracked):
+  `529d5b1bba428aa38183816cbffbb65b76cc465467bd5dacfdf56b42cbe1d8e6`.
+
+### Known native-platform coverage boundaries
+
+- Manual regression cells were executed on **macOS native (Apple Silicon)
+  only**. Windows and Linux native behavior (window chrome, native
+  screen-reader certification such as NVDA/ORCA, system theme switching,
+  high-DPI variants) was **not manually exercised by this gate** — recorded
+  as a coverage boundary, not a failure; automated offscreen suites and the
+  cross-platform GUI gate (3/3 suites) remain the covering evidence there.
+- Native screen-reader coverage is limited to VoiceOver observations recorded
+  by the product owner on macOS; other screen readers are out of scope of
+  this gate's manual record.
+- Packaging smoke is intentionally excluded from WP-5U12 per plan.

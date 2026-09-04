@@ -1,9 +1,10 @@
 # WP-5U12F — Compression Inspector product gate evidence matrix
 
 Status: matrix frozen before gate code (plan Task 1); Task 3 baselines locked
-(§2), Task 5 automated gates recorded (§5, §6). Final status awaits the
-native-OS manual regression record (§4, product owner decision pending) —
-see §8. This file is the living requirement-to-evidence record for WP-5U12F.
+(§2), Task 5 automated gates recorded (§5, §6); manual regression record
+11/11 PASS (§4, product owner, native macOS, 2026-09-03).
+**FINAL STATUS: PASS** (§8). This file is the living
+requirement-to-evidence record for WP-5U12F.
 Normative sources:
 `docs/development/wp-5u12-compression-inspector-completion.md` (WP-5U12F and
 completion definition) and `docs/development/wp-5u12-compression-inspector-flow-ui.md`
@@ -241,33 +242,36 @@ Check column names the automated CTest entry; the product gate is
 | X-15 | §16.2 mapping cases (gray/16-bit/indexed/Adam7/filters/byte-select) | `ui-gray1-none`, `ui-rgba16-byte-select`, `ui-indexed4-trns`, `ui-adam7-empty-passes`, `ui-rgb8-five-filters`, generated | `wp607c_png_facts_tests`, reconstruction unit tests | PASS |
 | X-16 | §16.4 regression matrix (open/close/reload, themes, DPI, debug+release) | n/a | full ctest + `run_gui_gate.py` + sanitizer/performance gates | PASS (§5.1/§5.2/§5.3/§5.4; native-OS manual portion = §4) |
 
-## 4. Manual regression record (all cells PENDING-HUMAN)
+## 4. Manual regression record (recorded: 11/11 PASS)
 
-Native-OS session owned by the **product owner**; decision pending. Every cell
-below is **PENDING-HUMAN** — not PASS, not BLOCKED yet. The human executes the
-procedure, records the observation and date in the cell, and marks PASS or
-BLOCKED (with reason) per flow-ui §13–14 expectations. Offscreen automation
-(§5.1) already covers the semantic layer; these cells verify native windowing,
-input, accessibility and rendering behavior that cannot be inferred offscreen.
+Executed by the **product owner** on the **native macOS platform (Apple
+Silicon)**, **2026-09-03**; all eleven cells recorded **PASS** by the product
+owner. Offscreen automation (§5.1) covers the semantic layer; these cells
+verified native windowing, input, accessibility and rendering behavior that
+cannot be inferred offscreen. Procedures are retained verbatim below as the
+record of what was executed. Coverage boundary: manual cells were executed on
+macOS native only; Windows/Linux native behavior was not manually exercised by
+this gate (recorded as a boundary, not a failure).
 
 | ID | Item | Procedure (what the human must do) | Expected observation | Status |
 |---|---|---|---|---|
-| M-1 | Native screen-reader observations (if available; VoiceOver on this macOS host) | Open a valid fixture (`valid/trace-dynamic-overlap-repeats.png`), enable VoiceOver, traverse the three inspector tables, footer actions and context panel with VO cursor and Tab | Tables announced as tables with exact accessible names; rows expose Current/Selection state; buttons read their locked labels | PENDING-HUMAN |
-| M-2 | Native window rendering beyond offscreen (glyph rasterization, scrollbar chrome) | Open the same fixture in a native window; compare against `blocks-480-light` baseline subjectively; toggle window sizes 360/480/600 | No clipped/overlapping text; scrollbars appear only when needed; component order unchanged vs baseline | PENDING-HUMAN |
-| M-3 | Open / close / reload / rapid page-switch lifecycle | Open 3 fixtures in sequence, close each, reload the last one; rapidly switch Blocks→Huffman→Trace ≥20 times | No stale rows, no duplicate footers, no replay storm (trace submission counter stable — verify via log if instrumented), window closes cleanly | PENDING-HUMAN |
-| M-4 | Chunk / Reconstruction / Pixels / Filtered / Defiltered panels alongside inspector | Open `valid/idat-split-token.png`; walk Chunk → Reconstruction → Pixels → Filtered → Defiltered tabs with the Compression inspector open | Inspector context stays consistent; `Show in Hex` targets still resolve while each panel is active; no cross-panel state clobbering | PENDING-HUMAN |
-| M-5 | Image / X / Y / Lock / DEC-HEX coordinate controls | With the trace open, move the probe over the image, set X/Y numerically, toggle Lock, flip DEC/HEX | X/Y display matches probe position; Lock freezes coordinate readouts; DEC-HEX flip reformats without losing selection or Current row | PENDING-HUMAN |
-| M-6 | All Hex sources (`File`, `IDAT Stream`, `Inflated`, `Defiltered`) | For a trace row use `Show in Hex` (File and IDAT Stream variants per flow-ui §13 table) and `Show inflated output` (Inflated source); select a filtered/defiltered byte and inspect | Each source activates with the exact promised range selected; source labels match flow-ui §13/§20.7 locked copy | PENDING-HUMAN |
-| M-7 | Inspector workspace restore | Arrange pages, selection, theme; quit the app; relaunch | Inspector workspace (active page, selection, theme) restored per flow-ui §14; no crash, no fabricated state for a fresh document | PENDING-HUMAN |
-| M-8 | Keyboard-only workflow end-to-end | Without mouse: Tab through tab bar → tables → footer actions; arrow-key navigation in all three tables; activate `Show in Hex` / `Show inflated output` / copy from keyboard | Every action reachable and activable; focus ring visible and distinct from Current highlight; order matches §20.2 | PENDING-HUMAN |
-| M-9 | Clipboard on native window system | Select a detail value and a table cell; copy via keyboard; paste into TextEdit | Copied text matches the on-screen value (offscreen round-trip already PASS in §5.1; this verifies native clipboard ownership/UTF-8) | PENDING-HUMAN |
-| M-10 | Native theme (system Light/Dark switching) | Toggle macOS appearance Light↔Dark while the inspector is open on each page | All three pages re-resolve palette tokens (including Current pixel token); no hard-coded RGB artifacts; legible in both modes | PENDING-HUMAN |
-| M-11 | High-DPI native display | Run on the native Retina display and, if available, an external lower-DPI display; resize across 360–600 px | Text and table chrome render sharply at DPR 2; no blurry artifacts; geometry bands hold; no width-driven growth | PENDING-HUMAN |
+| M-1 | Native screen-reader observations (VoiceOver on this macOS host) | Open a valid fixture (`valid/trace-dynamic-overlap-repeats.png`), enable VoiceOver, traverse the three inspector tables, footer actions and context panel with VO cursor and Tab | Tables announced as tables with exact accessible names; rows expose Current/Selection state; buttons read their locked labels. VoiceOver observations recorded by product owner | PASS — product owner, native macOS (Apple Silicon), 2026-09-03 |
+| M-2 | Native window rendering beyond offscreen (glyph rasterization, scrollbar chrome) | Open the same fixture in a native window; compare against `blocks-480-light` baseline subjectively; toggle window sizes 360/480/600 | No clipped/overlapping text; scrollbars appear only when needed; component order unchanged vs baseline | PASS — product owner, native macOS (Apple Silicon), 2026-09-03 |
+| M-3 | Open / close / reload / rapid page-switch lifecycle | Open 3 fixtures in sequence, close each, reload the last one; rapidly switch Blocks→Huffman→Trace ≥20 times | No stale rows, no duplicate footers, no replay storm (trace submission counter stable — verify via log if instrumented), window closes cleanly | PASS — product owner, native macOS (Apple Silicon), 2026-09-03 |
+| M-4 | Chunk / Reconstruction / Pixels / Filtered / Defiltered panels alongside inspector | Open `valid/idat-split-token.png`; walk Chunk → Reconstruction → Pixels → Filtered → Defiltered tabs with the Compression inspector open | Inspector context stays consistent; `Show in Hex` targets still resolve while each panel is active; no cross-panel state clobbering | PASS — product owner, native macOS (Apple Silicon), 2026-09-03 |
+| M-5 | Image / X / Y / Lock / DEC-HEX coordinate controls | With the trace open, move the probe over the image, set X/Y numerically, toggle Lock, flip DEC/HEX | X/Y display matches probe position; Lock freezes coordinate readouts; DEC-HEX flip reformats without losing selection or Current row | PASS — product owner, native macOS (Apple Silicon), 2026-09-03 |
+| M-6 | All Hex sources (`File`, `IDAT Stream`, `Inflated`, `Defiltered`) | For a trace row use `Show in Hex` (File and IDAT Stream variants per flow-ui §13 table) and `Show inflated output` (Inflated source); select a filtered/defiltered byte and inspect | Each source activates with the exact promised range selected; source labels match flow-ui §13/§20.7 locked copy | PASS — product owner, native macOS (Apple Silicon), 2026-09-03 |
+| M-7 | Inspector workspace restore | Arrange pages, selection, theme; quit the app; relaunch | Inspector workspace (active page, selection, theme) restored per flow-ui §14; no crash, no fabricated state for a fresh document | PASS — product owner, native macOS (Apple Silicon), 2026-09-03 |
+| M-8 | Keyboard-only workflow end-to-end | Without mouse: Tab through tab bar → tables → footer actions; arrow-key navigation in all three tables; activate `Show in Hex` / `Show inflated output` / copy from keyboard | Every action reachable and activable; focus ring visible and distinct from Current highlight; order matches §20.2 | PASS — product owner, native macOS (Apple Silicon), 2026-09-03 |
+| M-9 | Clipboard on native window system | Select a detail value and a table cell; copy via keyboard; paste into TextEdit | Copied text matches the on-screen value (offscreen round-trip already PASS in §5.1; this verifies native clipboard ownership/UTF-8) | PASS — product owner, native macOS (Apple Silicon), 2026-09-03 |
+| M-10 | Native theme (system Light/Dark switching) | Toggle macOS appearance Light↔Dark while the inspector is open on each page | All three pages re-resolve palette tokens (including Current pixel token); no hard-coded RGB artifacts; legible in both modes | PASS — product owner, native macOS (Apple Silicon), 2026-09-03 |
+| M-11 | High-DPI native display | Run on the native Retina display and, if available, an external lower-DPI display; resize across 360–600 px | Text and table chrome render sharply at DPR 2; no blurry artifacts; geometry bands hold; no width-driven growth | PASS — product owner, native macOS (Apple Silicon), 2026-09-03 |
 
-Instruction to the product owner: execute each procedure on the current
-native platform (macOS), append the observation and date to the cell, and set
-PASS or BLOCKED (with reason). After all cells are resolved, update
-`FINAL STATUS` in §8 and close the package per plan Task 5 Step 4.
+Execution record: all eleven procedures above were executed by the product
+owner on native macOS (Apple Silicon), 2026-09-03, and each cell recorded
+**PASS** by the product owner (the human ran VoiceOver for M-1 and confirmed
+its observations). With §4 complete, §8 records the final package status per
+plan Task 5 Step 4.
 
 ## 5. Task 5 Step 1 — final automated gate record
 
@@ -357,12 +361,34 @@ Range `8d2b152..HEAD` (all F commits, from before
 Tracked artifacts for WP-5U12F: this matrix, the product gate test, the runner
 and exactly the 22 baselines of §2 (locked in `630b8cb`).
 
-## 8. FINAL STATUS: pending manual record
+## 8. FINAL STATUS: PASS
 
-All automated gates pass (§5.1) and the side-effect audit is clean (§6).
-Every §4 manual cell is **PENDING-HUMAN**: the product owner executes the
-native-OS regression record (§4) and resolves each cell PASS/BLOCKED. Only
-then is the package status set per plan Task 5 Step 4
-(`docs/development/wp-5u12-compression-inspector-completion.md` and the final
-close-out commit). This placeholder must not read PASS until that record is
-complete.
+WP-5U12F — and with it WP-5U12 — is **PASS** (recorded 2026-09-04 at
+`d22c089` + this closing commit). Justification:
+
+- Every automated command of the 12-command final gate matrix exited 0
+  (§5.1): layout/dependency verifiers clean; dev configure/build; focused
+  CTest 8/8; full dev suite 53/53; cross-platform GUI gate PASS (3/3 suites);
+  WP-5U12 GUI gate **22/22 baseline comparisons PASS** (§2.4); ASan+UBSan
+  configure/build/CTest 53/53; sanitizer fuzz gate PASS (2 deterministic
+  replays + fuzz smoke); enforced performance gate PASS with the
+  `compression-inspector` scenario (§5.4); `git diff --check` clean.
+- Every manual-only cell (§4, M-1…M-11) is explicitly recorded **PASS** by
+  the product owner (native macOS Apple Silicon, 2026-09-03) — no cell
+  inferred, skipped or marked by automation.
+- Side-effect audit clean (§6): production diff (`libs apps ui/qt`) empty over
+  all F commits; tracked baselines exactly the 22 pinned names; generated
+  evidence remains untracked.
+- Corpus revision `5df99ad82f145a3418a3c6715f76f677ca8194a02e86c0f810c6457aba92f16f`
+  (§1); final-gate evidence record SHA-256 `06649ef6984b2fe2b3298446fa8e97d9930ae37f693dd0518d75a2e2ab84ef71`
+  (§5.2; the closing exit-gate replay re-runs the 22/22 comparison at the
+  closing commit and rewrites the generated record with fresh commit/timestamp
+  fields — the tracked record of the recorded run is the hash above).
+- Known coverage boundary (honest, not a failure): native-OS manual cells
+  were executed on macOS only; Windows/Linux native behavior was not manually
+  exercised by this gate.
+
+The completion document
+(`docs/development/wp-5u12-compression-inspector-completion.md`) records the
+same status and the full closing record, per plan Task 5 Step 4 and master
+Task 6 Step 5.
