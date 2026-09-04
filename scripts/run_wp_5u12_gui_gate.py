@@ -349,12 +349,16 @@ def run_gate(preset, jobs, output, capture_dir, compare):
     for record in case_records:
         if record.get("result") == "missing-capture":
             problems.append(f"missing capture for {record.get('id')}")
-        if compare and record.get("compare") == "missing-baseline":
-            record["result"] = "missing-baseline"
-            problems.append(f"missing baseline for {record.get('id')}")
-        if compare and record.get("compare") == "fail":
-            record["result"] = "fail"
-            problems.append(f"baseline divergence for {record.get('id')}")
+        if compare:
+            verdict = record.get("compare")
+            if verdict == "missing-baseline":
+                record["result"] = "missing-baseline"
+                problems.append(f"missing baseline for {record.get('id')}")
+            elif verdict == "fail":
+                record["result"] = "fail"
+                problems.append(f"baseline divergence for {record.get('id')}")
+            elif verdict == "pass":
+                record["result"] = "pass"
     failing_gates = sorted(name for name, value in gates.items()
                            if value not in ("pass", "pending"))
     if failing_gates:
