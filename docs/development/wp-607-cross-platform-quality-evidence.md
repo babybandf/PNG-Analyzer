@@ -1,6 +1,7 @@
 # WP-607 — Cross-platform Quality Evidence
 
-Status: **design approved; WP-607C PASS** (2026-09-04)
+Status: **design approved; WP-607A frozen for implementation; WP-607C PASS**
+(2026-09-04)
 
 ## Goal
 
@@ -49,6 +50,13 @@ fixtures additionally require upstream URL, license and SHA-256. No fixture is
 committed without `tests/corpus/manifest.yaml` metadata and at least one test.
 
 ## WP-607A — Native GUI and accessibility
+
+Detailed written package:
+`docs/development/wp-607a-native-gui-accessibility.md`.
+
+Status: **approved; frozen for implementation** (2026-09-04). Binding review:
+`docs/development/wp-607a-written-package-review.md`; implementation plan:
+`docs/superpowers/plans/2026-09-04-wp-607a-native-gui-accessibility.md`.
 
 Run on Windows stable x64, macOS stable arm64 and Ubuntu LTS x86_64 using native
 window systems. Record File Open, `.png` drag/drop, menus/shortcuts, dock drag/
