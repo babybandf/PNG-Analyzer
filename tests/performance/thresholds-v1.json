@@ -18,6 +18,17 @@
         "preview_us": 250000,
         "pixel_query_p95_us": 250000
       }
+    },
+    {
+      "id": "compression-inspector",
+      "max_us": {
+        "fast_index_us": 250000,
+        "trace_query_4096_us": 1000000,
+        "huffman_model_us": 50000,
+        "decode_trace_model_us": 50000,
+        "first_visible_rows_us": 25000,
+        "visible_row_reads_us": 25000
+      }
     }
   ]
 }
