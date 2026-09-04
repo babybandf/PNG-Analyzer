@@ -369,6 +369,52 @@ foreach(pair light:Light system:System dark:Dark)
     LABELS "native-capture;wp5u14n")
 endforeach()
 
+# WP-607A native GUI/accessibility gate (R8: test-only). Drives the real
+# MainWindow on the native platform only; behavioral slots skip under
+# offscreen/minimal (R9) and writeEvidence records no evidence there. One
+# QtTest process covers A01-A11 and emits automated.json under PNGA_WP607A_OUT
+# for scripts/run_wp_607a_native_gui_gate.py to validate and assemble. The
+# git commit is baked at configure time and may be overridden per run through
+# PNGA_WP607A_COMMIT.
+execute_process(
+  COMMAND git rev-parse HEAD
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  OUTPUT_VARIABLE PNGA_WP607A_GIT_COMMIT_VALUE
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  RESULT_VARIABLE PNGA_WP607A_GIT_COMMIT_RESULT
+  ERROR_QUIET)
+if(NOT PNGA_WP607A_GIT_COMMIT_RESULT EQUAL 0)
+  set(PNGA_WP607A_GIT_COMMIT_VALUE "unknown")
+endif()
+
+add_executable(pnga_gui_wp_607a_native_gui_gate_tests
+  wp_607a_native_gui_gate_test.cpp
+  ${PNGA_GUI_APP_TEST_SOURCES}
+)
+set_target_properties(pnga_gui_wp_607a_native_gui_gate_tests PROPERTIES AUTOMOC ON)
+target_include_directories(pnga_gui_wp_607a_native_gui_gate_tests PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../apps/png-analyzer-gui/src
+)
+target_link_libraries(pnga_gui_wp_607a_native_gui_gate_tests PRIVATE
+  pnga::ui_qt
+  pnga::analysis_engine
+  pnga::png_format
+  pnga::io
+  pnga::core
+  Qt6::Test
+)
+target_compile_features(pnga_gui_wp_607a_native_gui_gate_tests PRIVATE cxx_std_20)
+target_compile_definitions(pnga_gui_wp_607a_native_gui_gate_tests PRIVATE
+  PNGA_WP607C_CORPUS_DIR="${CMAKE_BINARY_DIR}/tests/corpus/wp-607c"
+  PNGA_WP607A_GIT_COMMIT="${PNGA_WP607A_GIT_COMMIT_VALUE}")
+
+add_test(NAME gui_wp607a_native_gui_gate_tests
+  COMMAND pnga_gui_wp_607a_native_gui_gate_tests)
+set_tests_properties(gui_wp607a_native_gui_gate_tests PROPERTIES
+  FIXTURES_REQUIRED wp607c-generated-corpus
+  ENVIRONMENT "PNGA_WP607A_OUT=${CMAKE_BINARY_DIR}/evidence/wp-607a"
+  LABELS "gui;native;wp607a")
+
 add_executable(pnga_gui_cross_platform_gate_tests
   cross_platform_gui_gate_test.cpp
   ${PNGA_GUI_APP_TEST_SOURCES}
@@ -533,6 +579,7 @@ add_custom_target(pnga_gui_tests DEPENDS
   pnga_gui_compression_inspector_responsive_tests
   pnga_gui_compression_inspector_product_gate_tests
   pnga_gui_wp_5u14n_native_capture_tests
+  pnga_gui_wp_607a_native_gui_gate_tests
   pnga_gui_cross_platform_gate_tests
   pnga_gui_stage_inspector_tests
   pnga_gui_block_inspector_tests
