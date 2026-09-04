@@ -102,6 +102,39 @@ QString fixtureIdForCell(const QString& cell) {
   return QStringLiteral("ui-rgb8-five-filters");
 }
 
+// Readable role names for the A06 snapshot note; the default branch keeps
+// unknown roles recordable without asserting them.
+QString accessibleRoleText(QAccessible::Role role) {
+  switch (role) {
+    case QAccessible::MenuBar:
+      return QStringLiteral("MenuBar");
+    case QAccessible::PopupMenu:
+      return QStringLiteral("PopupMenu");
+    case QAccessible::MenuItem:
+      return QStringLiteral("MenuItem");
+    case QAccessible::Pane:
+      return QStringLiteral("Pane");
+    case QAccessible::Tree:
+      return QStringLiteral("Tree");
+    case QAccessible::Client:
+      return QStringLiteral("Client");
+    case QAccessible::PageTabList:
+      return QStringLiteral("PageTabList");
+    case QAccessible::Table:
+      return QStringLiteral("Table");
+    case QAccessible::SpinBox:
+      return QStringLiteral("SpinBox");
+    case QAccessible::CheckBox:
+      return QStringLiteral("CheckBox");
+    case QAccessible::Button:
+      return QStringLiteral("Button");
+    case QAccessible::StaticText:
+      return QStringLiteral("StaticText");
+    default:
+      return QStringLiteral("Role(%1)").arg(static_cast<int>(role));
+  }
+}
+
 QString expectedForCell(const QString& cell) {
   if (cell == QStringLiteral("A01")) {
     return QStringLiteral("Open fixture, visible title/state, close clears "
@@ -520,7 +553,9 @@ class Wp607aNativeGuiGateTest : public QObject {
   static QStringList focusChainNames(QWidget* window, QWidget* focused);
   static void requireAccessible(const QString& label, QObject* object,
                                 QAccessible::Role role, bool require_name,
-                                QStringList* violations);
+                                QStringList* snapshot, QStringList* violations);
+  static void requireMenuItems(const QString& label, QMenu* menu,
+                               QStringList* snapshot, QStringList* violations);
 
   QVector<wp607a::FixtureFile> fixtures_;
   QVector<wp607a::CellResult> cells_;
@@ -598,6 +633,7 @@ void Wp607aNativeGuiGateTest::requireAccessible(const QString& label,
                                                 QObject* object,
                                                 QAccessible::Role role,
                                                 bool require_name,
+                                                QStringList* snapshot,
                                                 QStringList* violations) {
   if (object == nullptr) {
     violations->append(label + QStringLiteral(":missing-object"));
@@ -611,16 +647,94 @@ void Wp607aNativeGuiGateTest::requireAccessible(const QString& label,
   if (iface->role() != role) {
     violations->append(label + QStringLiteral(":role-%1").arg(iface->role()));
   }
-  if (require_name &&
-      iface->text(QAccessible::Name).trimmed().isEmpty()) {
+  const QString name = iface->text(QAccessible::Name);
+  if (require_name && name.trimmed().isEmpty()) {
     violations->append(label + QStringLiteral(":empty-name"));
   }
-  // State/value are recorded for the snapshot evidence; a missing value is
-  // legal (most controls carry none), a missing state never is.
+  // The actual state/value tokens go into the snapshot evidence. Only
+  // presence/format is asserted (a missing value is legal for most roles
+  // and value text may vary), so the record stays deterministic.
   const QAccessible::State state = iface->state();
-  Q_UNUSED(state);
+  QStringList state_tokens;
+  if (state.disabled) {
+    state_tokens.append(QStringLiteral("disabled"));
+    if (role != QAccessible::MenuItem) {
+      violations->append(label + QStringLiteral(":disabled"));
+    }
+  }
+  if (state.invisible) {
+    state_tokens.append(QStringLiteral("invisible"));
+    if (role != QAccessible::MenuItem) {
+      violations->append(label + QStringLiteral(":invisible"));
+    }
+  }
+  if (state.focusable) {
+    state_tokens.append(QStringLiteral("focusable"));
+  }
+  if (state.focused) {
+    state_tokens.append(QStringLiteral("focused"));
+  }
+  if (state.checkable) {
+    state_tokens.append(QStringLiteral("checkable"));
+  }
+  if (state.checked) {
+    state_tokens.append(QStringLiteral("checked"));
+  }
   const QString value = iface->text(QAccessible::Value);
-  Q_UNUSED(value);
+  if (role == QAccessible::SpinBox &&
+      !QRegularExpression(QStringLiteral("^-?\\d+$")).match(value).hasMatch()) {
+    violations->append(label + QStringLiteral(":value-format"));
+  }
+  snapshot->append(QStringLiteral("%1: role %2, name '%3', state %4, value '%5'")
+                       .arg(label, wp607a::accessibleRoleText(iface->role()),
+                            name,
+                            state_tokens.isEmpty()
+                                ? QStringLiteral("none")
+                                : state_tokens.join(QStringLiteral("+")),
+                            value));
+}
+
+void Wp607aNativeGuiGateTest::requireMenuItems(const QString& label,
+                                               QMenu* menu,
+                                               QStringList* snapshot,
+                                               QStringList* violations) {
+  if (menu == nullptr) {
+    violations->append(label + QStringLiteral(":missing-menu"));
+    return;
+  }
+  const auto* iface = QAccessible::queryAccessibleInterface(menu);
+  if (iface == nullptr) {
+    violations->append(label + QStringLiteral(":no-interface"));
+    return;
+  }
+  int items = 0;
+  for (int i = 0; i < iface->childCount(); ++i) {
+    const auto* child = iface->child(i);
+    if (child == nullptr || child->role() != QAccessible::MenuItem) {
+      continue;
+    }
+    ++items;
+    const QString name = child->text(QAccessible::Name);
+    if (name.trimmed().isEmpty()) {
+      violations->append(label + QStringLiteral(":item-%1-empty-name").arg(i));
+    }
+    const QAccessible::State state = child->state();
+    QStringList state_tokens;
+    if (state.disabled) {
+      state_tokens.append(QStringLiteral("disabled"));
+    }
+    if (state.focusable) {
+      state_tokens.append(QStringLiteral("focusable"));
+    }
+    snapshot->append(QStringLiteral("%1[%2]: role MenuItem, name '%3', state %4")
+                         .arg(label, QString::number(i), name,
+                              state_tokens.isEmpty()
+                                  ? QStringLiteral("none")
+                                  : state_tokens.join(QStringLiteral("+"))));
+  }
+  if (items == 0) {
+    violations->append(label + QStringLiteral(":no-menu-items"));
+  }
 }
 
 void Wp607aNativeGuiGateTest::openCloseReopen() {
@@ -939,6 +1053,7 @@ void Wp607aNativeGuiGateTest::accessibleTree() {
   auto window = shownWindow();
   openValidReady(*window, fixtureById(QStringLiteral("ui-rgb8-five-filters")));
 
+  QStringList snapshot;
   QStringList violations;
   // Menus and their named items (the actions surface as the menus' children).
   QMenu* file_menu = nullptr;
@@ -953,129 +1068,115 @@ void Wp607aNativeGuiGateTest::accessibleTree() {
       view_menu = menu_action->menu();
     }
   }
-  const auto require_menu_items = [](const QString& label, QMenu* menu,
-                                     QStringList* menu_violations) {
-    if (menu == nullptr) {
-      menu_violations->append(label + QStringLiteral(":missing-menu"));
-      return;
-    }
-    const auto* iface = QAccessible::queryAccessibleInterface(menu);
-    if (iface == nullptr) {
-      menu_violations->append(label + QStringLiteral(":no-interface"));
-      return;
-    }
-    int items = 0;
-    for (int i = 0; i < iface->childCount(); ++i) {
-      const auto* child = iface->child(i);
-      if (child == nullptr || child->role() != QAccessible::MenuItem) {
-        continue;
-      }
-      ++items;
-      if (child->text(QAccessible::Name).trimmed().isEmpty()) {
-        menu_violations->append(label + QStringLiteral(":item-%1-empty-name")
-                                                 .arg(i));
-      }
-    }
-    if (items == 0) {
-      menu_violations->append(label + QStringLiteral(":no-menu-items"));
-    }
-  };
-  require_menu_items(QStringLiteral("fileMenu"), file_menu, &violations);
-  require_menu_items(QStringLiteral("viewMenu"), view_menu, &violations);
+  requireMenuItems(QStringLiteral("fileMenu"), file_menu, &snapshot,
+                   &violations);
+  requireMenuItems(QStringLiteral("viewMenu"), view_menu, &snapshot,
+                   &violations);
 
-  // Chunk tree region: the dock pane carries the stable "Chunks" name and the
-  // tree exposes the expected Tree role and state.
+  // Controller ruling (fix round): the container name via the Chunks dock
+  // pane (Pane role) satisfies the A06 observable semantics on Qt 6.11.1;
+  // the production accessibleName change remains forbidden (R8).
   auto* chunks = window->findChild<QDockWidget*>(QStringLiteral("chunksDock"));
   auto* tree = window->findChild<QTreeView*>();
   requireAccessible(QStringLiteral("chunksDock"), chunks, QAccessible::Pane,
-                    true, &violations);
+                    true, &snapshot, &violations);
   requireAccessible(QStringLiteral("chunkTree"), tree, QAccessible::Tree,
-                    false, &violations);
+                    false, &snapshot, &violations);
 
   // Preview tabs, Hex controls, coordinate controls, Inspector tabs/tables,
   // status labels: expected role plus non-empty stable name.
   auto* preview =
       window->findChild<QTabWidget*>(QStringLiteral("previewTabs"));
   requireAccessible(QStringLiteral("previewTabs"), preview,
-                    QAccessible::Client, true, &violations);
+                    QAccessible::Client, true, &snapshot, &violations);
   requireAccessible(QStringLiteral("previewTabBar"),
                     preview != nullptr ? preview->tabBar() : nullptr,
-                    QAccessible::PageTabList, true, &violations);
+                    QAccessible::PageTabList, true, &snapshot, &violations);
   requireAccessible(QStringLiteral("hexSourceTabs"),
                     window->findChild<QWidget*>(QStringLiteral("hexSourceTabs")),
-                    QAccessible::PageTabList, true, &violations);
+                    QAccessible::PageTabList, true, &snapshot, &violations);
   requireAccessible(
       QStringLiteral("hexView"),
       window->findChild<QWidget*>(QStringLiteral("hexView")),
-      QAccessible::Client, true, &violations);
+      QAccessible::Client, true, &snapshot, &violations);
   requireAccessible(
       QStringLiteral("xCoordinate"),
       window->findChild<QWidget*>(QStringLiteral("xCoordinate")),
-      QAccessible::SpinBox, true, &violations);
+      QAccessible::SpinBox, true, &snapshot, &violations);
   requireAccessible(
       QStringLiteral("yCoordinate"),
       window->findChild<QWidget*>(QStringLiteral("yCoordinate")),
-      QAccessible::SpinBox, true, &violations);
+      QAccessible::SpinBox, true, &snapshot, &violations);
   requireAccessible(
       QStringLiteral("lockCoordinate"),
       window->findChild<QWidget*>(QStringLiteral("lockCoordinate")),
-      QAccessible::CheckBox, true, &violations);
+      QAccessible::CheckBox, true, &snapshot, &violations);
   requireAccessible(
       QStringLiteral("numericBase"),
       window->findChild<QWidget*>(QStringLiteral("numericBase")),
-      QAccessible::Button, true, &violations);
+      QAccessible::Button, true, &snapshot, &violations);
   requireAccessible(
       QStringLiteral("inspectorTabs"),
       window->findChild<QWidget*>(QStringLiteral("inspectorTabs")),
-      QAccessible::Client, true, &violations);
+      QAccessible::Client, true, &snapshot, &violations);
   requireAccessible(
       QStringLiteral("compressionInspectorPages"),
       window->findChild<QWidget*>(QStringLiteral("compressionInspectorPages")),
-      QAccessible::Client, true, &violations);
+      QAccessible::Client, true, &snapshot, &violations);
   requireAccessible(
       QStringLiteral("blockInspector"),
       window->findChild<QWidget*>(QStringLiteral("blockInspector")),
-      QAccessible::Client, true, &violations);
+      QAccessible::Client, true, &snapshot, &violations);
   requireAccessible(
       QStringLiteral("blocksTable"),
       window->findChild<QTableView*>(QStringLiteral("compressionBlocksTable")),
-      QAccessible::Table, true, &violations);
+      QAccessible::Table, true, &snapshot, &violations);
   requireAccessible(QStringLiteral("huffmanTable"),
                     window->findChild<QTableView*>(
                         QStringLiteral("compressionHuffmanTable")),
-                    QAccessible::Table, true, &violations);
+                    QAccessible::Table, true, &snapshot, &violations);
   requireAccessible(QStringLiteral("decodeTable"),
                     window->findChild<QTableView*>(
                         QStringLiteral("compressionDecodeTraceTable")),
-                    QAccessible::Table, true, &violations);
+                    QAccessible::Table, true, &snapshot, &violations);
   requireAccessible(
       QStringLiteral("chunkDetailTable"),
       window->findChild<QWidget*>(QStringLiteral("chunkDetailTable")),
-      QAccessible::Table, true, &violations);
+      QAccessible::Table, true, &snapshot, &violations);
   requireAccessible(
       QStringLiteral("pixelStatus"),
       window->findChild<QLabel*>(QStringLiteral("pixelStatus")),
-      QAccessible::StaticText, true, &violations);
+      QAccessible::StaticText, true, &snapshot, &violations);
   requireAccessible(
       QStringLiteral("validationStatus"),
       window->findChild<QLabel*>(QStringLiteral("validationStatus")),
-      QAccessible::StaticText, true, &violations);
+      QAccessible::StaticText, true, &snapshot, &violations);
   requireAccessible(
       QStringLiteral("compressionContextStatus"),
       window->findChild<QLabel*>(QStringLiteral("compressionContextStatus")),
-      QAccessible::StaticText, true, &violations);
+      QAccessible::StaticText, true, &snapshot, &violations);
 
   if (!violations.isEmpty()) {
     QFAIL(qPrintable(QStringLiteral("QAccessible snapshot violations: %1")
                          .arg(violations.join(QStringLiteral("; ")))));
   }
-  cell.pass(QStringLiteral("QAccessible snapshot recorded: menus carry named "
-                           "items; chunk tree exposes the Tree role and its "
-                           "stable name through the Chunks dock pane; "
-                           "preview/Hex/coordinate/inspector controls and "
-                           "tables and status labels expose roles with "
-                           "non-empty stable names; state/value recorded per "
-                           "control"));
+  // Controller ruling (fix round): the record note states the chunk-tree
+  // fallback explicitly AND the M04 escalation requirement — if VoiceOver
+  // announces no usable name for the tree, the A06 disposition flips to
+  // FAIL via the defect path (R9).
+  const QString note =
+      QStringLiteral("QAccessible snapshot, %1 entries carrying actual "
+                     "role/name/state/value tokens: %2. Chunk-tree "
+                     "fallback: the chunk tree exposes the Tree role with "
+                     "no own accessible name on this Qt build; its stable "
+                     "name is the Chunks dock pane ('Chunks'). The M04 "
+                     "VoiceOver manual check must record the actual "
+                     "Chunk-tree announcement; if VoiceOver announces no "
+                     "usable name for the tree, the A06 disposition flips "
+                     "to FAIL through the defect path.")
+          .arg(snapshot.size())
+          .arg(snapshot.join(QStringLiteral("; ")));
+  cell.pass(note);
 }
 
 void Wp607aNativeGuiGateTest::clipboard() {
@@ -1113,9 +1214,10 @@ void Wp607aNativeGuiGateTest::clipboard() {
       QStringLiteral("compressionContextStatus"));
   QVERIFY(status != nullptr);
   QVERIFY(status->text().contains(QStringLiteral("ready")));
-  cell.pass(QStringLiteral("a detail value round-tripped through the native "
-                           "clipboard; analysis generation and ready state "
-                           "stayed unchanged"));
+  cell.pass(QStringLiteral("synthetic value round-trip per product-gate "
+                           "precedent (5U12F) through the native clipboard; "
+                           "analysis generation and ready state stayed "
+                           "unchanged"));
 }
 
 void Wp607aNativeGuiGateTest::rapidSwitch() {
@@ -1128,6 +1230,8 @@ void Wp607aNativeGuiGateTest::rapidSwitch() {
       QStringLiteral("ui-rgba16-byte-select"),
       QStringLiteral("error-truncated-token"),
       QStringLiteral("ui-rgb8-five-filters")};
+  const auto final_fixture =
+      fixtureById(QStringLiteral("ui-rgb8-five-filters"));
   auto window = shownWindow();
   for (int i = 0; i < 12; ++i) {
     const auto fixture = fixtureById(cycle.at(i % cycle.size()));
@@ -1158,10 +1262,35 @@ void Wp607aNativeGuiGateTest::rapidSwitch() {
   QVERIFY(image != nullptr);
   QTRY_VERIFY_WITH_TIMEOUT(!image->image().isNull(),
                            wp607a::kReadyTimeoutMs);
+
+  // Close/reopen responsiveness leg (package A08 wording): after the 12
+  // alternations the document must still close cleanly and reopen into a
+  // usable twelfth-generation document, under bounded waits.
+  auto* close_action =
+      window->findChild<QAction*>(QStringLiteral("closeImageAction"));
+  QVERIFY(close_action != nullptr);
+  close_action->trigger();
+  QCoreApplication::processEvents();
+  QTRY_VERIFY_WITH_TIMEOUT(!window->windowTitle().contains(final_name),
+                           wp607a::kReadyTimeoutMs);
+  QVERIFY(!close_action->isEnabled());
+  QVERIFY(image->image().isNull());
+  QCOMPARE(block->view().rows.size(), std::size_t{0});
+  QVERIFY(window->openFile(wp607a::fixturePath(final_fixture)));
+  QCoreApplication::processEvents();
+  QTRY_VERIFY_WITH_TIMEOUT(close_action->isEnabled(), wp607a::kReadyTimeoutMs);
+  QTRY_VERIFY_WITH_TIMEOUT(status->text().contains(QStringLiteral("ready")),
+                           wp607a::kReadyTimeoutMs);
+  QTRY_VERIFY_WITH_TIMEOUT(!block->view().rows.empty(),
+                           wp607a::kReadyTimeoutMs);
+  QTRY_VERIFY_WITH_TIMEOUT(!image->image().isNull(),
+                           wp607a::kReadyTimeoutMs);
+  QVERIFY(window->windowTitle().contains(final_name));
   cell.pass(QStringLiteral("12 alternating valid/malformed opens published "
                            "only the twelfth generation "
                            "(ui-rgb8-five-filters.png) with ready context, "
-                           "rows and image"));
+                           "rows and image; close and reopen stayed "
+                           "responsive and restored a usable document"));
 }
 
 void Wp607aNativeGuiGateTest::chunkToFileBytes() {

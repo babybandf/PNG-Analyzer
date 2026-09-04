@@ -533,7 +533,7 @@ def refuse_dirty_output_dir(out_dir):
     if stale:
         raise Refused(
             "output directory is dirty; remove "
-            f"{out_root('')}/{Path(out_dir).name} and rerun (found "
+            f"{out_root('')}{Path(out_dir).name} and rerun (found "
             f"{', '.join(stale[:5])}{'…' if len(stale) > 5 else ''})")
 
 
@@ -985,8 +985,10 @@ def run_self_test():
         try:
             refuse_dirty_output_dir(dirty)
             failures.append("dirty output directory not refused")
-        except Refused:
-            pass
+        except Refused as error:
+            # The relative hint must be well-formed (no doubled slash).
+            if "//" in str(error):
+                failures.append(f"dirty-dir hint has a doubled slash: {error}")
         (dirty / "automated.json").unlink()
         (dirty / "logs").mkdir()
         (dirty / "logs" / "run-wp607a.log").write_text("x", encoding="utf-8")
