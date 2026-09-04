@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """WP-5U14N native theme capture orchestrator.
 
-Builds the test-only capture target, drives the four frozen theme cells for
-one platform through per-mode native CTest invocations (never offscreen),
-flips the OS appearance between the System cells (macOS: AppleInterfaceStyle
+Builds the test-only capture target, materializes the WP-607C corpus with
+one explicit bounded ctest fixture step, then drives the four frozen theme
+cells for one platform through per-mode DIRECT bounded invocations of the
+capture binary (never offscreen): each unit runs under a 300s kill timeout
+with its output streamed to logs/ under the evidence root, so partial
+output survives a kill and a Qt platform-init hang (-functions probe, 30s)
+is distinguishable from a test-logic hang. The runner flips the OS
+appearance between the System cells (macOS: AppleInterfaceStyle
 plus an osascript appearance notification; Windows: the AppsUseLightTheme
 registry value plus a WM_SETTINGCHANGE broadcast via PowerShell, executed
 only when running on Windows), restores the pre-run appearance state even on
@@ -28,7 +33,6 @@ import json
 import os
 import platform as host_platform
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -39,12 +43,13 @@ WORK_PACKAGE = "WP-5U14N"
 CAPTURE_TARGET = "pnga_gui_wp_5u14n_native_capture_tests"
 
 # Frozen matrix (R3): one unit per theme cell, System cells captured in fresh
-# processes after an OS appearance flip (R4).
+# processes after an OS appearance flip (R4). The middle element is the QtTest
+# function the direct bounded invocation selects (one function per process).
 MODE_UNITS = (
-    ("system-light", "wp5u14n_capture_system", "light"),
-    ("light", "wp5u14n_capture_light", None),
-    ("dark", "wp5u14n_capture_dark", None),
-    ("system-dark", "wp5u14n_capture_system", "dark"),
+    ("system-light", "captureSystem", "light"),
+    ("light", "captureLight", None),
+    ("dark", "captureDark", None),
+    ("system-dark", "captureSystem", "dark"),
 )
 
 CELLS = {
@@ -181,17 +186,33 @@ def appearance_commands(target, mode):
 def plan_commands(target, preset, jobs):
     """The exact, order-pinned capture plan (relative paths only).
 
-    The plan carries the relative output root; the executor resolves it to
-    an absolute path for the child environment so records never embed one.
+    The plan carries the relative output root and test binary; the executor
+    resolves both against the repository root so records never embed an
+    absolute path. Captures run the test binary DIRECTLY under a hard
+    timeout with streamed logs (not through ctest) so partial output
+    survives a kill and a platform-level hang is distinguishable from a
+    test-logic hang. The corpus fixture runs as one explicit bounded ctest
+    step before the captures, replacing the implicit FIXTURES_REQUIRED
+    dependency.
     """
     out = out_root(preset)
+    binary = (f"build/{preset}/tests/gui/{CAPTURE_TARGET}"
+              + (".exe" if target == "windows" else ""))
     steps = [{
         "kind": "build",
         "command": ["cmake", "--build", "--preset", preset, "--target",
                     CAPTURE_TARGET, "--parallel", str(jobs)],
         "env": None,
     }]
-    for unit, entry, os_mode in MODE_UNITS:
+    steps.append({
+        "kind": "fixture",
+        "command": ["ctest", "--preset", preset, "-R",
+                    "wp607c_generate_corpus", "--output-on-failure",
+                    "--timeout", "120"],
+        "env": None,
+    })
+    probed = False
+    for unit, function, os_mode in MODE_UNITS:
         if os_mode is not None:
             steps.append({
                 "kind": "appearance",
@@ -202,11 +223,18 @@ def plan_commands(target, preset, jobs):
         env = {"PNGA_WP5U14N_OUT": out}
         if os_mode is not None:
             env["PNGA_WP5U14N_OS_MODE"] = os_mode
+        if not probed:
+            probed = True
+            steps.append({
+                "kind": "probe",
+                "command": [binary, "-functions"],
+                "env": env,
+            })
         steps.append({
-            "kind": "ctest",
+            "kind": "capture",
             "unit": unit,
-            "command": ["ctest", "--preset", preset, "-R", entry,
-                        "--output-on-failure", "--timeout", "300"],
+            "command": [binary, function,
+                        "-o", f"{out}/logs/qtest-{unit}.txt,txt"],
             "env": env,
         })
     return steps
@@ -216,6 +244,37 @@ def run(command, *, capture=False, env=None):
     print("$ " + " ".join(command), flush=True)
     return subprocess.run(command, cwd=str(ROOT), check=False, text=True,
                           capture_output=capture, env=env)
+
+
+def run_bounded(command, log_path, *, timeout, env):
+    """Run `command` under a hard `timeout`, streaming stdout+stderr into
+    `log_path` as the child produces it. The child is killed on expiry;
+    partial output survives in the log. Returns the exit code, or None
+    when the timeout killed the child."""
+    print("$ " + " ".join(command), flush=True)
+    Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+    with open(log_path, "wb") as handle:
+        try:
+            completed = subprocess.run(command, cwd=str(ROOT), check=False,
+                                       env=env, stdout=handle,
+                                       stderr=subprocess.STDOUT,
+                                       timeout=timeout)
+        except subprocess.TimeoutExpired:
+            print(f"timed out after {timeout}s; child killed; partial "
+                  "output kept in the streamed log", flush=True)
+            return None
+    return completed.returncode
+
+
+def qtest_log_tail(out_dir, unit, lines=15):
+    """The tail of the unit's qtest log (or a placeholder when absent)."""
+    path = Path(out_dir) / "logs" / f"qtest-{unit}.txt"
+    if not path.is_file():
+        return "(no qtest log was written)"
+    content = path.read_text(encoding="utf-8", errors="replace").strip()
+    if not content:
+        return "(qtest log is empty)"
+    return "\n".join(content.splitlines()[-lines:])
 
 
 # --- OS appearance state (save / ensure / restore) ---------------------------
@@ -545,22 +604,52 @@ def run_capture(target, preset, jobs):
             # Records must carry the commit the captures belong to, not the
             # configure-time snapshot baked into the binary.
             env.setdefault("PNGA_WP5U14N_COMMIT", git_commit())
-            result = run(step["command"], env=env)
-            if step["kind"] == "ctest":
-                # Preserve the ctest log inside the evidence dir: a timed-out
-                # (hung) native test still leaves its partial output behind so
-                # CI artifacts stay diagnosable.
-                last_log = (ROOT / "build" / preset / "Testing" /
-                            "Temporary" / "LastTest.log")
-                if last_log.is_file():
-                    logs_dir = Path(out_dir) / "logs"
-                    logs_dir.mkdir(parents=True, exist_ok=True)
-                    shutil.copy(last_log, logs_dir /
-                                f"ctest-{step.get('unit', 'run')}.log")
-            if result.returncode != 0:
-                raise SystemExit(
-                    f"WP-5U14N capture: FAIL at {step['kind']} step "
-                    f"({step.get('unit', 'build')}); no evidence assembled")
+            if step["kind"] == "build":
+                result = run(step["command"], env=env)
+                if result.returncode != 0:
+                    raise SystemExit(
+                        "WP-5U14N capture: FAIL at build step; no evidence "
+                        "assembled")
+            elif step["kind"] == "fixture":
+                result = run(step["command"], env=env)
+                if result.returncode != 0:
+                    raise SystemExit(
+                        "WP-5U14N capture: FAIL at fixture step "
+                        "(wp607c_generate_corpus); no evidence assembled")
+            elif step["kind"] == "probe":
+                code = run_bounded(step["command"],
+                                   out_dir / "logs" / "probe-functions.log",
+                                   timeout=30, env=env)
+                if code is None:
+                    raise SystemExit(
+                        "WP-5U14N capture: FAIL at probe step (-functions "
+                        "timed out after 30s): the Qt windows platform "
+                        "itself cannot initialize on this host; no evidence "
+                        "assembled (probe log: logs/probe-functions.log)")
+                if code != 0:
+                    raise SystemExit(
+                        "WP-5U14N capture: FAIL at probe step (-functions "
+                        f"exited {code}); no evidence assembled "
+                        "(probe log: logs/probe-functions.log)")
+            elif step["kind"] == "capture":
+                unit = step["unit"]
+                code = run_bounded(step["command"],
+                                   out_dir / "logs" / f"run-{unit}.log",
+                                   timeout=300, env=env)
+                if code is None or code != 0:
+                    outcome = ("timed out after 300s; child killed" if
+                               code is None else f"exited {code}")
+                    raise SystemExit(
+                        f"WP-5U14N capture: FAIL at capture step ({unit} "
+                        f"{outcome}); no evidence assembled. qtest log "
+                        "tail:\n" + qtest_log_tail(out_dir, unit))
+            else:
+                result = run(step["command"], env=env)
+                if result.returncode != 0:
+                    raise SystemExit(
+                        f"WP-5U14N capture: FAIL at {step['kind']} step "
+                        f"({step.get('unit', 'build')}); no evidence "
+                        "assembled")
     finally:
         if saved_appearance is not None:
             restore_appearance(target, saved_appearance)
@@ -650,36 +739,51 @@ def synthetic_valid_record(cell, out_dir, fixture_hashes):
 def run_self_test():
     failures = []
 
-    # The macOS plan must equal the pinned sequence exactly.
+    macos_binary = "build/dev/tests/gui/pnga_gui_wp_5u14n_native_capture_tests"
+    windows_binary = macos_binary + ".exe"
+
+    # The macOS plan must equal the pinned sequence exactly: one bounded
+    # corpus-fixture ctest step, then a -functions platform probe and direct
+    # bounded capture invocations per unit (appearance steps unchanged).
     expected_macos = [
         {"kind": "build", "command": ["cmake", "--build", "--preset", "dev",
                                       "--target", CAPTURE_TARGET,
                                       "--parallel", "4"], "env": None},
+        {"kind": "fixture",
+         "command": ["ctest", "--preset", "dev", "-R",
+                     "wp607c_generate_corpus", "--output-on-failure",
+                     "--timeout", "120"], "env": None},
         {"kind": "appearance", "os": "macos", "mode": "light",
          "commands": [["defaults", "delete", "-g", "AppleInterfaceStyle"],
                       ["osascript", "-e", MACOS_APPLESCRIPT.format(
                           dark="false")]]},
-        {"kind": "ctest", "unit": "system-light",
-         "command": ["ctest", "--preset", "dev", "-R",
-                     "wp5u14n_capture_system", "--output-on-failure", "--timeout", "300"],
+        {"kind": "probe",
+         "command": [macos_binary, "-functions"],
          "env": {"PNGA_WP5U14N_OUT": "build/dev/evidence/wp-5u14n",
                  "PNGA_WP5U14N_OS_MODE": "light"}},
-        {"kind": "ctest", "unit": "light",
-         "command": ["ctest", "--preset", "dev", "-R",
-                     "wp5u14n_capture_light", "--output-on-failure", "--timeout", "300"],
+        {"kind": "capture", "unit": "system-light",
+         "command": [macos_binary, "captureSystem", "-o",
+                     "build/dev/evidence/wp-5u14n/logs/"
+                     "qtest-system-light.txt,txt"],
+         "env": {"PNGA_WP5U14N_OUT": "build/dev/evidence/wp-5u14n",
+                 "PNGA_WP5U14N_OS_MODE": "light"}},
+        {"kind": "capture", "unit": "light",
+         "command": [macos_binary, "captureLight", "-o",
+                     "build/dev/evidence/wp-5u14n/logs/qtest-light.txt,txt"],
          "env": {"PNGA_WP5U14N_OUT": "build/dev/evidence/wp-5u14n"}},
-        {"kind": "ctest", "unit": "dark",
-         "command": ["ctest", "--preset", "dev", "-R",
-                     "wp5u14n_capture_dark", "--output-on-failure", "--timeout", "300"],
+        {"kind": "capture", "unit": "dark",
+         "command": [macos_binary, "captureDark", "-o",
+                     "build/dev/evidence/wp-5u14n/logs/qtest-dark.txt,txt"],
          "env": {"PNGA_WP5U14N_OUT": "build/dev/evidence/wp-5u14n"}},
         {"kind": "appearance", "os": "macos", "mode": "dark",
          "commands": [["defaults", "write", "-g", "AppleInterfaceStyle",
                        "Dark"],
                       ["osascript", "-e", MACOS_APPLESCRIPT.format(
                           dark="true")]]},
-        {"kind": "ctest", "unit": "system-dark",
-         "command": ["ctest", "--preset", "dev", "-R",
-                     "wp5u14n_capture_system", "--output-on-failure", "--timeout", "300"],
+        {"kind": "capture", "unit": "system-dark",
+         "command": [macos_binary, "captureSystem", "-o",
+                     "build/dev/evidence/wp-5u14n/logs/"
+                     "qtest-system-dark.txt,txt"],
          "env": {"PNGA_WP5U14N_OUT": "build/dev/evidence/wp-5u14n",
                  "PNGA_WP5U14N_OS_MODE": "dark"}},
     ]
@@ -687,30 +791,39 @@ def run_self_test():
     if planned != expected_macos:
         failures.append(f"macos planner drift: {planned}")
 
-    # The Windows plan carries the registry flip and the broadcast, and is
-    # only ever executed on a Windows host.
+    # The Windows plan carries the registry flip and the broadcast, the .exe
+    # binary suffix, and is only ever executed on a Windows host.
     expected_windows = [
         {"kind": "build", "command": ["cmake", "--build", "--preset", "dev",
                                       "--target", CAPTURE_TARGET,
                                       "--parallel", "4"], "env": None},
+        {"kind": "fixture",
+         "command": ["ctest", "--preset", "dev", "-R",
+                     "wp607c_generate_corpus", "--output-on-failure",
+                     "--timeout", "120"], "env": None},
         {"kind": "appearance", "os": "windows", "mode": "light",
          "commands": [["reg", "add", WINDOWS_PERSONALIZE_KEY, "/v",
                        "AppsUseLightTheme", "/t", "REG_DWORD", "/d", "1",
                        "/f"],
                       ["powershell", "-NoProfile", "-Command",
                        WINDOWS_BROADCAST_POWERSHELL]]},
-        {"kind": "ctest", "unit": "system-light",
-         "command": ["ctest", "--preset", "dev", "-R",
-                     "wp5u14n_capture_system", "--output-on-failure", "--timeout", "300"],
+        {"kind": "probe",
+         "command": [windows_binary, "-functions"],
          "env": {"PNGA_WP5U14N_OUT": "build/dev/evidence/wp-5u14n",
                  "PNGA_WP5U14N_OS_MODE": "light"}},
-        {"kind": "ctest", "unit": "light",
-         "command": ["ctest", "--preset", "dev", "-R",
-                     "wp5u14n_capture_light", "--output-on-failure", "--timeout", "300"],
+        {"kind": "capture", "unit": "system-light",
+         "command": [windows_binary, "captureSystem", "-o",
+                     "build/dev/evidence/wp-5u14n/logs/"
+                     "qtest-system-light.txt,txt"],
+         "env": {"PNGA_WP5U14N_OUT": "build/dev/evidence/wp-5u14n",
+                 "PNGA_WP5U14N_OS_MODE": "light"}},
+        {"kind": "capture", "unit": "light",
+         "command": [windows_binary, "captureLight", "-o",
+                     "build/dev/evidence/wp-5u14n/logs/qtest-light.txt,txt"],
          "env": {"PNGA_WP5U14N_OUT": "build/dev/evidence/wp-5u14n"}},
-        {"kind": "ctest", "unit": "dark",
-         "command": ["ctest", "--preset", "dev", "-R",
-                     "wp5u14n_capture_dark", "--output-on-failure", "--timeout", "300"],
+        {"kind": "capture", "unit": "dark",
+         "command": [windows_binary, "captureDark", "-o",
+                     "build/dev/evidence/wp-5u14n/logs/qtest-dark.txt,txt"],
          "env": {"PNGA_WP5U14N_OUT": "build/dev/evidence/wp-5u14n"}},
         {"kind": "appearance", "os": "windows", "mode": "dark",
          "commands": [["reg", "add", WINDOWS_PERSONALIZE_KEY, "/v",
@@ -718,9 +831,10 @@ def run_self_test():
                        "/f"],
                       ["powershell", "-NoProfile", "-Command",
                        WINDOWS_BROADCAST_POWERSHELL]]},
-        {"kind": "ctest", "unit": "system-dark",
-         "command": ["ctest", "--preset", "dev", "-R",
-                     "wp5u14n_capture_system", "--output-on-failure", "--timeout", "300"],
+        {"kind": "capture", "unit": "system-dark",
+         "command": [windows_binary, "captureSystem", "-o",
+                     "build/dev/evidence/wp-5u14n/logs/"
+                     "qtest-system-dark.txt,txt"],
          "env": {"PNGA_WP5U14N_OUT": "build/dev/evidence/wp-5u14n",
                  "PNGA_WP5U14N_OS_MODE": "dark"}},
     ]
