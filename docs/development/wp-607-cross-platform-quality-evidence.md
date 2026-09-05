@@ -1,6 +1,6 @@
 # WP-607 — Cross-platform Quality Evidence
 
-Status: **design approved; WP-607A frozen for implementation; WP-607C PASS**
+Status: **design approved; WP-607C PASS; WP-607A FAIL (closed 2026-09-05); WP-607B/D and overall WP-607 incomplete**
 (2026-09-04)
 
 ## Goal
@@ -54,9 +54,19 @@ committed without `tests/corpus/manifest.yaml` metadata and at least one test.
 Detailed written package:
 `docs/development/wp-607a-native-gui-accessibility.md`.
 
-Status: **approved; frozen for implementation** (2026-09-04). Binding review:
-`docs/development/wp-607a-written-package-review.md`; implementation plan:
-`docs/superpowers/plans/2026-09-04-wp-607a-native-gui-accessibility.md`.
+Status: **FAIL — closed 2026-09-05** (`WP-607A FAIL (M05 copy-affordance
+gap; M04/Ubuntu/Windows-manual BLOCKED)`). Executed evidence: automated
+A01–A11 PASS on macOS arm64 and Windows x64 (22/22 executable cells);
+macOS manual M01/M02/M03/M06 PASS with M03's dock defect fixed and
+re-verified in-package (defect chain `1f9ff9b`, `9ff03e6`, `0c37d6e`,
+`640c1e5`, `c9eacd8`, `6933778`); M05 FAIL — executed product capability
+gap (no user-facing copy affordance; follow-up options recorded in the
+evidence summary); M04 BLOCKED (no VoiceOver access; A06 Chunk-tree
+escalation UNVERIFIED); Ubuntu all cells BLOCKED (no 24.04 desktop);
+Windows manual/scales BLOCKED (no environment; base-scale automated PASS
+on CI). Evidence:
+`docs/evidence/wp-607a-native-gui-accessibility.md` (final status FAIL,
+§7 coverage audit, §8 named cells). WP-607C PASS is unchanged.
 
 Run on Windows stable x64, macOS stable arm64 and Ubuntu LTS x86_64 using native
 window systems. Record File Open, `.png` drag/drop, menus/shortcuts, dock drag/

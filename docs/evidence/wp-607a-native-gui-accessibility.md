@@ -8,13 +8,18 @@ Result vocabulary follows the package Error and status policy (R9): executed
 defects are FAIL; platform/hardware/screen-reader access gaps are BLOCKED;
 Statistics export and APNG timeline are explicit `out_of_scope`, never PASS.
 
-**Status so far (Tasks 4–6):** macOS automated matrix executed and
-re-executed after controller-authorized test fixes — final macOS record
-**PASS (11/11)** (§2.3; original run: 8 PASS, 1 BLOCKED, 2 FAIL, §2.2).
-Windows automated matrix executed and re-executed — final Windows record
-**PASS (11/11)** (§3.2; original run: 9 PASS, 1 BLOCKED, 1 FAIL, §3.1).
-Ubuntu cells BLOCKED (no Ubuntu 24.04 LTS desktop available to the product
-owner). Final WP-607A status is set at Task 8, not here.
+**FINAL STATUS: FAIL** (§8) — executed manual cell M05 exposed a product
+capability gap (no user-facing copy affordance); M04 and the Ubuntu/Windows
+manual cells are BLOCKED. All 22 locally/CI-executable automated cells
+(macOS 11 + Windows 11) PASS.
+
+Tracked summary per `docs/development/wp-607a-native-gui-accessibility.md`
+(Evidence contract). Raw records stay under the ignored
+`build/evidence/wp-607a/<platform-id>/` trees; this file stores commands,
+machine facts, per-cell dispositions and hashes of the ignored raw evidence.
+Result vocabulary follows the package Error and status policy (R9): executed
+defects are FAIL; platform/hardware/screen-reader access gaps are BLOCKED;
+Statistics export and APNG timeline are explicit `out_of_scope`, never PASS.
 
 ## 1. Shared facts
 
@@ -292,10 +297,54 @@ Xvfb/offscreen/minimal or container-only sessions cannot satisfy any cell
 
 ## 5. Manual matrices (M01–M06) and scale rows
 
-Manual templates are generated per platform by
-`python3 scripts/run_wp_607a_native_gui_gate.py --manual-template <platform>`
-into the ignored evidence trees. Product-owner execution, aggregate
-validation and dispositions are recorded here at Task 7.
+Manual records were filled by the product owner (executions 2026-09-04/05)
+from the three ignored `manual-template.json` files and written as
+`build/evidence/wp-607a/<platform-id>/manual.json` (canonical serialization,
+sorted keys, ASCII escaping, one trailing LF). Each record passed the
+runner's aggregate validation (`validate_final_record`): no draft rows, all
+results inside the frozen vocabulary, every PASS row carries reviewer, UTC
+time and a non-empty semantic observation, and no privacy-key or
+absolute-path content. Row `utc_time` values carry day precision
+(`T00:00:00Z` = the execution/recording date); the date convention is
+disclosed here rather than inventing finer times. Record statuses:
+macOS **FAIL** (contains the M05 FAIL row), Windows **BLOCKED**, Ubuntu
+**BLOCKED**.
+
+- macOS `manual.json` SHA-256
+  `b312dd7391e8328efb34f56bc95882dde8c91597a9c6106baf198044e26d9f8a`
+- Windows `manual.json` SHA-256
+  `dbeb1df0a22d636b2b782c10d1489b636e1ad3f7f1ef769268d573676ac5c384`
+- Ubuntu `manual.json` SHA-256
+  `90c404a13d1619b53a38e5021338af22e6c864354fb8975b71f2209c55442433`
+
+### 5.1 macOS manual record (native, worktree build at `6933778`)
+
+| Row | Result | Observation (product owner) |
+|---|---|---|
+| M01 open-dragdrop | PASS | Native File Open and pointer drag/drop both executed; rejection feedback understandable. |
+| M02 keyboard-focus | PASS | Executed with Full Keyboard Access enabled via System Settings; core keyboard workflows reachable; the app exposes only Open/Close/Quit shortcuts — no shortcut hints on other actions. |
+| M03 docks-scale | PASS | First execution exposed a confirmed product defect: floating/dragged Inspector re-docked at dragged position on Reset AND on title-bar double-click (regression vs 0.1.19-era). Fixed within this package — failing tests `1f9ff9b`/`0c37d6e`, fixes `9ff03e6`/`640c1e5`, filter relocation `c9eacd8`, probe test `6933778` — and both paths re-verified by the product owner on the rebuilt binary. |
+| M04 screen-reader | BLOCKED | Product owner cannot use VoiceOver (decided 2026-09-04). The A06 Chunk-tree announcement escalation remains UNVERIFIED: VoiceOver never announced the Chunk tree, so the fallback escalation could not be executed. |
+| M05 clipboard | FAIL | Executed attempt exposed a product capability gap: no user-facing copy affordance (no menu entry, no shortcut); the programmatic clipboard path is verified by A07. Follow-up options recorded: (a) re-attempt via text selection + Cmd+C in Hex/text views (widget-native copy, not explicitly attempted); (b) add a copy UI as a separate authorized product task; (c) product owner accepts the boundary. |
+| M06 lifecycle | PASS | Close, reopen and rapid switching show no stale image, Chunk, stage, selection, trace or announcement. |
+| scale retina-native | PASS | Native Retina scale covered by the automated native gate (A01–A11 at DPR 2.00, logical DPI 72.00); usable at native scale. |
+| scale logical-scaled | PASS | Logical scaled case: text, focus rings, menus, docks and the three core workflows usable at the scaled setting. |
+
+### 5.2 Windows manual record
+
+| Row | Result | Observation (product owner) |
+|---|---|---|
+| M01–M06 | BLOCKED | No Windows environment currently available to the product owner ("以后再测，暂时没有环境"); will be tested later. Automated A01–A11 executed on CI at base scale (§3.2). |
+| scale 100% | PASS | Covered by the automated native CI run 33902790935 at 96.00 logical DPI / DPR 1.00 (100% scale); usable at base scale. |
+| scale 150% | BLOCKED | No Windows environment currently available to the product owner. |
+| scale 200% | BLOCKED | No Windows environment currently available to the product owner. |
+
+### 5.3 Ubuntu manual record
+
+| Row | Result | Observation (product owner) |
+|---|---|---|
+| M01–M06 | BLOCKED | No Ubuntu 24.04 LTS desktop available to the product owner (decided 2026-09-04); required environment per §4. |
+| scale 100% / 150% / 200% | BLOCKED | Same reason; a scale the selected desktop does not expose never silently becomes PASS. |
 
 ## 6. Out-of-scope declarations (explicit, per package)
 
@@ -303,3 +352,98 @@ validation and dispositions are recorded here at Task 7.
 |---|---|
 | Statistics export | `out_of_scope` — WP-602H pending; never PASS in any WP-607A record. |
 | APNG timeline | `out_of_scope` — WP-706 pending; never PASS in any WP-607A record. |
+
+## 7. Coverage audit (Task 8)
+
+Audited against the final records (macOS `automated.json` +
+`evidence.json` + `manual.json`; Windows re-execution artifact + local
+`manual.json`; Ubuntu `manual.json`); every hash below recomputed from the
+actual ignored-evidence files (the Windows automated evidence exists only
+inside CI artifact `wp607a-native-gui-accessibility-windows` of run
+33902790935 and was recomputed from the downloaded artifact).
+
+### 7.1 Automated cells — 33 required (11 × 3), 33 present
+
+| Platform | Dispositions | Record + SHA-256 |
+|---|---|---|
+| macOS arm64 | 11 PASS | `automated.json` `8ef8cee49bc9d43fa849bdfef4a70f10aa023796aaafe22c62f54c8f53bfe76c`; aggregate `evidence.json` `abb49ae44ed29415b3b86b0a3ac541f8fe811a76d57d650eb0d145e2f704a768` (tree `155683c8…`, §2.3) |
+| Windows x64 | 11 PASS | `automated.json` `a86f34169b2f1d6d6462680d4ddbe4fd395d04fe11ef4bdcfb4e121aa200c268`; aggregate `evidence.json` `f467d5ade09a314b1d5c9fdc7d059eeb5939728ca845277f7936fc02e28c3f1b` (tree `6094ca31…`, §3.2) |
+| Ubuntu 24.04 LTS x86_64 | 11 BLOCKED (no qualifying desktop; §4) | no record — none may be invented |
+
+33/33 cells accounted for; zero unknown, missing or duplicate ids (runner
+schema validation refuses such records, and both real records passed
+`validate_record`). Native plugin/session facts recorded: `cocoa`/`aqua`
+(macOS), `windows`/`win32-desktop` (Windows). Corpus revision
+`5df99ad82f145a3418a3c6715f76f677ca8194a02e86c0f810c6457aba92f16f` exact in
+every record, with the five frozen fixture SHA-256 values.
+
+Timing disclosure: both automated records were captured at `fc7aef2`
+(re-execution fixes). The M03 dock defect chain (`1f9ff9b`, `9ff03e6`,
+`0c37d6e`, `640c1e5`, `c9eacd8`, `6933778`) postdates them and changes dock
+reset behavior (A04's area). A04 passed on the pre-fix binary; the changed
+behavior is covered by the new failing tests in the offscreen suite (57/57
+at `6933778`) and re-verified by the product owner on the rebuilt binary
+(M03, §5.1).
+
+### 7.2 Manual cells — 18 required (6 × 3), 18 present
+
+| Platform | Dispositions | Record + SHA-256 |
+|---|---|---|
+| macOS arm64 | M01 M02 M03 M06 PASS; M04 BLOCKED; M05 FAIL | `manual.json` `b312dd7391e8328efb34f56bc95882dde8c91597a9c6106baf198044e26d9f8a` |
+| Windows x64 | M01–M06 BLOCKED (no environment) | `manual.json` `dbeb1df0a22d636b2b782c10d1489b636e1ad3f7f1ef769268d573676ac5c384` |
+| Ubuntu 24.04 LTS x86_64 | M01–M06 BLOCKED (no desktop) | `manual.json` `90c404a13d1619b53a38e5021338af22e6c864354fb8975b71f2209c55442433` |
+
+18/18 cells accounted for; zero unknown, missing or duplicate rows; every
+row carries reviewer `product-owner` and a semantic observation; the M04
+A06-escalation status is explicitly UNVERIFIED (§5.1).
+
+### 7.3 Scale rows — 8 required, 8 present
+
+| Platform | Rows |
+|---|---|
+| macOS arm64 | retina-native PASS (automated-covered), logical-scaled PASS |
+| Windows x64 | 100% PASS (automated-covered, CI run 33902790935), 150% BLOCKED, 200% BLOCKED |
+| Ubuntu 24.04 LTS x86_64 | 100%/150%/200% BLOCKED |
+
+### 7.4 Final verification replay (Task 8 Step 1, 2026-09-05 at `6933778`)
+
+- `python3 scripts/verify_repository_layout.py` → 0 failures, 0 warnings.
+- `python3 scripts/verify_dependencies.py` → 0 failures, 0 warnings.
+- `python3 scripts/run_wp_607a_native_gui_gate.py --self-test` → PASS
+  (incl. the macOS FKA enable/restore plan pair).
+- `cmake --build --preset dev --parallel 4` → exit 0.
+- `QT_QPA_PLATFORM=offscreen ctest --preset dev --output-on-failure` →
+  **100% tests passed out of 57** (includes the M03 defect-chain tests).
+- `python3 scripts/run_gui_gate.py` → PASS.
+- `git diff --check` → clean.
+
+## 8. Final WP-607A status
+
+**FAIL.** Named cells:
+
+- **M05 clipboard FAIL** — executed product capability gap: no user-facing
+  copy affordance (no menu entry, no shortcut). Follow-up options recorded:
+  (a) product owner re-attempt via text selection + Cmd+C in Hex/text views
+  (widget-native copy, not explicitly attempted); (b) add a copy UI as a
+  separately authorized product task; (c) product owner accepts the
+  boundary. Fix requires a separate focused defect package (R8/R9).
+- **M04 screen-reader BLOCKED** (macOS) — product owner cannot use
+  VoiceOver; the A06 Chunk-tree announcement escalation remains UNVERIFIED.
+- **Ubuntu 24.04 LTS x86_64 — all automated (A01–A11), manual (M01–M06)
+  and scale cells BLOCKED** — no qualifying desktop available to the
+  product owner (required environment in §4).
+- **Windows manual M01–M06 and 150%/200% scale cells BLOCKED** — no
+  Windows environment currently available to the product owner (base-scale
+  automated A01–A11 and 100% scale PASS on CI).
+
+M03's dock defect (floating/dragged Inspector re-dock at dragged position
+on Reset and title-bar double-click) was exposed by execution, fixed within
+this package through the disclosed defect chain (failing tests `1f9ff9b`/
+`0c37d6e`, fixes `9ff03e6`/`640c1e5`, filter relocation `c9eacd8`, probe
+test `6933778`) and re-verified by the product owner on the rebuilt binary;
+M03 is PASS.
+
+Per the package policy, WP-607A does not close PASS. WP-607B, WP-607D and
+overall WP-607 remain incomplete; the parent record preserves WP-607C PASS
+and records `WP-607A FAIL` with these named cells. WP-607D must not infer
+platform support from untested cells.

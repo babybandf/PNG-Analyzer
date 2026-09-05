@@ -1,6 +1,8 @@
 # WP-607A — Native GUI and Accessibility Evidence
 
-Status: **approved; frozen for implementation** (2026-09-04)
+Status: **FAIL — closed 2026-09-05** (final status per the Error and status
+policy; named cells in the Completion definition below). Evidence summary:
+`docs/evidence/wp-607a-native-gui-accessibility.md`.
 
 Parent package: `wp-607-cross-platform-quality-evidence.md`.
 Written-package review: `wp-607a-written-package-review.md` (rulings R1–R10
@@ -204,3 +206,38 @@ WP-607A closes only when all A01–A11 and M01–M06 platform pairs, scale rows,
 record hashes and the reviewer checklist are resolved according to the policy
 above. Completion updates the WP-607 parent to `WP-607A/C PASS`; WP-607B,
 WP-607D and overall WP-607 remain incomplete.
+
+## Closure record (2026-09-05)
+
+**Final status: FAIL.** All locally/CI-executable work completed; named
+cells prevent PASS:
+
+- **M05 clipboard FAIL** (macOS, executed): no user-facing copy affordance
+  (no menu entry, no shortcut); the programmatic clipboard path is verified
+  by automated A07. Follow-up options recorded: (a) product owner
+  re-attempt via text selection + Cmd+C in Hex/text views (widget-native
+  copy, not explicitly attempted); (b) add a copy UI as a separately
+  authorized product task; (c) product owner accepts the boundary. A fix
+  requires a separate focused defect package with a failing test.
+- **M04 screen-reader BLOCKED** (macOS): product owner cannot use
+  VoiceOver; the A06 Chunk-tree announcement escalation remains UNVERIFIED.
+- **Ubuntu 24.04 LTS x86_64 — all A01–A11, M01–M06 and scale cells
+  BLOCKED**: no Ubuntu 24.04 desktop available to the product owner
+  (required environment listed in the evidence summary §4).
+- **Windows manual M01–M06 and 150%/200% scale cells BLOCKED**: no Windows
+  environment currently available to the product owner (base-scale
+  automated A01–A11 and 100% scale PASS on CI run 33902790935).
+
+Resolved within the package: automated A01–A11 **PASS on macOS arm64 and
+Windows x64** (22/22 executable automated cells; full re-execution history
+in the evidence summary); macOS manual M01/M02/M03/M06 PASS, scale rows
+PASS where executable; M03's dock defect (floating/dragged Inspector
+re-dock at dragged position on Reset and title-bar double-click) was fixed
+through the disclosed defect chain — failing tests `1f9ff9b`/`0c37d6e`,
+fixes `9ff03e6`/`640c1e5`, filter relocation `c9eacd8`, probe test
+`6933778` — and re-verified by the product owner on the rebuilt binary.
+
+Verification replay at closure (2026-09-05): repository layout and
+dependency audits 0 failures; runner self-test PASS; full build exit 0;
+offscreen suite 100% (57/57); GUI gate PASS; `git diff --check` clean.
+Statistics export and APNG timeline remain explicit `out_of_scope`.
