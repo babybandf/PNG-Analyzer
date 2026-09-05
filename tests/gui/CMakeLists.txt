@@ -506,6 +506,20 @@ target_compile_features(pnga_gui_decode_trace_inspector_tests PRIVATE cxx_std_20
 add_test(NAME gui_decode_trace_inspector_tests
   COMMAND pnga_gui_decode_trace_inspector_tests)
 
+add_executable(pnga_gui_statistics_inspector_tests
+  statistics_inspector_test.cpp
+)
+set_target_properties(pnga_gui_statistics_inspector_tests PROPERTIES AUTOMOC ON)
+target_link_libraries(pnga_gui_statistics_inspector_tests PRIVATE
+  pnga::ui_qt
+  pnga::analysis_engine
+  Qt6::Test
+)
+target_compile_features(pnga_gui_statistics_inspector_tests PRIVATE cxx_std_20)
+
+add_test(NAME gui_statistics_inspector_tests
+  COMMAND pnga_gui_statistics_inspector_tests)
+
 add_executable(pnga_gui_trace_inspector_binding_tests
   trace_inspector_binding_test.cpp
 )
@@ -585,6 +599,7 @@ add_custom_target(pnga_gui_tests DEPENDS
   pnga_gui_block_inspector_tests
   pnga_gui_huffman_inspector_tests
   pnga_gui_decode_trace_inspector_tests
+  pnga_gui_statistics_inspector_tests
   pnga_gui_trace_inspector_binding_tests
   pnga_gui_trace_inspector_performance_tests
   pnga_gui_about_tests
