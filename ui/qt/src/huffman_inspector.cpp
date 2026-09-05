@@ -132,9 +132,16 @@ HuffmanInspector::HuffmanInspector(QWidget* parent)
   auto* header = table_->horizontalHeader();
   header->setFixedHeight(28);
   header->setStretchLastSection(false);
-  header->setSectionResizeMode(QHeaderView::ResizeToContents);
+  // Defect 2026-09-05: the content columns stay user-adjustable
+  // (Interactive) instead of ResizeToContents; the initial widths are
+  // re-derived from content on every publish so a fresh open shows the
+  // exact widths the ResizeToContents mode used to produce. The Meaning
+  // column keeps the normative Stretch fill mode whose viewport-derived
+  // width is locked into the WP-5U12F baselines.
+  header->setSectionResizeMode(QHeaderView::Interactive);
   header->setSectionResizeMode(HuffmanInspectorModel::Meaning,
                                QHeaderView::Stretch);
+  table_->resizeColumnsToContents();
 
   // The shell builds a provisional QTableWidget; the product page replaces
   // it with the model-backed view. The shell itself is outside this work
@@ -487,6 +494,11 @@ void HuffmanInspector::syncActiveTable() {
   model_->setTable(
       std::make_shared<const pnga::analysis_engine::HuffmanInspectorTable>(
           **table));
+  // Publish re-derives the initial content-derived widths (the same
+  // computation the ResizeToContents mode performed) while the sections stay
+  // Interactive: user adjustments between publishes are never reset. The
+  // table-kind switch publishes through the same path.
+  table_->resizeColumnsToContents();
   if ((*table)->mode == pnga::analysis_engine::HuffmanTableMode::kStored) {
     heading_->setText(QStringLiteral("Block #%1 · Stored")
                           .arg(static_cast<qulonglong>(

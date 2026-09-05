@@ -123,20 +123,28 @@ BlockInspector::BlockInspector(QWidget* parent)
   header->setSectionResizeMode(BlockInspectorModel::Current,
                                QHeaderView::Fixed);
   table_->setColumnWidth(BlockInspectorModel::Current, 28);
+  // Defect 2026-09-05: the content columns stay user-adjustable
+  // (Interactive). The initial widths are re-derived from content on every
+  // publish so a fresh open shows the exact widths the ResizeToContents mode
+  // used to produce; the Input bits/Output bytes columns keep the normative
+  // Stretch fill mode whose viewport-derived widths are locked into the
+  // WP-5U12F baselines, and only the Current marker stays a fixed section.
   header->setSectionResizeMode(BlockInspectorModel::Number,
-                               QHeaderView::ResizeToContents);
+                               QHeaderView::Interactive);
   header->setSectionResizeMode(BlockInspectorModel::Type,
-                               QHeaderView::ResizeToContents);
+                               QHeaderView::Interactive);
   header->setSectionResizeMode(BlockInspectorModel::Final,
-                               QHeaderView::ResizeToContents);
+                               QHeaderView::Interactive);
   header->setSectionResizeMode(BlockInspectorModel::InputBits,
                                QHeaderView::Stretch);
   header->setSectionResizeMode(BlockInspectorModel::OutputBytes,
                                QHeaderView::Stretch);
   header->setSectionResizeMode(BlockInspectorModel::Events,
-                               QHeaderView::ResizeToContents);
+                               QHeaderView::Interactive);
   header->setSectionResizeMode(BlockInspectorModel::Scanlines,
-                               QHeaderView::ResizeToContents);
+                               QHeaderView::Interactive);
+  table_->resizeColumnsToContents();
+  table_->setColumnWidth(BlockInspectorModel::Current, 28);
 
   // The shell builds a provisional QTableWidget; the product page replaces
   // it with the model-backed view. The shell itself is outside this work
@@ -208,6 +216,11 @@ void BlockInspector::setFastIndex(
   updateDetails();
   updateButtons();
   updateResponsiveColumns();
+  // Publish re-derives the initial content-derived widths (the same
+  // computation the ResizeToContents mode performed) while the sections stay
+  // Interactive: user adjustments between publishes are never reset.
+  table_->resizeColumnsToContents();
+  table_->setColumnWidth(BlockInspectorModel::Current, 28);
   if (isVisible()) {
     scrollToCurrentRow();
   }
