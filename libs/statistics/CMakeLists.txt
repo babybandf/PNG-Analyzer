@@ -1,6 +1,7 @@
 # libs/statistics — bounded, deterministic, Qt-free aggregation (WP-602A).
 
 add_library(pnga_statistics
+  src/serialization.cpp
   src/statistics.cpp
 )
 add_library(pnga::statistics ALIAS pnga_statistics)

@@ -6,6 +6,7 @@ add_library(pnga_analysis_engine
   src/block_inspector.cpp
   src/coordinate_query.cpp
   src/decode_trace_inspector.cpp
+  src/document_fingerprint.cpp
   src/filtered_scanlines.cpp
   src/huffman_inspector.cpp
   src/job_scheduler.cpp
