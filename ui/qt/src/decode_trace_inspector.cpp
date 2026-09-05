@@ -242,6 +242,18 @@ void DecodeTraceInspector::setView(
   updateScopeHeading();
   updateButtons();
   updateDetails();
+  // A fresh publish must reveal the row the user is working with: the manual
+  // row selection when one exists, otherwise the event that contains the
+  // Current output byte. scrollTo never creates a selection (Current ≠
+  // Selection, flow-ui §20.6) and is a no-op for a row that is already fully
+  // visible, so repeated publishes stay deterministic. The model reset
+  // defers the view/header layout to the next event loop pass; flush it
+  // synchronously so the scroll targets real section geometry instead of a
+  // stale empty header.
+  if (const auto row = activeRow(); row.has_value()) {
+    table_->doItemsLayout();
+    table_->scrollTo(model_->index(*row, 0));
+  }
 }
 
 void DecodeTraceInspector::setExternalStatus(const QString& /*text*/) {
