@@ -105,6 +105,8 @@ class BlockInspectorTest : public QObject {
   void rowSelectionProducesManualTargetWithoutNavigation();
   void actionsEmitTypedTargets();
   void detailsShowSpansStoredMetadataAndStopFacts();
+  void sameGenerationRepublishPreservesManualWidths();
+  void generationChangeRefitsColumnsAndMarker();
 };
 
 void BlockInspectorTest::rendersModelBackedTableWithNormativeColumns() {
@@ -487,6 +489,43 @@ void BlockInspectorTest::detailsShowSpansStoredMetadataAndStopFacts() {
   }
   QVERIFY(found_stop);
   QVERIFY(found_error);
+}
+
+void BlockInspectorTest::sameGenerationRepublishPreservesManualWidths() {
+  pnga::ui::qt::BlockInspector widget;
+  widget.setFastIndex(readyIndex(7));
+  auto* view =
+      widget.findChild<QTableView*>(QStringLiteral("compressionBlocksTable"));
+  QVERIFY(view != nullptr);
+  // A manual width adjustment is a user decision: a same-generation
+  // republish (row publish, Current change, selection change) must not
+  // reset it.
+  view->setColumnWidth(pnga::ui::qt::BlockInspectorModel::Type, 200);
+  widget.setFastIndex(readyIndex(7));
+  QCOMPARE(view->columnWidth(pnga::ui::qt::BlockInspectorModel::Type), 200);
+  QCOMPARE(view->columnWidth(pnga::ui::qt::BlockInspectorModel::Current), 28);
+}
+
+void BlockInspectorTest::generationChangeRefitsColumnsAndMarker() {
+  pnga::ui::qt::BlockInspector widget;
+  widget.setFastIndex(readyIndex(7));
+  auto* view =
+      widget.findChild<QTableView*>(QStringLiteral("compressionBlocksTable"));
+  QVERIFY(view != nullptr);
+  view->setColumnWidth(pnga::ui::qt::BlockInspectorModel::Type, 200);
+  // A document open publishes a new generation: the widths re-derive from
+  // content into the normative fresh-open geometry and the marker keeps its
+  // fixed 28 px section.
+  widget.setFastIndex(readyIndex(8));
+  pnga::ui::qt::BlockInspector reference;
+  reference.setFastIndex(readyIndex(8));
+  auto* reference_view = reference.findChild<QTableView*>(
+      QStringLiteral("compressionBlocksTable"));
+  QVERIFY(reference_view != nullptr);
+  QCOMPARE(view->columnWidth(pnga::ui::qt::BlockInspectorModel::Type),
+           reference_view->columnWidth(
+               pnga::ui::qt::BlockInspectorModel::Type));
+  QCOMPARE(view->columnWidth(pnga::ui::qt::BlockInspectorModel::Current), 28);
 }
 
 QTEST_MAIN(BlockInspectorTest)

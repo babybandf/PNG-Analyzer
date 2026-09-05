@@ -275,6 +275,11 @@ void SelectionNavigationController::replaceChunkModel(
   }
   model_ = new pnga::ui::qt::ChunkModel(index, this);
   w_.tree->setModel(model_);
+  // Document open re-derives column widths from content; while the document
+  // stays open, manual widths survive selection changes and navigation.
+  for (int column = 0; column < model_->columnCount(); ++column) {
+    w_.tree->resizeColumnToContents(column);
+  }
   // setModel() replaces the selection model; reconnect to the new one.
   connect(w_.tree->selectionModel(), &QItemSelectionModel::currentChanged,
           this, &SelectionNavigationController::onChunkSelectionChanged);

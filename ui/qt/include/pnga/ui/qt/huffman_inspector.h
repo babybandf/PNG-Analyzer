@@ -104,6 +104,11 @@ class HuffmanInspector final : public CompressionInspectorPage {
   std::size_t occurrence_cursor_ = 0;
   mutable std::uint64_t serial_base_ = 0;
   mutable std::uint64_t serial_counter_ = 0;
+  // Per-document column refit policy: content-derived widths re-derive on a
+  // generation change or a table-kind switch; same-generation same-kind
+  // republishes preserve manual widths.
+  std::uint64_t last_refit_generation_ = 0;
+  int last_refit_kind_ = -1;
 };
 
 }  // namespace pnga::ui::qt

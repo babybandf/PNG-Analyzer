@@ -208,6 +208,12 @@ void BlockInspector::setView(
 
 void BlockInspector::setFastIndex(
     const pnga::analysis_engine::FastCompressionIndexView& view) {
+  // Per-document refit policy: the content-derived initial widths are
+  // re-derived only when the published generation changes (document open);
+  // a same-generation republish (row publish, Current change, selection
+  // change) preserves the user's manual column widths.
+  const bool generation_changed =
+      !has_fast_index_ || view.generation != fast_index_.generation;
   fast_index_ = view;
   has_fast_index_ = true;
   model_->setIndex(
@@ -216,11 +222,10 @@ void BlockInspector::setFastIndex(
   updateDetails();
   updateButtons();
   updateResponsiveColumns();
-  // Publish re-derives the initial content-derived widths (the same
-  // computation the ResizeToContents mode performed) while the sections stay
-  // Interactive: user adjustments between publishes are never reset.
-  table_->resizeColumnsToContents();
-  table_->setColumnWidth(BlockInspectorModel::Current, 28);
+  if (generation_changed) {
+    table_->resizeColumnsToContents();
+    table_->setColumnWidth(BlockInspectorModel::Current, 28);
+  }
   if (isVisible()) {
     scrollToCurrentRow();
   }

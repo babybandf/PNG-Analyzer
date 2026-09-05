@@ -168,6 +168,8 @@ class HuffmanInspectorTest : public QObject {
   void openOccurrenceNavigatesBoundedTokens();
   void openOccurrenceWithoutOccurrencesShowsExactText();
   void keyboardNavigationMovesRowSelection();
+  void sameGenerationRepublishPreservesManualWidths();
+  void generationChangeAndKindSwitchRefitColumns();
 };
 
 void HuffmanInspectorTest::initTestCase() {
@@ -678,6 +680,53 @@ void HuffmanInspectorTest::keyboardNavigationMovesRowSelection() {
   QCOMPARE(table->currentIndex().row(), 1);
   QTest::keyClick(table, Qt::Key_Home);
   QCOMPARE(table->currentIndex().row(), 0);
+}
+
+void HuffmanInspectorTest::sameGenerationRepublishPreservesManualWidths() {
+  pnga::ui::qt::HuffmanInspector widget;
+  widget.setView(dynamic_view());
+  auto* table = huffmanTable(widget);
+  QVERIFY(table != nullptr);
+  // A manual width adjustment survives a same-generation republish (row
+  // publish, Current change, selection change).
+  table->setColumnWidth(pnga::ui::qt::HuffmanInspectorModel::Symbol, 200);
+  widget.setView(dynamic_view());
+  QCOMPARE(table->columnWidth(pnga::ui::qt::HuffmanInspectorModel::Symbol),
+           200);
+}
+
+void HuffmanInspectorTest::generationChangeAndKindSwitchRefitColumns() {
+  pnga::ui::qt::HuffmanInspector widget;
+  widget.setView(dynamic_view());
+  auto* table = huffmanTable(widget);
+  QVERIFY(table != nullptr);
+  table->setColumnWidth(pnga::ui::qt::HuffmanInspectorModel::Symbol, 200);
+  // A document open publishes a new generation: the widths re-derive from
+  // content into the normative fresh-open geometry.
+  auto next_document = dynamic_view();
+  next_document.generation = 9;
+  widget.setView(next_document);
+  pnga::ui::qt::HuffmanInspector reference;
+  reference.setView(dynamic_view());
+  auto* reference_table = huffmanTable(reference);
+  QVERIFY(reference_table != nullptr);
+  QCOMPARE(table->columnWidth(pnga::ui::qt::HuffmanInspectorModel::Symbol),
+           reference_table->columnWidth(
+               pnga::ui::qt::HuffmanInspectorModel::Symbol));
+  // A table-kind switch replaces the projected content entirely: the widths
+  // re-derive from the new table's content.
+  table->setColumnWidth(pnga::ui::qt::HuffmanInspectorModel::Symbol, 200);
+  auto* distance_button = widget.findChild<QPushButton*>(
+      QStringLiteral("huffmanTableKindDistance"));
+  QVERIFY(distance_button != nullptr);
+  distance_button->click();
+  auto* reference_distance = reference.findChild<QPushButton*>(
+      QStringLiteral("huffmanTableKindDistance"));
+  QVERIFY(reference_distance != nullptr);
+  reference_distance->click();
+  QCOMPARE(table->columnWidth(pnga::ui::qt::HuffmanInspectorModel::Symbol),
+           reference_table->columnWidth(
+               pnga::ui::qt::HuffmanInspectorModel::Symbol));
 }
 
 QTEST_MAIN(HuffmanInspectorTest)

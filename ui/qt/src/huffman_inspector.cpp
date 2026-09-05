@@ -494,11 +494,18 @@ void HuffmanInspector::syncActiveTable() {
   model_->setTable(
       std::make_shared<const pnga::analysis_engine::HuffmanInspectorTable>(
           **table));
-  // Publish re-derives the initial content-derived widths (the same
-  // computation the ResizeToContents mode performed) while the sections stay
-  // Interactive: user adjustments between publishes are never reset. The
-  // table-kind switch publishes through the same path.
-  table_->resizeColumnsToContents();
+  // Per-document refit policy: content-derived initial widths re-derive when
+  // the published generation changes or the table kind switches; a
+  // same-generation same-kind republish (row publish, Current change)
+  // preserves the user's manual column widths. The table-kind switch
+  // publishes through the same path.
+  const int kind = kind_buttons_->checkedId();
+  if (view_.generation != last_refit_generation_ ||
+      kind != last_refit_kind_) {
+    table_->resizeColumnsToContents();
+    last_refit_generation_ = view_.generation;
+    last_refit_kind_ = kind;
+  }
   if ((*table)->mode == pnga::analysis_engine::HuffmanTableMode::kStored) {
     heading_->setText(QStringLiteral("Block #%1 · Stored")
                           .arg(static_cast<qulonglong>(

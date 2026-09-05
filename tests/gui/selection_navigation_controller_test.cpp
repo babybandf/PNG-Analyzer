@@ -9,6 +9,7 @@
 
 #include <pnga/io/byte_source.h>
 #include <pnga/trace-model/compression_navigation.h>
+#include <pnga/ui/qt/chunk_model.h>
 #include <pnga/ui/qt/compression_selection_store.h>
 #include <pnga/ui/qt/hex_source_tab_bar.h>
 #include <pnga/ui/qt/hex_view.h>
@@ -16,9 +17,11 @@
 #include <QtTest/QtTest>
 
 #include <QCheckBox>
+#include <QHeaderView>
 #include <QMainWindow>
 #include <QSignalSpy>
 #include <QSpinBox>
+#include <QTreeView>
 
 #include <cstring>
 #include <optional>
@@ -64,6 +67,7 @@ class SelectionNavigationControllerTest : public QObject {
   void typedNavigationRoutesFileAndGates();
   void typedNavigationInflatedUsesInflatedSource();
   void compressionCurrentFlowsThroughSharedStore();
+  void chunkColumnsRefitOnDocumentReplaceAndPreserveWhileOpen();
 };
 
 void SelectionNavigationControllerTest::pixelCommitPublishesLockAndRequestsTrace() {
@@ -229,6 +233,64 @@ void SelectionNavigationControllerTest::compressionCurrentFlowsThroughSharedStor
   QCOMPARE(widgets.hex->currentLocation().value_or(99), std::uint64_t{0});
   QCOMPARE(widgets.hex_source_tabs->source(), pnga::ui::qt::HexSource::kFile);
   QCOMPARE(trace_requests, 0);
+}
+
+void SelectionNavigationControllerTest::
+    chunkColumnsRefitOnDocumentReplaceAndPreserveWhileOpen() {
+  QMainWindow window;
+  MainWindowWidgets widgets = buildMainWindowUi(window, nullptr);
+  SelectionNavigationController controller(
+      widgets, {[](const auto&) {}, [](std::uint64_t) {}});
+
+  pnga::png_format::ChunkIndex index;
+  pnga::png_format::ChunkNode node;
+  node.header_offset = 8;
+  node.data_offset = 16;
+  node.data_length = 13;
+  node.crc_offset = 29;
+  node.type = {std::byte{'I'}, std::byte{'H'}, std::byte{'D'},
+               std::byte{'R'}};
+  index.chunks.push_back(node);
+  node.header_offset = 100;
+  node.data_offset = 108;
+  node.data_length = 3;
+  node.crc_offset = 111;
+  node.type = {std::byte{'I'}, std::byte{'D'}, std::byte{'A'},
+               std::byte{'T'}};
+  index.chunks.push_back(node);
+
+  // The expected widths come from a scratch tree performing the same
+  // content-derived refit the publish path is required to perform.
+  QTreeView scratch;
+  pnga::ui::qt::ChunkModel scratch_model(&index);
+  scratch.setModel(&scratch_model);
+  for (int column = 0; column < scratch_model.columnCount(); ++column) {
+    scratch.resizeColumnToContents(column);
+  }
+
+  controller.replaceChunkModel(&index);
+  auto* tree = widgets.tree;
+  QVERIFY(tree != nullptr);
+  QVERIFY(tree->model() != nullptr);
+  // Document open re-derives the column widths from content (the last
+  // section stretches to fill and is not compared).
+  for (int column = 0;
+       column < scratch_model.columnCount() - 1; ++column) {
+    QCOMPARE(tree->columnWidth(column), scratch.columnWidth(column));
+  }
+
+  // While the document stays open nothing republishes the model: manual
+  // widths survive selection changes.
+  tree->setColumnWidth(pnga::ui::qt::ChunkModel::kType, 200);
+  tree->selectionModel()->setCurrentIndex(
+      scratch_model.index(1, 0),
+      QItemSelectionModel::SelectCurrent | QItemSelectionModel::Rows);
+  QCOMPARE(tree->columnWidth(pnga::ui::qt::ChunkModel::kType), 200);
+
+  // A new document replaces the model: the widths re-derive from content.
+  controller.replaceChunkModel(&index);
+  QCOMPARE(tree->columnWidth(pnga::ui::qt::ChunkModel::kType),
+           scratch.columnWidth(pnga::ui::qt::ChunkModel::kType));
 }
 
 QTEST_MAIN(SelectionNavigationControllerTest)

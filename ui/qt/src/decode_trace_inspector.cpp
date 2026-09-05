@@ -242,14 +242,19 @@ void DecodeTraceInspector::showEvent(QShowEvent* event) {
 
 void DecodeTraceInspector::setView(
     const pnga::analysis_engine::DecodeTraceInspectorView& view) {
+  // Per-document refit policy: the page publishes on every pixel click
+  // within one document, so the content-derived initial widths are
+  // re-derived only when the published generation changes (document open or
+  // close); every same-generation publish preserves manual widths.
+  const bool generation_changed =
+      view.scope.generation != view_.scope.generation;
   view_ = view;
   model_->setView(
       std::make_shared<const pnga::analysis_engine::DecodeTraceInspectorView>(
           view));
-  // Publish re-derives the initial content-derived widths (the same
-  // computation the ResizeToContents mode performed) while the sections stay
-  // Interactive: user adjustments between publishes are never reset.
-  table_->resizeColumnsToContents();
+  if (generation_changed) {
+    table_->resizeColumnsToContents();
+  }
   updateScopeHeading();
   updateButtons();
   updateDetails();

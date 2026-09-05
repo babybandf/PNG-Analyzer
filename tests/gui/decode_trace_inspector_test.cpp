@@ -165,6 +165,8 @@ class DecodeTraceInspectorTest : public QObject {
   void showInHexSendsTypedCompressedTarget();
   void showInflatedOutputSendsTypedOutputTarget();
   void keyboardNavigationMovesRowSelection();
+  void sameGenerationRepublishPreservesManualWidths();
+  void generationChangeRefitsColumns();
 };
 
 void DecodeTraceInspectorTest::initTestCase() {
@@ -665,6 +667,37 @@ void DecodeTraceInspectorTest::keyboardNavigationMovesRowSelection() {
   QVERIFY(table->selectionModel()->currentIndex().row() > 0);
   QTest::keyClick(table, Qt::Key_PageUp);
   QCOMPARE(table->selectionModel()->currentIndex().row(), 0);
+}
+
+void DecodeTraceInspectorTest::sameGenerationRepublishPreservesManualWidths() {
+  pnga::ui::qt::DecodeTraceInspector widget;
+  widget.setView(ready_view());
+  auto* table = traceTable(widget);
+  QVERIFY(table != nullptr);
+  // The page publishes on every pixel click within one document; manual
+  // widths survive every same-generation publish.
+  table->setColumnWidth(pnga::ui::qt::DecodeTraceModel::Step, 200);
+  widget.setView(ready_view());
+  QCOMPARE(table->columnWidth(pnga::ui::qt::DecodeTraceModel::Step), 200);
+}
+
+void DecodeTraceInspectorTest::generationChangeRefitsColumns() {
+  pnga::ui::qt::DecodeTraceInspector widget;
+  widget.setView(ready_view());
+  auto* table = traceTable(widget);
+  QVERIFY(table != nullptr);
+  table->setColumnWidth(pnga::ui::qt::DecodeTraceModel::Step, 200);
+  // A document open (or close) publishes a new generation: the widths
+  // re-derive from content into the normative fresh-open geometry.
+  auto next_document = ready_view();
+  next_document.scope.generation = 9;
+  widget.setView(next_document);
+  pnga::ui::qt::DecodeTraceInspector reference;
+  reference.setView(ready_view());
+  auto* reference_table = traceTable(reference);
+  QVERIFY(reference_table != nullptr);
+  QCOMPARE(table->columnWidth(pnga::ui::qt::DecodeTraceModel::Step),
+           reference_table->columnWidth(pnga::ui::qt::DecodeTraceModel::Step));
 }
 
 QTEST_MAIN(DecodeTraceInspectorTest)
