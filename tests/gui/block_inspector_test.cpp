@@ -135,6 +135,28 @@ void BlockInspectorTest::rendersModelBackedTableWithNormativeColumns() {
                    .toString();
   }
   QCOMPARE(headers, expected_headers);
+  // User column resizing contract (defect 2026-09-05): every content column
+  // stays user-adjustable (QHeaderView::Interactive); only the Current
+  // marker keeps its fixed 28 px section and the two fill columns keep the
+  // normative Stretch mode whose viewport-derived widths are locked into the
+  // WP-5U12F baselines.
+  auto* header = view->horizontalHeader();
+  QCOMPARE(header->sectionResizeMode(pnga::ui::qt::BlockInspectorModel::Current),
+           QHeaderView::Fixed);
+  for (const int column :
+       {pnga::ui::qt::BlockInspectorModel::Number,
+        pnga::ui::qt::BlockInspectorModel::Type,
+        pnga::ui::qt::BlockInspectorModel::Final,
+        pnga::ui::qt::BlockInspectorModel::Events,
+        pnga::ui::qt::BlockInspectorModel::Scanlines}) {
+    QCOMPARE(header->sectionResizeMode(column), QHeaderView::Interactive);
+  }
+  QCOMPARE(header->sectionResizeMode(
+               pnga::ui::qt::BlockInspectorModel::InputBits),
+           QHeaderView::Stretch);
+  QCOMPARE(header->sectionResizeMode(
+               pnga::ui::qt::BlockInspectorModel::OutputBytes),
+           QHeaderView::Stretch);
   for (int row = 0; row < model->rowCount(); ++row) {
     for (int column = 0; column < model->columnCount(); ++column) {
       const QModelIndex cell = model->index(row, column);

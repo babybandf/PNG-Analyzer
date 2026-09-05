@@ -204,6 +204,19 @@ void DecodeTraceInspectorTest::modelRendersTypedRowsWithExactHeaders() {
                  .toString(),
              headers[column]);
   }
+  // User column resizing contract (defect 2026-09-05): every content column
+  // stays user-adjustable (QHeaderView::Interactive); the Event column keeps
+  // the frozen normative Stretch mode (product gate and responsive matrix).
+  auto* header = table->horizontalHeader();
+  for (const int column :
+       {pnga::ui::qt::DecodeTraceModel::Current,
+        pnga::ui::qt::DecodeTraceModel::Step,
+        pnga::ui::qt::DecodeTraceModel::InputBits,
+        pnga::ui::qt::DecodeTraceModel::Output}) {
+    QCOMPARE(header->sectionResizeMode(column), QHeaderView::Interactive);
+  }
+  QCOMPARE(header->sectionResizeMode(pnga::ui::qt::DecodeTraceModel::Event),
+           QHeaderView::Stretch);
 
   struct Cell {
     int row;
