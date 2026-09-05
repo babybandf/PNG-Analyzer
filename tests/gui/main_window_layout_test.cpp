@@ -144,9 +144,11 @@ void MainWindowLayoutTest::defaultLayoutHasRequiredRegions() {
   auto* inspector =
       window.findChild<QTabWidget*>(QStringLiteral("inspectorTabs"));
   QVERIFY(inspector != nullptr);
-  QCOMPARE(inspector->count(), 2);
+  // WP-602G (R11): the Statistics group joins the frozen top-level order.
+  QCOMPARE(inspector->count(), 3);
   QCOMPARE(inspector->tabText(0), QStringLiteral("Reconstruction"));
   QCOMPARE(inspector->tabText(1), QStringLiteral("Compression"));
+  QCOMPARE(inspector->tabText(2), QStringLiteral("Statistics"));
   auto* compression_pages = window.findChild<QTabWidget*>(QStringLiteral("compressionInspectorPages"));
   QVERIFY(compression_pages != nullptr);
   QCOMPARE(compression_pages->tabText(0), QStringLiteral("DEFLATE Blocks"));

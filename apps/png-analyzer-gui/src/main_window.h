@@ -29,6 +29,7 @@ class ApplicationTheme;
 #include "document_workers.h"
 #include "main_window_ui.h"
 #include "selection_navigation_controller.h"
+#include "statistics_controller.h"
 #include "trace_controller.h"
 #include "workspace_controller.h"
 
@@ -73,6 +74,7 @@ class MainWindow final : public QMainWindow {
   std::unique_ptr<DocumentSession> session_;
   std::unique_ptr<SelectionNavigationController> selection_;
   std::unique_ptr<TraceController> trace_;
+  std::unique_ptr<StatisticsController> statistics_;
 };
 
 #endif  // PNG_ANALYZER_GUI_MAIN_WINDOW_H

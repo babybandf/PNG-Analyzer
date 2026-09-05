@@ -18,13 +18,14 @@ work budgets and immutable byte-source views.
 - `pnga statistics`: whole-document statistics report (JSON or CSV) with a
   versioned schema and per-section status.
 - Optional Qt 6 GUI: Chunk List, file/Virtual-IDAT Hex, stage preview,
-  coordinate selection, reconstruction, Block/Huffman/Decode Trace inspectors
-  and validation status.
+  coordinate selection, reconstruction, Block/Huffman/Decode Trace inspectors,
+  a lazy whole-document Statistics inspector with deterministic JSON/CSV
+  export and validation status.
 - On-demand trace and pixel provenance; the default path does not retain a
   complete token trace or concatenate all IDAT payloads.
 
-Compare, First Difference, Statistics UI and APNG are intentionally deferred.
-Native DMG/MSIX/AppImage/Flatpak installers and Qt framework deployment are
+Compare, First Difference and APNG are intentionally deferred. Native
+DMG/MSIX/AppImage/Flatpak installers and Qt framework deployment are
 also outside the current portable archive smoke.
 
 ## GUI preview
@@ -75,8 +76,9 @@ are UTF-8 without BOM, LF-only, end with exactly one newline and are
 byte-identical for identical input regardless of locale, clock or path. Exit
 codes: `0` ready, `1` I/O failure, `2` argument or format error,
 `3` validation issues with usable statistics, `4` partial, cancelled or
-budget-limited statistics. The Statistics GUI tab remains deferred; only the
-CLI surface is available today.
+budget-limited statistics. The GUI Statistics tab exports through the same
+shared serializer, so GUI and CLI reports are byte-identical for the same
+document.
 
 ## Performance and packaging gates
 

@@ -19,6 +19,7 @@
 #include <pnga/ui/qt/selection_bus.h>
 #include <pnga/ui/qt/stage_inspector.h>
 #include <pnga/ui/qt/stage_pixel_process_view.h>
+#include <pnga/ui/qt/statistics_inspector.h>
 #include <pnga/ui/qt/trace_inspector_binding.h>
 
 #include <QActionGroup>
@@ -273,6 +274,16 @@ MainWindowWidgets buildMainWindowUi(
   compression_layout->addWidget(widgets.compression_inspector_tabs, 1);
   widgets.inspector_tabs->addTab(compression_container,
                                  QStringLiteral("Compression"));
+  // WP-602G (R11): the Statistics group is the third top-level Inspector
+  // entry with the frozen object identity and accessible name.
+  widgets.statistics_inspector =
+      new pnga::ui::qt::StatisticsInspector(widgets.inspector_tabs);
+  widgets.statistics_inspector->setObjectName(
+      QStringLiteral("statisticsInspector"));
+  widgets.statistics_inspector->setAccessibleName(
+      QStringLiteral("Statistics inspector"));
+  widgets.inspector_tabs->addTab(widgets.statistics_inspector,
+                                 QStringLiteral("Statistics"));
   // WP-5U13: bind the bounded trace pipeline to the three Compression pages.
   // The binding publishes one generation-coherent bundle; navigation keeps the
   // WP-5U11 source semantics (physical File for block spans, Inflated for

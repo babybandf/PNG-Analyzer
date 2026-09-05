@@ -13,7 +13,6 @@
 #include <pnga/ui/qt/selection_bus.h>
 #include <pnga/ui/qt/stage_inspector.h>
 #include <pnga/ui/qt/stage_pixel_process_view.h>
-
 #include <QAction>
 #include <QApplication>
 #include <QCheckBox>
@@ -71,8 +70,6 @@ bool hasLocalPngUrl(const QMimeData* mime_data) {
 
 }  // namespace
 
-// ---------------------------------------------------------------------------
-
 MainWindow::MainWindow(QWidget* parent,
                        pnga::ui::qt::ApplicationTheme* theme)
     : QMainWindow(parent), compression_store_(this) {
@@ -115,6 +112,9 @@ MainWindow::MainWindow(QWidget* parent,
           }},
       this, &workspace_->viewState(), &compression_store_);
   trace_ = std::make_unique<TraceController>(widgets_, this);
+  // WP-602G: the lazy Statistics controller wires its own widget actions,
+  // tab activation and session-signal subscriptions.
+  statistics_ = std::make_unique<StatisticsController>(widgets_, *session_, this);
   connect(trace_.get(), &TraceController::hexSourceRequested,
           selection_.get(), &SelectionNavigationController::setHexSource);
   connect(widgets_.open_action, &QAction::triggered, this,

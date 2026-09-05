@@ -38,6 +38,7 @@ class HuffmanInspector;
 class SelectionBus;
 class StageInspector;
 class StagePixelProcessView;
+class StatisticsInspector;
 class TraceInspectorBinding;
 }  // namespace pnga::ui::qt
 
@@ -54,6 +55,7 @@ struct MainWindowWidgets final {
   pnga::ui::qt::DecodeTraceInspector* decode_trace_inspector = nullptr;
   pnga::ui::qt::TraceInspectorBinding* trace_binding = nullptr;
   pnga::ui::qt::CompressionContext* compression_context = nullptr;
+  pnga::ui::qt::StatisticsInspector* statistics_inspector = nullptr;
   QDockWidget* chunks_dock = nullptr;
   QDockWidget* inspector_dock = nullptr;
   QSplitter* chunks_splitter = nullptr;

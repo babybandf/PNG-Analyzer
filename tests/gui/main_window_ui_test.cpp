@@ -3,12 +3,15 @@
 
 #include "main_window_ui.h"
 
+#include <pnga/ui/qt/statistics_inspector.h>
+
 #include <QtTest/QtTest>
 
 class MainWindowUiTest : public QObject {
   Q_OBJECT
  private slots:
   void builderCreatesStableWidgetAndActionIdentities();
+  void statisticsIsThirdTopLevelInspectorGroup();
 };
 
 void MainWindowUiTest::builderCreatesStableWidgetAndActionIdentities() {
@@ -23,6 +26,22 @@ void MainWindowUiTest::builderCreatesStableWidgetAndActionIdentities() {
   QVERIFY(!widgets.close_action->isEnabled());
   QCOMPARE(widgets.pixel_label->objectName(), QStringLiteral("pixelStatus"));
   QCOMPARE(widgets.validation_label->objectName(), QStringLiteral("validationStatus"));
+}
+
+void MainWindowUiTest::statisticsIsThirdTopLevelInspectorGroup() {
+  QMainWindow window;
+  const MainWindowWidgets widgets = buildMainWindowUi(window, nullptr);
+  // WP-602G (R11): the top-level Inspector order is Reconstruction,
+  // Compression, Statistics, and the Statistics widget pointer is exposed.
+  QVERIFY(widgets.statistics_inspector != nullptr);
+  QCOMPARE(widgets.statistics_inspector->objectName(),
+           QStringLiteral("statisticsInspector"));
+  QCOMPARE(widgets.inspector_tabs->count(), 3);
+  QCOMPARE(widgets.inspector_tabs->tabText(0), QStringLiteral("Reconstruction"));
+  QCOMPARE(widgets.inspector_tabs->tabText(1), QStringLiteral("Compression"));
+  QCOMPARE(widgets.inspector_tabs->tabText(2), QStringLiteral("Statistics"));
+  // The Reconstruction default is unchanged.
+  QCOMPARE(widgets.inspector_tabs->currentIndex(), 0);
 }
 
 QTEST_MAIN(MainWindowUiTest)

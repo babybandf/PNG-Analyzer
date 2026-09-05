@@ -19,11 +19,27 @@ region can be reported without discarding structure already verified.
    each page explains the selected stage's bytes.
    Select a pixel to lock its coordinate; hover remains a lightweight local
    state.
-5. Use the Inspector tabs for **Reconstruction** and **Compression**. The Hex
+5. Use the Inspector tabs for **Reconstruction**, **Compression** and
+   **Statistics**. The Hex
    panel's vertical tabs switch between **File**, **IDAT**, **Inflated**
    and **Defiltered** while keeping one shared Hex view. Trace replay remains
    on demand and may report partial, replaying, cancelled or error state.
-6. Read the validation status in the status bar. A report includes a stable
+6. The **Statistics** page has the fixed inner pages **Overview**,
+   **Chunks**, **Filters** and **DEFLATE**; the DEFLATE page presents Blocks,
+   Tokens, Lengths and Distances as grouped rows. Collection is lazy: it
+   starts only when you first open the Statistics page, press **Refresh** or
+   export, never while opening a file or hovering a pixel. Progress runs on a
+   low-priority background worker at most ten times per second and keeps the
+   already verified rows; **Cancel** stops the run while retaining the
+   verified prefix. Select a bucket row and press **Show occurrence** (or
+   Enter) to navigate to its first occurrence in the typed selection view.
+7. Use **Export JSON** / **Export CSV** to write the report through
+   `QSaveFile` atomic replacement — a serialization or write failure never
+   overwrites an existing target file. Export is enabled once at least one
+   verified section exists; a partial result stays exportable and the
+   exported label says so explicitly. GUI exports are byte-identical with
+   `pnga statistics` for the same document.
+8. Read the validation status in the status bar. A report includes a stable
    issue id, severity, first navigable offset where available and a tooltip
    containing the deterministic issue list.
 
@@ -69,7 +85,11 @@ one-to-many relationship.
 
 - Static PNG is the supported first-delivery format. APNG frame semantics are
   reserved for a later milestone.
-- Compare, First Difference and Statistics are not current UI entries.
+- Compare and First Difference are not current UI entries.
+- Statistics collection is bounded by the same sample and bucket budgets as
+  the CLI; a budget-limited run is labeled partial and keeps the verified
+  rows. Occurrence navigation is bounded to 4,096 tokens and 8 MiB of input
+  per query.
 - Large files are indexed with explicit row/output budgets. A row or trace
   request can be partial or rejected when a configured budget is unsafe.
 - A new file increments document generation. Results from an older generation

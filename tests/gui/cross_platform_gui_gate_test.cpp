@@ -117,9 +117,11 @@ void CrossPlatformGuiGateTest::layoutSurvivesReferenceSizesAndDpi() {
   QVERIFY(splitter != nullptr);
   QVERIFY(inspector != nullptr);
   QVERIFY(preview != nullptr);
-  QCOMPARE(inspector->count(), 2);
+  // WP-602G (R11): the Statistics group joins the frozen top-level order.
+  QCOMPARE(inspector->count(), 3);
   QCOMPARE(inspector->tabText(0), QStringLiteral("Reconstruction"));
   QCOMPARE(inspector->tabText(1), QStringLiteral("Compression"));
+  QCOMPARE(inspector->tabText(2), QStringLiteral("Statistics"));
 
   for (const QSize size : {QSize(900, 600), QSize(1600, 1000)}) {
     window.resize(size);

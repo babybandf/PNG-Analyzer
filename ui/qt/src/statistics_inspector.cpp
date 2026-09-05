@@ -21,6 +21,7 @@
 #include <QTableView>
 #include <QTabWidget>
 #include <QVBoxLayout>
+#include <QGridLayout>
 
 #include <QMetaType>
 
@@ -82,23 +83,17 @@ StatisticsInspector::StatisticsInspector(QWidget* parent) : QWidget(parent) {
   layout->setContentsMargins(4, 2, 4, 2);
   layout->setSpacing(2);
 
-  // Two compact action rows keep the 320 px dock width free of button-driven
-  // horizontal growth.
-  auto* top_actions = new QHBoxLayout;
-  top_actions->setContentsMargins(0, 0, 0, 0);
+  // A compact two-column action grid keeps the dock's minimum width well
+  // below the narrow-Inspector contract (no button-driven horizontal
+  // growth); long rows scroll inside the tables instead.
+  auto* actions = new QGridLayout;
+  actions->setContentsMargins(0, 0, 0, 0);
   refresh_button_ = new QPushButton(QStringLiteral("Refresh"), this);
   refresh_button_->setObjectName(QStringLiteral("statisticsRefresh"));
   refresh_button_->setAccessibleName(QStringLiteral("Refresh statistics"));
   cancel_button_ = new QPushButton(QStringLiteral("Cancel"), this);
   cancel_button_->setObjectName(QStringLiteral("statisticsCancel"));
   cancel_button_->setAccessibleName(QStringLiteral("Cancel statistics"));
-  top_actions->addWidget(refresh_button_);
-  top_actions->addWidget(cancel_button_);
-  top_actions->addStretch(1);
-  layout->addLayout(top_actions);
-
-  auto* bottom_actions = new QHBoxLayout;
-  bottom_actions->setContentsMargins(0, 0, 0, 0);
   export_json_button_ = new QPushButton(QStringLiteral("Export JSON"), this);
   export_json_button_->setObjectName(QStringLiteral("statisticsExportJson"));
   export_json_button_->setAccessibleName(QStringLiteral("Export statistics JSON"));
@@ -110,11 +105,13 @@ StatisticsInspector::StatisticsInspector(QWidget* parent) : QWidget(parent) {
   occurrence_button_->setObjectName(QStringLiteral("statisticsShowOccurrence"));
   occurrence_button_->setAccessibleName(
       QStringLiteral("Show statistics occurrence"));
-  bottom_actions->addWidget(export_json_button_);
-  bottom_actions->addWidget(export_csv_button_);
-  bottom_actions->addWidget(occurrence_button_);
-  bottom_actions->addStretch(1);
-  layout->addLayout(bottom_actions);
+  actions->addWidget(refresh_button_, 0, 0);
+  actions->addWidget(cancel_button_, 0, 1);
+  actions->addWidget(export_json_button_, 1, 0);
+  actions->addWidget(export_csv_button_, 1, 1);
+  actions->addWidget(occurrence_button_, 2, 0);
+  actions->setColumnStretch(1, 1);
+  layout->addLayout(actions);
 
   progress_label_ = new QLabel(this);
   progress_label_->setObjectName(QStringLiteral("statisticsProgress"));
