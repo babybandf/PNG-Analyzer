@@ -619,6 +619,44 @@ TEST_CASE("Trace query keeps every span of a token crossing IDAT chunks",
                                                     FileByteOffset{59}}}));
 }
 
+TEST_CASE("Trace query keeps a covered interval ready when the decode budget overshoots",
+          "[analysis-engine][wp5u12]") {
+  // Real-image defect: the trace decode budget extends past the requested
+  // interval end (+64 KiB lookahead), so a sequential decode can hit its
+  // output cap in the lookahead zone after [begin, end) was already fully
+  // tiled. The covered interval must stay ready instead of downgrading to a
+  // partial result.
+  const auto encoded =
+      pnga_test::encode_png(1672, 4, 8, 2, /*interlace=*/false,
+                            /*all_none=*/false);
+  TraceInputs inputs(encoded);
+  REQUIRE(inputs.blocks.success);
+  REQUIRE(inputs.trace.success);
+  // One 1672-wide RGB8 filter row is 1 + 1672*3 = 5017 output bytes.
+  REQUIRE(inputs.trace.output_bytes >= 5017);
+
+  auto lookahead_capped = inputs.trace;
+  lookahead_capped.success = false;
+  lookahead_capped.error = "output cap exceeded";
+  // The cap fired beyond the interval end: the decoder produced 57153 bytes
+  // while the requested interval ends at 5017.
+  lookahead_capped.output_bytes = 57153;
+
+  const auto result = compose_trace_query(
+      9, Selection{}, inputs.blocks, lookahead_capped, inputs.stream,
+      inputs.file, 0, 5017, 100000);
+  REQUIRE(result.status == TraceQueryStatus::kReady);
+  REQUIRE(result.error.empty());
+  REQUIRE_FALSE(result.truncated);
+  // The returned tokens still tile the requested interval contiguously.
+  REQUIRE_FALSE(result.tokens.empty());
+  REQUIRE(result.tokens.front().output_begin == 0);
+  for (std::size_t i = 1; i < result.tokens.size(); ++i) {
+    REQUIRE(result.tokens[i].output_begin == result.tokens[i - 1].output_end);
+  }
+  REQUIRE(result.tokens.back().output_end >= 5017);
+}
+
 TEST_CASE("Stored trace tokens keep an absent huffman symbol",
           "[analysis-engine][wp5u12d]") {
   std::vector<std::byte> raw(8);
