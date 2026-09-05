@@ -1257,15 +1257,22 @@ CompressionInspector
 
 ### 20.5 默认列顺序与 resize 优先级
 
+2026-09-05 产品交互修订：首次加载按内容计算列宽，所有内容列允许拖动表头边界调整；
+双击边界按内容重新适配该列。内容测量沿用 Qt 的有界采样，避免扫描完整大表。
+总列宽超出可用空间时在表格内部横向滚动，不要求拉宽 Inspector。
+同一文档的数据刷新、选中行切换及页面隐藏/显示保留手动列宽；新文档重新适配。
+Huffman 切换表类型沿用重新适配策略。不得通过持续 Stretch 或 stretchLastSection
+锁定内容列；Current 标记列固定 28 px。原 WP-5U12F 的列宽截图记录为旧版参考，
+新交互以真实拖动、双击及刷新保留测试验收，其余布局/语义要求继续有效。
+
 #### Blocks
 
 ```text
 Current | # | Type | Final | Input bits | Output bytes | Events | Scanlines
 ```
 
-- `Current`、`#`、`Final` 使用紧凑固定宽度。
-- `Type` 使用内容宽度并设置合理上限。
-- `Input bits`、`Output bytes` 优先共享剩余宽度。
+- `Current` 固定 28 px；`#`、`Final` 初始按内容紧凑显示，允许手动调整。
+- `Type`、`Input bits`、`Output bytes` 初始按内容定宽，允许手动调整。
 - `Events`、`Scanlines` 为第一批响应式隐藏列。
 
 #### Huffman
@@ -1274,7 +1281,7 @@ Current | # | Type | Final | Input bits | Output bytes | Events | Scanlines
 Symbol | Meaning | Bits | Canonical | Read order | Uses in result
 ```
 
-- `Meaning` 是主要 stretch 列。
+- `Meaning` 初始按内容定宽，允许手动调整。
 - Canonical 与 Read order 必须同时存在于页面语义中；不能合并为 `Code`。
 - `Uses in result` 最先进入横向滚动区域；其 tooltip/accessibility 必须声明 bounded
   query scope，不能用隐藏该列的方式改变 occurrence 行为。
@@ -1285,7 +1292,7 @@ Symbol | Meaning | Bits | Canonical | Read order | Uses in result
 Current | Step | Input bits | Event | Output
 ```
 
-- `Event` 是主要 stretch 列。
+- `Event` 初始按内容定宽，允许手动调整。
 - `Input bits` 和 `Output` 不得因宽度变成无单位、无域的裸数。
 - 额外 bits、symbol、source/target、scanline mapping 全部进入详情，不继续横向加列。
 

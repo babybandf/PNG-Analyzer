@@ -98,6 +98,75 @@ copy, accessibility names, virtualized scrolling, loading/empty/partial/error,
 large trace response and memory. Table rows use models, not one QWidget per
 event. Page switches, row selection, resize and DEC/HEX enqueue zero replays.
 
+## Follow-up — Interactive content column widths (2026-09-05)
+
+Approved by the product owner in the implementation request: update the UI
+constraint and implement content-derived initial widths, draggable content
+columns, double-click content fitting, and same-document width preservation.
+This follow-up supersedes persistent Stretch/fixed content-column requirements
+in section 20.5; the historical F closing record below describes the old UI.
+
+Dependencies: the existing C/D/E model-backed pages and F regression harness
+are present at f44acc8. Scope: `ui/qt/src/*inspector.cpp`, focused
+`tests/gui/*inspector*test.cpp`, this document and the normative flow UI document.
+No model/public API, decoder, dependency, architecture or corpus changes.
+Current remains fixed at 28 px; all content columns use content-derived initial
+widths and allow mouse dragging. Overflow scrolls inside the table. Same-document
+publication and selection preserve widths; opening another document refits;
+Huffman table-kind changes retain the existing explicit refit policy.
+Double-clicking a content-column boundary fits that column using Qt's bounded
+content measurement. No interaction submits analysis work.
+
+Cheapest discriminating test: drag the formerly Stretch columns in each real
+page at 360 px, verify width growth and internal scrolling, republish the same
+document and verify preservation, then double-click to refit. Also verify the
+last content column and fixed Current marker.
+
+Verification: layout/dependency verifiers, dev configure/build, focused GUI
+inspector/responsive/product-gate/no-replay/performance tests, full dev CTest,
+and focused ASan/UBSan GUI tests where the approved local toolchain is available.
+Capture the existing 22 visual cases for review; prior screenshots are historical
+references for the superseded widths, not authorization to hide changed geometry
+by increasing tolerances. Do not overwrite them automatically.
+
+### Follow-up verification record (2026-09-06)
+
+Status: **PASS** for this UI follow-up. Worktree/branch:
+`.worktrees/compression-column-interaction` / `compression-column-interaction`.
+The product owner explicitly allowed the existing Homebrew Qt 6.11.1 for this
+local validation; no dependency manifests or presets were changed.
+
+Both `dev` and `asan` were configured with the following local overrides:
+
+```text
+cmake --preset <dev|asan> -DCMAKE_TOOLCHAIN_FILE=/Users/lijiangbo/project/PNG-Analyzer/.deps/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_INSTALLED_DIR=/Users/lijiangbo/project/PNG-Analyzer/build/vcpkg_installed -DCMAKE_PREFIX_PATH=/opt/homebrew/opt/qt
+cmake --build --preset dev --parallel 4
+QT_QPA_PLATFORM=offscreen ctest --preset dev --output-on-failure
+cmake --build --preset asan --target pnga_gui_block_inspector_tests pnga_gui_huffman_inspector_tests pnga_gui_decode_trace_inspector_tests pnga_gui_compression_inspector_responsive_tests --parallel 4
+QT_QPA_PLATFORM=offscreen ctest --preset asan -R 'gui_(block_inspector|huffman_inspector|decode_trace_inspector|compression_inspector_responsive)_tests' --output-on-failure
+python3 scripts/run_wp_5u12_gui_gate.py --preset dev --jobs 4 --output build/gui-gate/column-interaction/evidence.json --capture-dir build/gui-gate/column-interaction/captures
+python3 scripts/verify_repository_layout.py
+python3 scripts/verify_dependencies.py
+git diff --check
+```
+
+Results: full dev CTest 57/57; focused ASan/UBSan 4/4; product gate 25 Qt
+test cases, 22 captures; both static verifiers zero failures/warnings;
+whitespace check clean. Existing inspector/product-gate baseline tests passed
+before implementation. The new real mouse test reproduced locked Stretch
+columns and the last-column refit failure before the change, then passed all
+seven scenarios after it. Scroll-range assertions wait for Qt's deferred layout.
+
+Reviewed the three 360 px light captures for content/overflow layout. Existing
+tracked screenshots were not overwritten, and no old-baseline pixel comparison
+is claimed for this intentionally changed column geometry. This is automated
+offscreen interaction validation, not a new native screen-reader certification.
+Existing offscreen font/size-hint and duplicate-library linker warnings remain.
+Review: only three UI implementations, five GUI tests and two owning documents
+changed; no input arithmetic, buffer ownership/copies, cancellation, model facts
+or replay submission paths changed. The root worktree's unrelated audit file
+was preserved.
+
 ## Verification
 
 ```text
