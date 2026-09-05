@@ -22,6 +22,7 @@
 #include <QItemSelectionModel>
 #include <QLabel>
 #include <QPushButton>
+#include <QRect>
 #include <QSignalSpy>
 #include <QTableView>
 #include <QTableWidget>
@@ -126,6 +127,26 @@ DecodeTraceInspectorView ready_view() {
   return view;
 }
 
+// A real-image sized bounded result: the Current output byte lands in a deep
+// step, far below the initial viewport of the fresh publish.
+DecodeTraceInspectorView deep_current_view(int current_row) {
+  DecodeTraceInspectorView view;
+  view.scope.generation = 6;
+  view.scope.requested_output = InflatedByteRange{InflatedByteOffset{0},
+                                                  InflatedByteOffset{400}};
+  view.scope.status = pnga::analysis_engine::TraceQueryStatus::kReady;
+  view.scope.returned_token_count = 400;
+  for (int index = 0; index < 400; ++index) {
+    DecodeTraceStep step =
+        literal_step(static_cast<std::uint64_t>(index), 0x41);
+    if (index == current_row) {
+      step.contains_current = true;
+    }
+    view.steps.push_back(std::move(step));
+  }
+  return view;
+}
+
 }  // namespace
 
 class DecodeTraceInspectorTest : public QObject {
@@ -140,6 +161,7 @@ class DecodeTraceInspectorTest : public QObject {
   void currentAndManualSelectionCoexist();
   void partialAndErrorRowsAreRetained();
   void rowSelectionPublishesTypedManualTargetOnly();
+  void publishRevealsCurrentRowWithoutSelection();
   void showInHexSendsTypedCompressedTarget();
   void showInflatedOutputSendsTypedOutputTarget();
   void keyboardNavigationMovesRowSelection();
@@ -488,6 +510,39 @@ void DecodeTraceInspectorTest::rowSelectionPublishesTypedManualTargetOnly() {
   QVERIFY(logical != nullptr);
   QCOMPARE(logical->begin, DeflateBitOffset{10 + 8 * 35});
   QCOMPARE(store.state().manual->physical_spans.size(), std::size_t{1});
+}
+
+void DecodeTraceInspectorTest::publishRevealsCurrentRowWithoutSelection() {
+  pnga::ui::qt::DecodeTraceInspector widget;
+  widget.resize(600, 800);
+  widget.show();
+  QVERIFY(QTest::qWaitForWindowExposed(&widget));
+  QCoreApplication::processEvents();
+
+  // Real-image defect: a fresh publish of a ~400-event bounded result whose
+  // Current output byte lands in a deep step showed the table from row 0, so
+  // the Current row stayed off-viewport and invisible.
+  const int current_row = 300;
+  widget.setView(deep_current_view(current_row));
+  auto* table = traceTable(widget);
+  QVERIFY(table != nullptr);
+  auto* model = table->model();
+  QVERIFY(model != nullptr);
+
+  QVERIFY(model->data(model->index(current_row, 0),
+                      pnga::ui::qt::DecodeTraceContainsCurrentRole)
+              .toBool());
+  const QRect current_rect = table->visualRect(model->index(current_row, 0));
+  QVERIFY2(table->viewport()->rect().intersects(current_rect),
+           qPrintable(QStringLiteral("current row %1 rect y=%2..%3 outside viewport height %4")
+                          .arg(current_row)
+                          .arg(current_rect.top())
+                          .arg(current_rect.bottom())
+                          .arg(table->viewport()->rect().height())));
+  // Revealing the Current row is a scroll only: it must never create a
+  // manual row selection (Current ≠ Selection).
+  QVERIFY(table->selectionModel()->selectedRows().isEmpty());
+  QVERIFY(!table->selectionModel()->hasSelection());
 }
 
 void DecodeTraceInspectorTest::showInHexSendsTypedCompressedTarget() {
