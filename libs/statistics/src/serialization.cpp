@@ -184,6 +184,37 @@ SerializationResult fail(const char* message) {
 
 const char* contradictory_section = "contradictory state for section ";
 
+// The CSV byte contract is "LF only": no carriage-return byte may appear in
+// the output, including inside quoted fields. RFC 4180 defines no escape for
+// CR (quoting only neutralizes quote characters and may embed line breaks),
+// so a CR-bearing field is rejected deterministically instead of being
+// mangled into a non-LF-only stream. An embedded LF inside a quoted field is
+// deliberately kept: it is legal per RFC 4180, it is field content rather
+// than a record separator, and the schema v1 golden case is required to
+// carry LF in a synthetic error. Bucket keys and error strings are untrusted
+// input, so they are scanned up front and the finished output is checked
+// again (mirroring the JSON side) before the bytes are published.
+bool csv_field_contains_carriage_return(const StatisticsSnapshot& snapshot) {
+  const auto has_cr = [](std::string_view value) {
+    return value.find('\r') != std::string_view::npos;
+  };
+  if (has_cr(snapshot.overview.state.error) ||
+      has_cr(snapshot.chunks.state.error) ||
+      has_cr(snapshot.filters.state.error) ||
+      has_cr(snapshot.blocks.state.error) ||
+      has_cr(snapshot.tokens.state.error) ||
+      has_cr(snapshot.lengths.state.error) ||
+      has_cr(snapshot.distances.state.error)) {
+    return true;
+  }
+  for (const ChunkBucket& bucket : snapshot.chunks.data.buckets) {
+    if (has_cr(bucket.type)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Validates every section state up front so a rejected snapshot never
 // produces partial bytes.
 const char* first_contradictory_section(const StatisticsSnapshot& snapshot) {
@@ -491,6 +522,9 @@ SerializationResult serialize_statistics_csv(const DocumentIdentity& document,
     result.error = std::string(contradictory_section) + section;
     return result;
   }
+  if (csv_field_contains_carriage_return(snapshot)) {
+    return fail("statistics csv must not contain carriage returns");
+  }
 
   std::string out;
   std::string scratch;
@@ -639,6 +673,10 @@ SerializationResult serialize_statistics_csv(const DocumentIdentity& document,
                              bucket.count, "matches");
       }
     }
+  }
+
+  if (out.find('\r') != std::string::npos) {
+    return fail("statistics csv must not contain carriage returns");
   }
 
   SerializationResult result;

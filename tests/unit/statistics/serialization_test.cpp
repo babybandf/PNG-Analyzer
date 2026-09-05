@@ -324,6 +324,56 @@ TEST_CASE("Unavailable values stay distinct from zero",
   }
 }
 
+TEST_CASE("CSV keeps the LF-only byte contract on untrusted fields",
+          "[statistics][wp602d]") {
+  const auto document = valid_identity();
+
+  SECTION("carriage return in a bucket key is rejected") {
+    auto snapshot = ready_snapshot();
+    snapshot.chunks.data.buckets[0].type = "ID\rAT";
+    const auto csv =
+        pnga::statistics::serialize_statistics_csv(document, snapshot);
+    REQUIRE_FALSE(csv.success);
+    REQUIRE(csv.error == "statistics csv must not contain carriage returns");
+    REQUIRE(csv.bytes.empty());
+  }
+  SECTION("carriage return in an error string is rejected") {
+    auto snapshot = ready_snapshot();
+    snapshot.blocks.state.error = "stopped\r\nat line two";
+    const auto csv =
+        pnga::statistics::serialize_statistics_csv(document, snapshot);
+    REQUIRE_FALSE(csv.success);
+    REQUIRE(csv.error == "statistics csv must not contain carriage returns");
+    // Deterministic: a repeated serialization fails identically.
+    const auto again =
+        pnga::statistics::serialize_statistics_csv(document, snapshot);
+    REQUIRE_FALSE(again.success);
+    REQUIRE(again.error == csv.error);
+  }
+  SECTION("embedded LF stays legal inside quoted fields") {
+    auto snapshot = ready_snapshot();
+    snapshot.blocks.state.error = "stopped\nat line two";
+    const auto csv =
+        pnga::statistics::serialize_statistics_csv(document, snapshot);
+    REQUIRE(csv.success);
+    REQUIRE(csv.bytes.find("1,blocks,error,,\"stopped\nat line two\",\n") !=
+            std::string::npos);
+    assert_report_bytes(csv.bytes);
+  }
+  SECTION("JSON escapes the same untrusted fields losslessly") {
+    auto snapshot = ready_snapshot();
+    snapshot.blocks.state.error = "stopped\r\nat line two";
+    snapshot.chunks.data.buckets[0].type = "ID\rAT";
+    const auto json =
+        pnga::statistics::serialize_statistics_json(document, snapshot);
+    REQUIRE(json.success);
+    REQUIRE(json.bytes.find("\"error\": \"stopped\\r\\nat line two\"") !=
+            std::string::npos);
+    REQUIRE(json.bytes.find("{\"type\": \"ID\\rAT\"") != std::string::npos);
+    assert_report_bytes(json.bytes);
+  }
+}
+
 TEST_CASE("Serializers validate identity and section state",
           "[statistics][wp602d]") {
   SECTION("fingerprint prefix") {
