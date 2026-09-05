@@ -2,6 +2,9 @@
 // by bit (LSB-first, bounds-checked), decodes stored/fixed/dynamic-huffman
 // blocks and emits token, output-range and LZ-source provenance events.
 // Reconstructed output is for zlib comparison.
+// WP-602C: one streaming engine with two sinks — the rich sink builds the
+// full TokenDecodeResult, the scalar sink feeds scan_tokens observers with
+// aggregate-then-discard TokenFacts over a bounded windowed reader.
 
 #include "pnga/deflate-trace/token_decoder.h"
 
@@ -11,6 +14,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <exception>
 #include <iterator>
 #include <limits>
@@ -151,17 +155,34 @@ void append_source_range(std::vector<TokenOutputRange>* ranges,
       TokenOutputRange{origin.begin, origin.end, origin.token_index});
 }
 
-// LSB-first bit reader over a borrowed byte buffer.
+// LSB-first bit reader over a bounded sliding window of an IByteSource
+// logical range. WP-602C: the reader never maps or copies the whole input —
+// it refills a small read window with source.read() only (view() is never
+// used) and can check a cancellation hook on every refill. Bit positions are
+// absolute offsets within the deflate range, so decoded results are
+// identical to the former whole-input reader.
 class BitReader {
  public:
-  BitReader(const std::byte* data, std::uint64_t bit_size)
-      : data_(data), bit_size_(bit_size) {}
+  static constexpr std::size_t kWindowBytes = 4096;
+
+  BitReader(const pnga::io::IByteSource& source, std::uint64_t byte_begin,
+            std::uint64_t byte_end,
+            const std::function<bool()>& should_cancel)
+      : source_(source),
+        range_begin_(byte_begin),
+        range_bytes_(byte_end - byte_begin),
+        should_cancel_(should_cancel) {
+    buffer_.resize(kWindowBytes);
+  }
 
   bool read_bit(std::uint64_t* out) {
-    if (bit_pos_ >= bit_size_) {
+    if (!ensure_bytes(1)) {
       return false;
     }
-    *out = (static_cast<unsigned>(data_[bit_pos_ / 8]) >> (bit_pos_ % 8)) & 1u;
+    *out = (std::to_integer<unsigned>(
+                buffer_[static_cast<std::size_t>(bit_pos_ / 8 -
+                                                buffer_base_)]) >>
+            (bit_pos_ % 8)) & 1u;
     ++bit_pos_;
     return true;
   }
@@ -169,14 +190,20 @@ class BitReader {
   // Reads `count` (<= 16) bits as a little-endian integer: the bit at stream
   // position p becomes value bit (p - start).
   bool read_bits(unsigned count, std::uint64_t* out) {
-    if (count > 16 || bit_pos_ > bit_size_ ||
-        static_cast<std::uint64_t>(count) > bit_size_ - bit_pos_) {
+    if (count > 16 || bit_pos_ > range_bytes_ * 8 ||
+        static_cast<std::uint64_t>(count) > range_bytes_ * 8 - bit_pos_) {
+      return false;
+    }
+    if (!ensure_bytes((bit_pos_ % 8 + count + 7) / 8)) {
       return false;
     }
     std::uint64_t value = 0;
     for (unsigned i = 0; i < count; ++i) {
       const unsigned bit =
-          (static_cast<unsigned>(data_[bit_pos_ / 8]) >> (bit_pos_ % 8)) & 1u;
+          (std::to_integer<unsigned>(
+               buffer_[static_cast<std::size_t>(bit_pos_ / 8 -
+                                                buffer_base_)]) >>
+           (bit_pos_ % 8)) & 1u;
       value |= static_cast<std::uint64_t>(bit) << i;
       ++bit_pos_;
     }
@@ -186,10 +213,13 @@ class BitReader {
 
   // Stored-block data is byte aligned; reads the next whole byte.
   bool read_byte(std::byte* out) {
-    if (bit_pos_ > bit_size_ || 8 > bit_size_ - bit_pos_) {
+    if (bit_pos_ > range_bytes_ * 8 || 8 > range_bytes_ * 8 - bit_pos_) {
       return false;
     }
-    *out = data_[bit_pos_ / 8];
+    if (!ensure_bytes(1)) {
+      return false;
+    }
+    *out = buffer_[static_cast<std::size_t>(bit_pos_ / 8 - buffer_base_)];
     bit_pos_ += 8;
     return true;
   }
@@ -197,12 +227,67 @@ class BitReader {
   void align_to_byte() { bit_pos_ = (bit_pos_ + 7) & ~std::uint64_t{7}; }
 
   std::uint64_t pos() const noexcept { return bit_pos_; }
-  bool exhausted() const noexcept { return bit_pos_ >= bit_size_; }
+  bool exhausted() const noexcept { return bit_pos_ >= range_bytes_ * 8; }
+  bool cancelled() const noexcept { return cancelled_; }
+  bool io_failed() const noexcept { return io_failed_; }
 
  private:
-  const std::byte* data_;
-  std::uint64_t bit_size_;
+  // Guarantees that the `needed` bytes starting at the current byte position
+  // are inside the logical range and resident in the sliding window.
+  bool ensure_bytes(std::size_t needed) {
+    const std::uint64_t byte_pos = bit_pos_ / 8;
+    if (needed > range_bytes_ - byte_pos) {
+      return false;
+    }
+    if (byte_pos + needed <= buffer_base_ + buffer_size_) {
+      return true;
+    }
+    return refill(byte_pos, needed);
+  }
+
+  bool refill(std::uint64_t byte_pos, std::size_t needed) {
+    // Slide the window: only bytes from the current position onward matter.
+    const std::uint64_t keep = byte_pos - buffer_base_;
+    if (keep >= buffer_size_) {
+      buffer_base_ = byte_pos;
+      buffer_size_ = 0;
+    } else if (keep != 0) {
+      const std::size_t tail = buffer_size_ - static_cast<std::size_t>(keep);
+      std::memmove(buffer_.data(), buffer_.data() +
+                                       static_cast<std::size_t>(keep), tail);
+      buffer_base_ = byte_pos;
+      buffer_size_ = tail;
+    }
+    if (should_cancel_ && should_cancel_()) {
+      cancelled_ = true;
+      return false;
+    }
+    const std::uint64_t buffered_end = buffer_base_ + buffer_size_;
+    const std::uint64_t remaining = range_bytes_ - buffered_end;
+    const std::size_t capacity = buffer_.size() - buffer_size_;
+    const std::size_t want =
+        static_cast<std::size_t>(std::min<std::uint64_t>(capacity, remaining));
+    if (want != 0) {
+      if (!source_.read(range_begin_ + buffered_end,
+                        buffer_.data() + buffer_size_, want)) {
+        io_failed_ = true;
+        return false;
+      }
+      buffer_size_ += want;
+    }
+    return byte_pos + needed <= buffer_base_ + buffer_size_;
+  }
+
+  const pnga::io::IByteSource& source_;
+  std::uint64_t range_begin_;
+  std::uint64_t range_bytes_;
+  const std::function<bool()>& should_cancel_;
+  std::vector<std::byte> buffer_;
+  std::uint64_t buffer_base_ = 0;  // absolute range byte offset of buffer_[0]
+  std::size_t buffer_size_ = 0;    // valid bytes in the window
   std::uint64_t bit_pos_ = 0;
+  bool cancelled_ = false;
+  bool io_failed_ = false;
 };
 
 struct HuffmanTable {
@@ -409,9 +494,12 @@ void append_table_trace(
   traces->push_back(std::move(trace));
 }
 
-bool read_dynamic_tables(
-    BitReader& reader, TokenDecodeResult* result, HuffmanTable* literal_table,
-    HuffmanTable* distance_table, std::string* error) {
+// WP-602C: the dynamic-table reader routes table traces through the sink, so
+// the rich decoder records provenance while the scalar scan discards tables.
+template <class Sink>
+bool read_dynamic_tables(BitReader& reader, Sink& sink,
+                         HuffmanTable* literal_table,
+                         HuffmanTable* distance_table, std::string* error) {
   constexpr std::array<unsigned, 19> kCodeLengthOrder = {
       16, 17, 18, 0, 8, 7, 9, 6, 10, 5,
       11, 4, 12, 3, 13, 2, 14, 1, 15};
@@ -447,9 +535,9 @@ bool read_dynamic_tables(
                            &code_length_table, error)) {
     return false;
   }
-  append_table_trace(pnga::deflate_trace::HuffmanTableKind::kCodeLength,
-                     code_length_lengths, code_length_provenance,
-                     code_length_table, &result->huffman_tables);
+  sink.on_table(pnga::deflate_trace::HuffmanTableKind::kCodeLength,
+                code_length_lengths, code_length_provenance,
+                code_length_table);
 
   const std::size_t total_lengths = literal_count + distance_count;
   std::vector<std::uint8_t> all_lengths;
@@ -533,13 +621,447 @@ bool read_dynamic_tables(
                            error)) {
     return false;
   }
-  append_table_trace(pnga::deflate_trace::HuffmanTableKind::kLiteralLength,
-                     literal_lengths, literal_provenance, *literal_table,
-                     &result->huffman_tables);
-  append_table_trace(pnga::deflate_trace::HuffmanTableKind::kDistance,
-                     distance_lengths, distance_provenance, *distance_table,
-                     &result->huffman_tables);
+  sink.on_table(pnga::deflate_trace::HuffmanTableKind::kLiteralLength,
+                literal_lengths, literal_provenance, *literal_table);
+  sink.on_table(pnga::deflate_trace::HuffmanTableKind::kDistance,
+                distance_lengths, distance_provenance, *distance_table);
   return true;
+}
+
+// --- WP-602C: shared decode engine with rich/scalar sinks -------------------
+
+enum class DecodeFailureKind {
+  kNone,         // stream ended
+  kMalformed,    // structural zlib/deflate input problem
+  kIo,           // source read failure
+  kInternal,     // checked-arithmetic or window failure
+  kBudget,       // output/token/input budget exceeded
+  kCancelled,    // cooperative cancellation
+  kObserverStop, // observer asked to stop
+};
+
+struct DecodeBudget {
+  bool enabled = false;
+  std::uint64_t max_input_bytes = 0;  // 0 = unlimited
+  std::uint64_t max_tokens = 0;       // 0 = unlimited
+};
+
+struct DecodeOutcome {
+  bool stream_ended = false;
+  std::uint64_t input_bits = 0;
+  std::uint64_t output_bytes = 0;
+  std::uint64_t token_count = 0;
+  DecodeFailureKind failure = DecodeFailureKind::kNone;
+  std::string error;
+};
+
+// Rich sink: builds the existing TokenDecodeResult — token events with
+// provenance, Huffman table traces, the reconstructed output and the 32 KiB
+// LZ window needed for overlap source ranges.
+class RichSink {
+ public:
+  TokenDecodeResult result;
+
+  void on_table(HuffmanTableKind kind,
+                const std::vector<std::uint8_t>& lengths,
+                const std::vector<CodeLengthProvenance>& provenance,
+                const HuffmanTable& table) {
+    append_table_trace(kind, lengths, provenance, table,
+                       &result.huffman_tables);
+  }
+
+  bool on_token(TokenKind kind, std::uint64_t bit_begin, std::uint64_t bit_end,
+                std::uint64_t output_begin, std::uint64_t output_end,
+                std::uint8_t literal, std::uint16_t length,
+                std::uint16_t distance, std::uint64_t match_source_begin,
+                std::uint64_t match_source_end,
+                std::optional<std::uint16_t> huffman_symbol) {
+    TokenEvent token;
+    token.kind = kind;
+    token.input_bit_begin = bit_begin;
+    token.input_bit_end = bit_end;
+    token.output_begin = output_begin;
+    token.output_end = output_end;
+    token.literal = literal;
+    token.length = length;
+    token.distance = distance;
+    token.match_source_begin = match_source_begin;
+    token.match_source_end = match_source_end;
+    token.huffman_symbol = huffman_symbol;
+    last_token_index_ = result.tokens.size();
+    result.tokens.push_back(std::move(token));
+    if (kind != TokenKind::kEndOfBlock) {
+      result.output_index.add(
+          TokenOutputRange{output_begin, output_end, last_token_index_});
+    }
+    return true;
+  }
+
+  bool emit_literal_byte(std::byte value, std::uint64_t output_begin,
+                         std::uint64_t output_end) {
+    result.output.push_back(value);
+    if (!window_.append(value, WindowOrigin{output_begin, output_end,
+                                            last_token_index_})) {
+      last_error_ = "LZ window output overflow";
+      return false;
+    }
+    return true;
+  }
+
+  bool emit_match_bytes(std::uint64_t output_begin, std::uint16_t length,
+                        std::uint16_t distance) {
+    // Overlap-safe byte copy from the fixed 32 KiB window. Looking up by the
+    // current output cursor, rather than indexing the original output
+    // vector, makes the ring-buffer wrap and overlap semantics explicit and
+    // keeps source provenance attached to each byte.
+    std::uint64_t cursor = output_begin;
+    for (std::uint64_t i = 0; i < length; ++i) {
+      if (distance > cursor) {
+        last_error_ = "distance beyond available window";
+        return false;
+      }
+      const std::uint64_t source_offset = cursor - distance;
+      WindowEntry source_entry;
+      if (!window_.read(source_offset, &source_entry)) {
+        last_error_ = "distance beyond available window";
+        return false;
+      }
+      append_source_range(
+          &result.tokens[last_token_index_].match_source_ranges,
+          source_entry.origin);
+      result.output.push_back(source_entry.value);
+      if (!window_.append(source_entry.value, source_entry.origin)) {
+        last_error_ = "LZ window output overflow";
+        return false;
+      }
+      ++cursor;
+    }
+    return true;
+  }
+
+  const std::string& last_error() const noexcept { return last_error_; }
+
+ private:
+  LzWindow window_;
+  std::size_t last_token_index_ = 0;
+  std::string last_error_;
+};
+
+// Scalar sink: invokes the observer and retains no events, tables or output.
+// Only the single in-flight TokenFact exists at any moment.
+class ScalarSink {
+ public:
+  std::uint64_t facts = 0;
+  std::uint64_t peak_retained_token_records = 0;
+  bool stopped = false;
+
+  explicit ScalarSink(
+      const std::function<bool(const TokenFact&)>& observer)
+      : observer_(observer) {}
+
+  void on_table(HuffmanTableKind, const std::vector<std::uint8_t>&,
+                const std::vector<CodeLengthProvenance>&,
+                const HuffmanTable&) {
+    // Aggregate-then-discard: Huffman tables are never retained.
+  }
+
+  bool on_token(TokenKind kind, std::uint64_t bit_begin, std::uint64_t bit_end,
+                std::uint64_t output_begin, std::uint64_t output_end,
+                std::uint8_t, std::uint16_t length, std::uint16_t distance,
+                std::uint64_t, std::uint64_t, std::optional<std::uint16_t>) {
+    TokenFact fact;
+    fact.kind = kind;
+    fact.input_bits = bit_end - bit_begin;
+    fact.output_bytes = output_end - output_begin;
+    fact.length = length;
+    fact.distance = distance;
+    fact.output_begin = output_begin;
+    ++facts;
+    peak_retained_token_records = 1;
+    if (observer_ && !observer_(fact)) {
+      stopped = true;
+      return false;
+    }
+    return true;
+  }
+
+  bool emit_literal_byte(std::byte, std::uint64_t, std::uint64_t) {
+    return true;  // output bytes are counted by the engine, never stored
+  }
+  bool emit_match_bytes(std::uint64_t, std::uint16_t, std::uint16_t) {
+    return true;
+  }
+  const std::string& last_error() const noexcept { return last_error_; }
+
+ private:
+  const std::function<bool(const TokenFact&)>& observer_;
+  std::string last_error_;
+};
+
+// The one streaming decoder engine behind both entry points. Interprets
+// stored/fixed/dynamic blocks once and routes every token fact and output
+// byte through the sink; `budget`/`should_cancel` are active only for the
+// scalar scan.
+template <class Sink>
+DecodeOutcome run_deflate_blocks(const pnga::io::IByteSource& source,
+                                 std::uint64_t data_begin,
+                                 std::uint64_t data_end,
+                                 std::uint64_t max_output_bytes,
+                                 const std::function<bool()>& should_cancel,
+                                 const DecodeBudget& budget, Sink& sink) {
+  DecodeOutcome outcome;
+  if (data_end < data_begin ||
+      data_end - data_begin > std::numeric_limits<std::uint64_t>::max() / 8) {
+    outcome.failure = DecodeFailureKind::kInternal;
+    outcome.error = "deflate bit range overflow";
+    return outcome;
+  }
+  BitReader reader(source, data_begin, data_end, should_cancel);
+  std::uint64_t output_bytes = 0;
+  std::uint64_t token_count = 0;
+
+  const auto finish = [&](DecodeFailureKind kind, std::string message) {
+    outcome.failure = kind;
+    outcome.error = std::move(message);
+    outcome.input_bits = reader.pos();
+    outcome.output_bytes = output_bytes;
+    outcome.token_count = token_count;
+    return outcome;
+  };
+  // Reader failures are truncation unless a refill was cancelled or failed.
+  const auto reader_failure = [&](const char* message) {
+    if (reader.cancelled()) {
+      return finish(DecodeFailureKind::kCancelled, "token scan cancelled");
+    }
+    if (reader.io_failed()) {
+      return finish(DecodeFailureKind::kIo, "failed to read input stream");
+    }
+    return finish(DecodeFailureKind::kMalformed, message);
+  };
+  const auto input_over_budget = [&]() {
+    if (!budget.enabled || budget.max_input_bytes == 0 ||
+        budget.max_input_bytes >
+            std::numeric_limits<std::uint64_t>::max() / 8) {
+      return false;
+    }
+    return reader.pos() > budget.max_input_bytes * 8;
+  };
+
+  bool done = false;
+  while (!done) {
+    if (should_cancel && should_cancel()) {
+      return finish(DecodeFailureKind::kCancelled, "token scan cancelled");
+    }
+    if (input_over_budget()) {
+      return finish(DecodeFailureKind::kBudget, "input budget exceeded");
+    }
+    std::uint64_t bfinal = 0;
+    std::uint64_t btype = 0;
+    if (!reader.read_bits(1, &bfinal) || !reader.read_bits(2, &btype)) {
+      return reader_failure("truncated block header");
+    }
+
+    if (btype == 0) {  // stored
+      reader.align_to_byte();
+      std::uint64_t len = 0;
+      std::uint64_t nlen = 0;
+      if (!reader.read_bits(16, &len) || !reader.read_bits(16, &nlen)) {
+        return reader_failure("truncated stored block header");
+      }
+      if (len != ((~nlen) & 0xFFFFu)) {
+        return finish(DecodeFailureKind::kMalformed,
+                      "stored block LEN/NLEN mismatch");
+      }
+      for (std::uint64_t i = 0; i < len; ++i) {
+        if (budget.enabled && budget.max_tokens != 0 &&
+            token_count >= budget.max_tokens) {
+          return finish(DecodeFailureKind::kBudget, "token budget exceeded");
+        }
+        if (input_over_budget()) {
+          return finish(DecodeFailureKind::kBudget, "input budget exceeded");
+        }
+        if (token_count % 256 == 0 && should_cancel && should_cancel()) {
+          return finish(DecodeFailureKind::kCancelled, "token scan cancelled");
+        }
+        const std::uint64_t begin = reader.pos();
+        std::byte b{0};
+        if (!reader.read_byte(&b)) {
+          return reader_failure("truncated stored block data");
+        }
+        const std::uint64_t output_begin = output_bytes;
+        std::uint64_t output_end = 0;
+        if (!checked_add(output_begin, 1, &output_end)) {
+          return finish(DecodeFailureKind::kInternal, "output range overflow");
+        }
+        ++token_count;
+        if (!sink.on_token(TokenKind::kLiteral, begin, reader.pos(),
+                           output_begin, output_end,
+                           std::to_integer<std::uint8_t>(b), 0, 0, 0, 0,
+                           std::optional<std::uint16_t>{})) {
+          return finish(DecodeFailureKind::kObserverStop, std::string());
+        }
+        if (!sink.emit_literal_byte(b, output_begin, output_end)) {
+          return finish(DecodeFailureKind::kInternal, sink.last_error());
+        }
+        output_bytes = output_end;
+        if (output_bytes > max_output_bytes) {
+          return finish(DecodeFailureKind::kBudget, "output cap exceeded");
+        }
+      }
+      // A stored block has no end-of-block code; emit the boundary fact.
+      ++token_count;
+      if (!sink.on_token(TokenKind::kEndOfBlock, reader.pos(), reader.pos(),
+                         output_bytes, output_bytes, 0, 0, 0, 0, 0,
+                         std::optional<std::uint16_t>{})) {
+        return finish(DecodeFailureKind::kObserverStop, std::string());
+      }
+    } else if (btype == 1 || btype == 2) {  // fixed or dynamic huffman
+      HuffmanTable dynamic_literal_table;
+      HuffmanTable dynamic_distance_table;
+      const HuffmanTable* literal_table = &fixed_literal_table();
+      const HuffmanTable* distance_table = &fixed_distance_table();
+      if (btype == 2) {
+        std::string error;
+        if (!read_dynamic_tables(reader, sink, &dynamic_literal_table,
+                                 &dynamic_distance_table, &error)) {
+          return finish(DecodeFailureKind::kMalformed, std::move(error));
+        }
+        literal_table = &dynamic_literal_table;
+        distance_table = &dynamic_distance_table;
+      }
+      while (true) {
+        if (budget.enabled && budget.max_tokens != 0 &&
+            token_count >= budget.max_tokens) {
+          return finish(DecodeFailureKind::kBudget, "token budget exceeded");
+        }
+        if (input_over_budget()) {
+          return finish(DecodeFailureKind::kBudget, "input budget exceeded");
+        }
+        if (token_count % 256 == 0 && should_cancel && should_cancel()) {
+          return finish(DecodeFailureKind::kCancelled, "token scan cancelled");
+        }
+        const std::uint64_t begin = reader.pos();
+        std::uint16_t symbol = 0;
+        if (!decode_symbol(reader, *literal_table, &symbol)) {
+          return reader_failure(reader.exhausted() ? "truncated huffman code"
+                                                   : "invalid huffman code");
+        }
+        if (symbol < 256) {
+          const std::uint64_t output_begin = output_bytes;
+          std::uint64_t output_end = 0;
+          if (!checked_add(output_begin, 1, &output_end)) {
+            return finish(DecodeFailureKind::kInternal,
+                          "output range overflow");
+          }
+          ++token_count;
+          if (!sink.on_token(TokenKind::kLiteral, begin, reader.pos(),
+                             output_begin, output_end,
+                             static_cast<std::uint8_t>(symbol), 0, 0, 0, 0,
+                             symbol)) {
+            return finish(DecodeFailureKind::kObserverStop, std::string());
+          }
+          if (!sink.emit_literal_byte(static_cast<std::byte>(symbol),
+                                      output_begin, output_end)) {
+            return finish(DecodeFailureKind::kInternal, sink.last_error());
+          }
+          output_bytes = output_end;
+          if (output_bytes > max_output_bytes) {
+            return finish(DecodeFailureKind::kBudget, "output cap exceeded");
+          }
+        } else if (symbol == 256) {
+          ++token_count;
+          if (!sink.on_token(TokenKind::kEndOfBlock, begin, reader.pos(),
+                             output_bytes, output_bytes, 0, 0, 0, 0, 0,
+                             symbol)) {
+            return finish(DecodeFailureKind::kObserverStop, std::string());
+          }
+          break;  // end of this block
+        } else if (symbol <= 285) {
+          const auto& le = kLengths[symbol - 257];
+          std::uint64_t length = le.base;
+          if (le.extra != 0) {
+            std::uint64_t extra = 0;
+            if (!reader.read_bits(le.extra, &extra)) {
+              return reader_failure("truncated length extra bits");
+            }
+            length += extra;
+          }
+          if (distance_table->empty) {
+            return finish(DecodeFailureKind::kMalformed,
+                          "distance table is empty");
+          }
+          std::uint16_t dist_code = 0;
+          if (!decode_symbol(reader, *distance_table, &dist_code)) {
+            return reader_failure(reader.exhausted()
+                                      ? "truncated distance code"
+                                      : "invalid distance code");
+          }
+          if (dist_code > 29) {
+            return finish(DecodeFailureKind::kMalformed,
+                          "invalid distance code");
+          }
+          const auto& de = kDistances[dist_code];
+          std::uint64_t distance = de.base;
+          if (de.extra != 0) {
+            std::uint64_t extra = 0;
+            if (!reader.read_bits(de.extra, &extra)) {
+              return reader_failure("truncated distance extra bits");
+            }
+            distance += extra;
+          }
+          if (distance == 0 || distance > output_bytes) {
+            return finish(DecodeFailureKind::kMalformed,
+                          "distance beyond available output");
+          }
+          if (length > max_output_bytes - output_bytes) {
+            return finish(DecodeFailureKind::kBudget, "output cap exceeded");
+          }
+          const std::uint64_t src = output_bytes - distance;
+          std::uint64_t source_end = 0;
+          if (!checked_add(src, std::min<std::uint64_t>(length, distance),
+                           &source_end)) {
+            return finish(DecodeFailureKind::kInternal,
+                          "match source range overflow");
+          }
+          std::uint64_t output_end = 0;
+          if (!checked_add(output_bytes, length, &output_end)) {
+            return finish(DecodeFailureKind::kInternal,
+                          "output range overflow");
+          }
+          ++token_count;
+          if (!sink.on_token(TokenKind::kLengthDistance, begin, reader.pos(),
+                             output_bytes, output_end, 0,
+                             static_cast<std::uint16_t>(length),
+                             static_cast<std::uint16_t>(distance), src,
+                             source_end, symbol)) {
+            return finish(DecodeFailureKind::kObserverStop, std::string());
+          }
+          if (!sink.emit_match_bytes(output_bytes,
+                                     static_cast<std::uint16_t>(length),
+                                     static_cast<std::uint16_t>(distance))) {
+            return finish(DecodeFailureKind::kInternal, sink.last_error());
+          }
+          output_bytes = output_end;
+        } else {
+          return finish(DecodeFailureKind::kMalformed,
+                        "invalid literal/length symbol");
+        }
+      }
+    } else {
+      return finish(DecodeFailureKind::kMalformed,
+                    "reserved deflate block type");
+    }
+
+    if (bfinal != 0) {
+      done = true;
+    }
+  }
+
+  outcome.stream_ended = true;
+  outcome.input_bits = reader.pos();
+  outcome.output_bytes = output_bytes;
+  outcome.token_count = token_count;
+  return outcome;
 }
 
 }  // namespace
@@ -562,265 +1084,97 @@ TokenDecodeResult decode_stored_and_fixed(const pnga::io::IByteSource& source,
     return out;
   }
 
-  std::vector<std::byte> data(static_cast<std::size_t>(source.size()));
-  if (!source.read(0, data.data(), data.size())) {
-    out.error = "failed to read input stream";
-    return out;
-  }
   const std::uint64_t start_byte = wrapper.deflate_data_begin;
   if (!wrapper.adler_offset || *wrapper.adler_offset < start_byte) {
     out.error = "invalid zlib data range";
     return out;
   }
+
+  RichSink sink;
+  const DecodeOutcome outcome =
+      run_deflate_blocks(source, start_byte, *wrapper.adler_offset,
+                         max_output_bytes, {}, DecodeBudget{}, sink);
+  out = std::move(sink.result);
   out.deflate_data_begin = start_byte;
-  BitReader reader(data.data() + start_byte,
-                   (*wrapper.adler_offset - start_byte) * 8);
-  LzWindow window;
+  out.output_bytes = outcome.output_bytes;
+  if (outcome.failure == DecodeFailureKind::kNone) {
+    out.success = true;
+    out.stream_ended = true;
+  } else {
+    out.success = false;
+    out.stream_ended = false;
+    out.error = outcome.error;
+  }
+  return out;
+}
 
-  bool done = false;
-  while (!done) {
-    std::uint64_t bfinal = 0;
-    std::uint64_t btype = 0;
-    if (!reader.read_bits(1, &bfinal) || !reader.read_bits(2, &btype)) {
-      out.error = "truncated block header";
-      return out;
-    }
-
-    if (btype == 0) {  // stored
-      reader.align_to_byte();
-      std::uint64_t len = 0;
-      std::uint64_t nlen = 0;
-      if (!reader.read_bits(16, &len) || !reader.read_bits(16, &nlen)) {
-        out.error = "truncated stored block header";
-        return out;
-      }
-      if (len != ((~nlen) & 0xFFFFu)) {
-        out.error = "stored block LEN/NLEN mismatch";
-        return out;
-      }
-      for (std::uint64_t i = 0; i < len; ++i) {
-        const std::uint64_t begin = reader.pos();
-        std::byte b{0};
-        if (!reader.read_byte(&b)) {
-          out.error = "truncated stored block data";
-          return out;
-        }
-        TokenEvent token;
-        token.kind = TokenKind::kLiteral;
-        token.input_bit_begin = begin;
-        token.input_bit_end = reader.pos();
-        token.output_begin = out.output_bytes;
-        if (!checked_add(token.output_begin, 1, &token.output_end)) {
-          out.error = "output range overflow";
-          return out;
-        }
-        token.literal = static_cast<std::uint8_t>(b);
-        const std::uint64_t output_end = token.output_end;
-        const std::uint64_t token_index = out.tokens.size();
-        out.tokens.push_back(std::move(token));
-        out.output_index.add(
-            TokenOutputRange{out.output_bytes, output_end,
-                             token_index});
-        out.output.push_back(b);
-        if (!window.append(b, WindowOrigin{out.output_bytes,
-                                           out.output_bytes + 1,
-                                           token_index})) {
-          out.error = "LZ window output overflow";
-          return out;
-        }
-        out.output_bytes = token.output_end;
-        if (out.output_bytes > max_output_bytes) {
-          out.error = "output cap exceeded";
-          return out;
-        }
-      }
-      // A stored block has no end-of-block code; emit the boundary event.
-      TokenEvent end;
-      end.kind = TokenKind::kEndOfBlock;
-      end.input_bit_begin = reader.pos();
-      end.input_bit_end = reader.pos();
-      end.output_begin = out.output_bytes;
-      end.output_end = out.output_bytes;
-      out.tokens.push_back(std::move(end));
-    } else if (btype == 1 || btype == 2) {  // fixed or dynamic huffman
-      HuffmanTable dynamic_literal_table;
-      HuffmanTable dynamic_distance_table;
-      const HuffmanTable* literal_table = &fixed_literal_table();
-      const HuffmanTable* distance_table = &fixed_distance_table();
-      if (btype == 2) {
-        std::string error;
-        if (!read_dynamic_tables(reader, &out, &dynamic_literal_table,
-                                 &dynamic_distance_table, &error)) {
-          out.error = error;
-          return out;
-        }
-        literal_table = &dynamic_literal_table;
-        distance_table = &dynamic_distance_table;
-      }
-      while (true) {
-        const std::uint64_t begin = reader.pos();
-        std::uint16_t symbol = 0;
-        if (!decode_symbol(reader, *literal_table, &symbol)) {
-          out.error = reader.exhausted() ? "truncated huffman code"
-                                         : "invalid huffman code";
-          return out;
-        }
-        if (symbol < 256) {
-          TokenEvent token;
-          token.kind = TokenKind::kLiteral;
-          token.input_bit_begin = begin;
-          token.input_bit_end = reader.pos();
-          token.output_begin = out.output_bytes;
-          if (!checked_add(token.output_begin, 1, &token.output_end)) {
-            out.error = "output range overflow";
-            return out;
-          }
-          token.literal = static_cast<std::uint8_t>(symbol);
-          token.huffman_symbol = symbol;
-          const std::uint64_t output_end = token.output_end;
-          const std::uint64_t token_index = out.tokens.size();
-          out.tokens.push_back(std::move(token));
-          const std::byte value = static_cast<std::byte>(symbol);
-          out.output_index.add(
-              TokenOutputRange{out.output_bytes, output_end,
-                               token_index});
-          out.output.push_back(value);
-          if (!window.append(value, WindowOrigin{out.output_bytes,
-                                                 out.output_bytes + 1,
-                                                 token_index})) {
-            out.error = "LZ window output overflow";
-            return out;
-          }
-          out.output_bytes = token.output_end;
-          if (out.output_bytes > max_output_bytes) {
-            out.error = "output cap exceeded";
-            return out;
-          }
-        } else if (symbol == 256) {
-          TokenEvent token;
-          token.kind = TokenKind::kEndOfBlock;
-          token.input_bit_begin = begin;
-          token.input_bit_end = reader.pos();
-          token.output_begin = out.output_bytes;
-          token.output_end = out.output_bytes;
-          token.huffman_symbol = symbol;
-          out.tokens.push_back(std::move(token));
-          break;  // end of this block
-        } else if (symbol <= 285) {
-          const auto& le = kLengths[symbol - 257];
-          std::uint64_t length = le.base;
-          if (le.extra != 0) {
-            std::uint64_t extra = 0;
-            if (!reader.read_bits(le.extra, &extra)) {
-              out.error = "truncated length extra bits";
-              return out;
-            }
-            length += extra;
-          }
-          std::uint16_t dist_code = 0;
-          if (distance_table->empty) {
-            out.error = "distance table is empty";
-            return out;
-          }
-          if (!decode_symbol(reader, *distance_table, &dist_code)) {
-            out.error = reader.exhausted() ? "truncated distance code"
-                                           : "invalid distance code";
-            return out;
-          }
-          if (dist_code > 29) {
-            out.error = "invalid distance code";
-            return out;
-          }
-          const auto& de = kDistances[dist_code];
-          std::uint64_t distance = de.base;
-          if (de.extra != 0) {
-            std::uint64_t extra = 0;
-            if (!reader.read_bits(de.extra, &extra)) {
-              out.error = "truncated distance extra bits";
-              return out;
-            }
-            distance += extra;
-          }
-          if (distance == 0 || distance > out.output_bytes) {
-            out.error = "distance beyond available output";
-            return out;
-          }
-          if (length > max_output_bytes - out.output_bytes) {
-            out.error = "output cap exceeded";
-            return out;
-          }
-          const std::uint64_t src = out.output_bytes - distance;
-          std::uint64_t source_end = 0;
-          if (!checked_add(src, std::min<std::uint64_t>(length, distance),
-                          &source_end)) {
-            out.error = "match source range overflow";
-            return out;
-          }
-          std::uint64_t output_end = 0;
-          if (!checked_add(out.output_bytes, length, &output_end)) {
-            out.error = "output range overflow";
-            return out;
-          }
-          TokenEvent token;
-          token.kind = TokenKind::kLengthDistance;
-          token.input_bit_begin = begin;
-          token.input_bit_end = reader.pos();
-          token.output_begin = out.output_bytes;
-          token.output_end = output_end;
-          token.length = static_cast<std::uint16_t>(length);
-          token.distance = static_cast<std::uint16_t>(distance);
-          token.match_source_begin = src;
-          token.match_source_end = source_end;
-          token.huffman_symbol = symbol;
-          const std::uint64_t token_index = out.tokens.size();
-          out.tokens.push_back(std::move(token));
-          out.output_index.add(
-              TokenOutputRange{out.output_bytes, output_end, token_index});
-
-          // Overlap-safe byte copy from the fixed 32 KiB window. Looking up
-          // by the current output cursor, rather than indexing the original
-          // output vector, makes the ring-buffer wrap and overlap semantics
-          // explicit and keeps source provenance attached to each byte.
-          std::uint64_t cursor = out.output_bytes;
-          for (std::uint64_t i = 0; i < length; ++i) {
-            if (distance > cursor) {
-              out.error = "distance beyond available window";
-              return out;
-            }
-            const std::uint64_t source_offset = cursor - distance;
-            WindowEntry source_entry;
-            if (!window.read(source_offset, &source_entry)) {
-              out.error = "distance beyond available window";
-              return out;
-            }
-            append_source_range(&out.tokens[token_index].match_source_ranges,
-                                source_entry.origin);
-            out.output.push_back(source_entry.value);
-            if (!window.append(source_entry.value, source_entry.origin)) {
-              out.error = "LZ window output overflow";
-              return out;
-            }
-            ++cursor;
-          }
-          out.output_bytes = output_end;
-        } else {
-          out.error = "invalid literal/length symbol";
-          return out;
-        }
-      }
-    } else {
-      out.error = "reserved deflate block type";
-      return out;
-    }
-
-    if (bfinal != 0) {
-      done = true;
-    }
+TokenScanResult scan_tokens(const pnga::io::IByteSource& source,
+                            const TokenScanOptions& options) {
+  TokenScanResult result;
+  const ZlibWrapperTrace wrapper = trace_zlib_wrapper(source);
+  if (!wrapper.success) {
+    result.status = TokenScanStatus::kInvalidInput;
+    result.error = wrapper.error;
+    return result;
+  }
+  if (wrapper.fdict) {
+    result.status = TokenScanStatus::kInvalidInput;
+    result.error = "preset dictionaries (FDICT) are not supported";
+    return result;
+  }
+  const std::uint64_t start_byte = wrapper.deflate_data_begin;
+  if (!wrapper.adler_offset || *wrapper.adler_offset < start_byte) {
+    result.status = TokenScanStatus::kInvalidInput;
+    result.error = "invalid zlib data range";
+    return result;
   }
 
-  out.stream_ended = true;
-  out.success = true;
-  return out;
+  // 0 means unlimited for the scalar scan.
+  const std::uint64_t effective_max_output =
+      options.max_output_bytes == 0
+          ? std::numeric_limits<std::uint64_t>::max()
+          : options.max_output_bytes;
+  DecodeBudget budget;
+  budget.enabled = true;
+  budget.max_input_bytes = options.max_input_bytes;
+  budget.max_tokens = options.max_tokens;
+
+  ScalarSink sink(options.observer);
+  const DecodeOutcome outcome =
+      run_deflate_blocks(source, start_byte, *wrapper.adler_offset,
+                         effective_max_output, options.should_cancel, budget,
+                         sink);
+  result.token_count = outcome.token_count;
+  result.input_bits = outcome.input_bits;
+  result.output_bytes = outcome.output_bytes;
+  result.peak_retained_token_records = sink.peak_retained_token_records;
+  switch (outcome.failure) {
+    case DecodeFailureKind::kNone:
+      result.status = TokenScanStatus::kReady;
+      result.stream_ended = true;
+      break;
+    case DecodeFailureKind::kObserverStop:
+      result.status = TokenScanStatus::kPartial;
+      break;
+    case DecodeFailureKind::kCancelled:
+      result.status = TokenScanStatus::kCancelled;
+      result.error = outcome.error;
+      break;
+    case DecodeFailureKind::kBudget:
+      result.status = TokenScanStatus::kBudgetExceeded;
+      result.error = outcome.error;
+      break;
+    case DecodeFailureKind::kMalformed:
+      result.status = TokenScanStatus::kInvalidInput;
+      result.error = outcome.error;
+      break;
+    case DecodeFailureKind::kIo:
+    case DecodeFailureKind::kInternal:
+      result.status = TokenScanStatus::kError;
+      result.error = outcome.error;
+      break;
+  }
+  return result;
 }
 
 }  // namespace pnga::deflate_trace
