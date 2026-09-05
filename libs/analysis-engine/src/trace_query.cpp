@@ -396,13 +396,30 @@ TraceQueryResult compose_trace_query(
     }
   }
 
+  // The decode budget extends past the requested interval end (lookahead),
+  // so a sequential decode can hit its output cap in the lookahead zone
+  // after [inflated_begin, inflated_end) was already fully tiled. Sequential
+  // decode from the stream start means output_bytes >= inflated_end implies
+  // every requested byte was decoded; tokens before inflated_begin are
+  // irrelevant to that coverage. A benign overshoot must not downgrade a
+  // fully covered interval to partial, while a genuinely truncated interval
+  // (token cap or output cap before the interval end) keeps the honest
+  // partial status.
+  const bool interval_covered =
+      !trace.tokens.empty() && trace.output_bytes >= inflated_end;
   if (!block_index.success || !trace.success) {
-    out.status = TraceQueryStatus::kPartial;
-    if (!block_index.success) {
-      out.error = !block_index.error.empty() ? block_index.error
-                                             : "trace index unavailable";
+    if (block_index.success && interval_covered && !out.truncated) {
+      // The only failure is the decoder's bounded budget stopping inside the
+      // lookahead zone beyond the covered interval.
+      out.status = TraceQueryStatus::kReady;
     } else {
-      out.error = !trace.error.empty() ? trace.error : "trace replay unavailable";
+      out.status = TraceQueryStatus::kPartial;
+      if (!block_index.success) {
+        out.error = !block_index.error.empty() ? block_index.error
+                                               : "trace index unavailable";
+      } else {
+        out.error = !trace.error.empty() ? trace.error : "trace replay unavailable";
+      }
     }
   } else if (out.truncated) {
     out.status = TraceQueryStatus::kPartial;
