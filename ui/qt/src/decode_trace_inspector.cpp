@@ -136,15 +136,12 @@ DecodeTraceInspector::DecodeTraceInspector(QWidget* parent)
   auto* header = table_->horizontalHeader();
   header->setFixedHeight(28);
   header->setStretchLastSection(false);
-  // Defect 2026-09-05: the content columns stay user-adjustable
-  // (Interactive) instead of ResizeToContents; the initial widths are
-  // re-derived from content on every publish so a fresh open shows the
-  // exact widths the ResizeToContents mode used to produce. The Event
-  // column keeps the frozen normative Stretch mode (product gate and
-  // responsive matrix).
+  // Content-derived initial widths, then native drag/double-click fitting.
+  // Event must remain adjustable even when the Inspector is narrow.
   header->setSectionResizeMode(QHeaderView::Interactive);
-  header->setSectionResizeMode(DecodeTraceModel::Event, QHeaderView::Stretch);
+  header->setSectionResizeMode(DecodeTraceModel::Current, QHeaderView::Fixed);
   table_->resizeColumnsToContents();
+  table_->setColumnWidth(DecodeTraceModel::Current, 28);
 
   // The shell builds a provisional QTableWidget; the product page replaces
   // it with the model-backed view. The shell itself is outside this work
@@ -254,6 +251,7 @@ void DecodeTraceInspector::setView(
           view));
   if (generation_changed) {
     table_->resizeColumnsToContents();
+    table_->setColumnWidth(DecodeTraceModel::Current, 28);
   }
   updateScopeHeading();
   updateButtons();

@@ -118,17 +118,14 @@ BlockInspector::BlockInspector(QWidget* parent)
   table_->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
   table_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Expanding);
   auto* header = table_->horizontalHeader();
-  header->setStretchLastSection(true);
+  header->setStretchLastSection(false);
   header->setFixedHeight(28);
   header->setSectionResizeMode(BlockInspectorModel::Current,
                                QHeaderView::Fixed);
   table_->setColumnWidth(BlockInspectorModel::Current, 28);
-  // Defect 2026-09-05: the content columns stay user-adjustable
-  // (Interactive). The initial widths are re-derived from content on every
-  // publish so a fresh open shows the exact widths the ResizeToContents mode
-  // used to produce; the Input bits/Output bytes columns keep the normative
-  // Stretch fill mode whose viewport-derived widths are locked into the
-  // WP-5U12F baselines, and only the Current marker stays a fixed section.
+  // Fit content when opening a document, then leave every content column
+  // draggable (including the last visible one). QTableView's native header
+  // double-click refits a single column without changing its Interactive mode.
   header->setSectionResizeMode(BlockInspectorModel::Number,
                                QHeaderView::Interactive);
   header->setSectionResizeMode(BlockInspectorModel::Type,
@@ -136,9 +133,9 @@ BlockInspector::BlockInspector(QWidget* parent)
   header->setSectionResizeMode(BlockInspectorModel::Final,
                                QHeaderView::Interactive);
   header->setSectionResizeMode(BlockInspectorModel::InputBits,
-                               QHeaderView::Stretch);
+                               QHeaderView::Interactive);
   header->setSectionResizeMode(BlockInspectorModel::OutputBytes,
-                               QHeaderView::Stretch);
+                               QHeaderView::Interactive);
   header->setSectionResizeMode(BlockInspectorModel::Events,
                                QHeaderView::Interactive);
   header->setSectionResizeMode(BlockInspectorModel::Scanlines,

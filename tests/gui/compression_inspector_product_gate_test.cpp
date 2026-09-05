@@ -727,7 +727,7 @@ void CompressionInspectorProductGateTest::captureMatrix() {
                      {}, width);
       QCOMPARE(table->horizontalHeader()->sectionResizeMode(
                    pnga::ui::qt::DecodeTraceModel::Event),
-               QHeaderView::Stretch);
+               QHeaderView::Interactive);
       if (special == QStringLiteral("current-selection-decode")) {
         QCOMPARE(table->model()->rowCount(), 3);
         QVERIFY(current_rows(

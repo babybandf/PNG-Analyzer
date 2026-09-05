@@ -132,15 +132,10 @@ HuffmanInspector::HuffmanInspector(QWidget* parent)
   auto* header = table_->horizontalHeader();
   header->setFixedHeight(28);
   header->setStretchLastSection(false);
-  // Defect 2026-09-05: the content columns stay user-adjustable
-  // (Interactive) instead of ResizeToContents; the initial widths are
-  // re-derived from content on every publish so a fresh open shows the
-  // exact widths the ResizeToContents mode used to produce. The Meaning
-  // column keeps the normative Stretch fill mode whose viewport-derived
-  // width is locked into the WP-5U12F baselines.
+  // Initial content fitting is separate from the persistent resize mode:
+  // Meaning and every other content column support drag and native double-click
+  // fitting. Same-document publications preserve the user's widths.
   header->setSectionResizeMode(QHeaderView::Interactive);
-  header->setSectionResizeMode(HuffmanInspectorModel::Meaning,
-                               QHeaderView::Stretch);
   table_->resizeColumnsToContents();
 
   // The shell builds a provisional QTableWidget; the product page replaces

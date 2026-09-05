@@ -5,7 +5,7 @@
 // header geometry, the 55:45 master/details split and stable accessible
 // names for tables, buttons and the shared context. WP-5U12E adds the Decode
 // Trace width/state matrix: all five columns at every width, the Event
-// stretch, long facts in the details, Loading/Empty/Partial/Error copy,
+// interactive width, long facts in the details, Loading/Empty/Partial/Error copy,
 // Current+Selection coexistence, Light/Dark theme tokens and the footer
 // action order.
 
@@ -29,6 +29,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QSplitter>
+#include <QScrollBar>
 #include <QTableWidget>
 #include <QTableView>
 
@@ -235,7 +236,92 @@ class CompressionInspectorResponsiveTest : public QObject {
   void accessibleNamesArePresent();
   void detailsRemainAvailable();
   void replacingDetailsDoesNotLeaveOverlappingLabels();
+  void contentColumnsSupportDragAndRefit_data();
+  void contentColumnsSupportDragAndRefit();
 };
+
+void CompressionInspectorResponsiveTest::contentColumnsSupportDragAndRefit_data() {
+  QTest::addColumn<int>("page");
+  QTest::addColumn<int>("column");
+  QTest::addColumn<int>("width");
+  QTest::newRow("blocks-input") << 0 << 4 << 360;
+  QTest::newRow("blocks-last-visible") << 0 << 5 << 360;
+  QTest::newRow("blocks-last") << 0 << 7 << 600;
+  QTest::newRow("huffman-meaning") << 1 << 1 << 360;
+  QTest::newRow("huffman-last") << 1 << 5 << 360;
+  QTest::newRow("decode-event") << 2 << 3 << 360;
+  QTest::newRow("decode-last") << 2 << 4 << 360;
+}
+
+void CompressionInspectorResponsiveTest::contentColumnsSupportDragAndRefit() {
+  QFETCH(int, page);
+  QFETCH(int, column);
+  QFETCH(int, width);
+  pnga::ui::qt::BlockInspector blocks;
+  pnga::ui::qt::HuffmanInspector huffman;
+  pnga::ui::qt::DecodeTraceInspector decode;
+  auto publish = [&] {
+    if (page == 0) blocks.setFastIndex(readyIndex(3));
+    if (page == 1) huffman.setView(ready_huffman());
+    if (page == 2) decode.setView(ready_decode());
+  };
+  QWidget* widget = page == 0 ? static_cast<QWidget*>(&blocks)
+                    : page == 1 ? static_cast<QWidget*>(&huffman) : &decode;
+  widget->setFixedWidth(width);
+  widget->resize(width, 600);
+  publish();
+  widget->show();
+  QCoreApplication::processEvents();
+  auto* table = widget->findChild<QTableView*>();
+  QVERIFY(table != nullptr);
+  auto* header = table->horizontalHeader();
+  table->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+  // Leave room to drag even the final section boundary inside the viewport.
+  table->setColumnWidth(column, 80);
+  QCoreApplication::processEvents();
+  table->horizontalScrollBar()->setValue(
+      header->sectionPosition(column) + header->sectionSize(column) - 160);
+  QCoreApplication::processEvents();
+  const auto boundary = [&] {
+    return QPoint(header->sectionViewportPosition(column) +
+                      header->sectionSize(column) - 1,
+                  header->height() / 2);
+  };
+  const int before = table->columnWidth(column);
+  const QPoint start = boundary();
+  QVERIFY(start.x() > 0 && start.x() < header->viewport()->width());
+  QTest::mousePress(header->viewport(), Qt::LeftButton, Qt::NoModifier, start);
+  QTest::mouseMove(header->viewport(), start + QPoint(100, 0));
+  QTest::mouseRelease(header->viewport(), Qt::LeftButton, Qt::NoModifier,
+                      start + QPoint(100, 0));
+  QCOMPARE(table->columnWidth(column), before + 100);
+  if (width == 360) {
+    // QTableView updates scroll ranges on the deferred layout pass.
+    QTRY_VERIFY(table->horizontalScrollBar()->maximum() > 0);
+  }
+  QCOMPARE(widget->width(), width);
+  const int manual_width = table->columnWidth(column);
+  publish();
+  table->selectRow(0);
+  widget->hide();
+  widget->show();
+  QCoreApplication::processEvents();
+  QCOMPARE(table->columnWidth(column), manual_width);
+  // Compare with a plain Qt table's independent fit using the same model.
+  QTableView reference;
+  reference.setModel(table->model());
+  reference.resizeColumnToContents(column);
+  table->horizontalScrollBar()->setValue(
+      header->sectionPosition(column) + header->sectionSize(column) - 160);
+  QCoreApplication::processEvents();
+  QTest::mouseDClick(header->viewport(), Qt::LeftButton, Qt::NoModifier,
+                    boundary());
+  QCOMPARE(table->columnWidth(column), reference.columnWidth(column));
+  if (page != 1) {
+    QCOMPARE(table->columnWidth(0), 28);
+    QCOMPARE(header->sectionResizeMode(0), QHeaderView::Fixed);
+  }
+}
 
 void CompressionInspectorResponsiveTest::initTestCase() {
   // The Current-row background uses the centralized theme token; the theme
@@ -367,7 +453,7 @@ void CompressionInspectorResponsiveTest::huffmanColumnsFollowWidthMatrix() {
 void CompressionInspectorResponsiveTest::decodeColumnsFollowWidthMatrix() {
   // Normative Decode Trace behavior (flow-ui §20.4/§20.5): Current | Step |
   // Input bits | Event | Output stay present at every width, the Event
-  // column is the main stretch column and long facts stay in the details;
+  // column supports manual resizing and long facts stay in the details;
   // narrow pages scroll horizontally inside the viewport instead of growing
   // the Inspector minimum width.
   for (const int width : {600, 480, 360, 320}) {
@@ -395,7 +481,7 @@ void CompressionInspectorResponsiveTest::decodeColumnsFollowWidthMatrix() {
     QVERIFY(table->horizontalScrollBarPolicy() == Qt::ScrollBarAsNeeded);
     QCOMPARE(table->horizontalHeader()->sectionResizeMode(
                  pnga::ui::qt::DecodeTraceModel::Event),
-             QHeaderView::Stretch);
+             QHeaderView::Interactive);
     QVERIFY(table->viewport()->width() > 0);
     if (width == 320) {
       // Long facts stay in the details while the table scrolls internally.

@@ -212,10 +212,7 @@ void HuffmanInspectorTest::modelRendersProjectionWithExactHeaders() {
                  .toString(),
              headers[column]);
   }
-  // User column resizing contract (defect 2026-09-05): every content column
-  // stays user-adjustable (QHeaderView::Interactive); Meaning keeps the
-  // normative Stretch fill mode whose viewport-derived width is locked into
-  // the WP-5U12F baselines.
+  // Meaning is adjustable just like the other content columns.
   auto* header = table->horizontalHeader();
   for (const int column :
        {pnga::ui::qt::HuffmanInspectorModel::Symbol,
@@ -227,7 +224,7 @@ void HuffmanInspectorTest::modelRendersProjectionWithExactHeaders() {
   }
   QCOMPARE(
       header->sectionResizeMode(pnga::ui::qt::HuffmanInspectorModel::Meaning),
-      QHeaderView::Stretch);
+      QHeaderView::Interactive);
 
   struct Cell {
     int row;
