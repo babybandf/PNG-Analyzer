@@ -1,19 +1,22 @@
-// WP-602A: immutable analysis-result adapter for statistics.
+// WP-602A/602B: immutable analysis-result adapter for per-section statistics.
 
 #include "pnga/analysis-engine/statistics_adapter.h"
 
-#include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <string>
-#include <utility>
-#include <vector>
+#include <string_view>
 
 namespace pnga::analysis_engine {
 namespace {
 
-using pnga::statistics::BuildStatus;
+using pnga::statistics::SectionScope;
+using pnga::statistics::SectionStatus;
+using pnga::statistics::StatisticsSectionId;
+
+constexpr std::size_t kCheckInterval = 256;
 
 bool checked_add(std::uint64_t left, std::uint64_t right,
                  std::uint64_t* output) noexcept {
@@ -24,28 +27,10 @@ bool checked_add(std::uint64_t left, std::uint64_t right,
   return true;
 }
 
-bool checked_end(std::uint64_t begin, std::uint64_t length,
-                 std::uint64_t* end) noexcept {
-  return checked_add(begin, length, end);
-}
-
-pnga::statistics::StatisticsSnapshot invalid(const char* message) {
-  pnga::statistics::StatisticsSnapshot result;
-  result.status = BuildStatus::kInvalidInput;
-  result.error = message;
-  return result;
-}
-
-pnga::statistics::StatisticsSnapshot cancelled_result() {
-  pnga::statistics::StatisticsSnapshot result;
-  result.status = BuildStatus::kCancelled;
-  result.error = "statistics adaptation cancelled";
-  return result;
-}
-
 bool cancelled(const pnga::statistics::CancelPredicate& predicate,
                std::size_t index) {
-  return static_cast<bool>(predicate) && index % 256 == 0 && predicate();
+  return static_cast<bool>(predicate) && index % kCheckInterval == 0 &&
+         predicate();
 }
 
 }  // namespace
@@ -54,151 +39,269 @@ pnga::statistics::StatisticsSnapshot collect_statistics(
     const StatisticsSources& sources, pnga::statistics::StatisticsLimits limits,
     pnga::statistics::CancelPredicate should_cancel) {
   if (limits.max_samples == 0) {
-    return invalid("statistics sample budget must be positive");
+    pnga::statistics::StatisticsAccumulator accumulator(limits);
+    for (const StatisticsSectionId id :
+         {StatisticsSectionId::kOverview, StatisticsSectionId::kChunks,
+          StatisticsSectionId::kFilters, StatisticsSectionId::kBlocks,
+          StatisticsSectionId::kTokens, StatisticsSectionId::kLengths,
+          StatisticsSectionId::kDistances}) {
+      accumulator.finish(id, SectionStatus::kBudgetExceeded, false,
+                         SectionScope::kNone,
+                         "statistics sample budget must be positive");
+    }
+    return accumulator.snapshot();
   }
 
-  std::vector<std::array<char, 4>> chunk_type_storage;
-  std::vector<pnga::statistics::ChunkSample> chunk_samples;
-  std::vector<pnga::statistics::FilterSample> filter_samples;
-  std::vector<pnga::statistics::BlockSample> block_samples;
-  std::vector<pnga::statistics::TokenSample> token_samples;
-
+  pnga::statistics::StatisticsAccumulator accumulator(limits);
+  bool cancelled_stop = false;
   std::uint64_t compressed_bytes = 0;
   std::uint64_t inflated_bytes = 0;
-  bool has_compression_totals = false;
+  bool has_compressed = false;  // totals from a fully adapted Chunks source
+  bool has_inflated = false;    // totals from fully adapted Blocks or Tokens
 
-  if (sources.chunks != nullptr) {
-    if (sources.chunks->chunks.size() > limits.max_samples) {
-      return invalid("statistics sample budget exceeded while adapting Chunks");
-    }
-    chunk_type_storage.reserve(sources.chunks->chunks.size());
-    chunk_samples.reserve(sources.chunks->chunks.size());
-    std::size_t index = 0;
-    for (const auto& chunk : sources.chunks->chunks) {
-      if (cancelled(should_cancel, index++)) {
-        return cancelled_result();
-      }
-      auto& type = chunk_type_storage.emplace_back();
-      for (std::size_t i = 0; i < type.size(); ++i) {
-        type[i] = static_cast<char>(std::to_integer<unsigned char>(chunk.type[i]));
-      }
-      chunk_samples.push_back({std::string_view(type.data(), type.size()),
-                               chunk.data_length});
-      if (std::string_view(type.data(), type.size()) == "IDAT") {
-        if (!checked_add(compressed_bytes, chunk.data_length,
-                         &compressed_bytes)) {
-          return invalid("compressed byte total overflow");
+  if (sources.chunks != nullptr && !cancelled_stop) {
+    const auto& chunk_index = *sources.chunks;
+    if (chunk_index.chunks.size() > limits.max_samples) {
+      accumulator.finish(StatisticsSectionId::kChunks,
+                         SectionStatus::kBudgetExceeded, false,
+                         SectionScope::kNone,
+                         "statistics sample budget exceeded while adapting Chunks");
+    } else {
+      std::uint64_t idat_bytes = 0;
+      bool any_idat = false;
+      std::size_t index = 0;
+      bool stopped = false;
+      for (const auto& chunk : chunk_index.chunks) {
+        if (cancelled(should_cancel, index++)) {
+          accumulator.finish(StatisticsSectionId::kChunks,
+                             SectionStatus::kCancelled, false,
+                             SectionScope::kVerifiedPrefix,
+                             "statistics adaptation cancelled");
+          cancelled_stop = true;
+          stopped = true;
+          break;
         }
-        has_compression_totals = true;
+        std::array<char, 4> type{};
+        for (std::size_t i = 0; i < type.size(); ++i) {
+          type[i] =
+              static_cast<char>(std::to_integer<unsigned char>(chunk.type[i]));
+        }
+        const std::string_view type_view(type.data(), type.size());
+        if (!accumulator.add(
+                pnga::statistics::ChunkSample{type_view, chunk.data_length})) {
+          stopped = true;
+          break;
+        }
+        if (type_view == "IDAT" &&
+            !checked_add(idat_bytes, chunk.data_length, &idat_bytes)) {
+          accumulator.finish(StatisticsSectionId::kChunks,
+                             SectionStatus::kOverflow, false,
+                             SectionScope::kVerifiedPrefix,
+                             "compressed byte total overflow");
+          stopped = true;
+          break;
+        }
+        any_idat = any_idat || type_view == "IDAT";
+      }
+      if (!stopped) {
+        accumulator.finish(StatisticsSectionId::kChunks, SectionStatus::kReady,
+                           true, SectionScope::kWholeDocument);
+        compressed_bytes = idat_bytes;
+        has_compressed = any_idat;
       }
     }
   }
 
-  if (sources.stages != nullptr) {
-    if (!sources.stages->success) {
-      return invalid("cannot collect statistics from failed stage analysis");
-    }
-    if (sources.stages->scanlines.size() > limits.max_samples) {
-      return invalid("statistics sample budget exceeded while adapting filters");
-    }
-    filter_samples.reserve(sources.stages->scanlines.size());
-    std::size_t index = 0;
-    for (const auto& scanline : sources.stages->scanlines) {
-      if (cancelled(should_cancel, index++)) {
-        return cancelled_result();
+  if (sources.stages != nullptr && !cancelled_stop) {
+    const auto& stages = *sources.stages;
+    if (!stages.success) {
+      accumulator.finish(StatisticsSectionId::kFilters,
+                         SectionStatus::kInvalidInput, false,
+                         SectionScope::kNone,
+                         "cannot collect statistics from failed stage analysis");
+    } else if (stages.scanlines.size() > limits.max_samples) {
+      accumulator.finish(StatisticsSectionId::kFilters,
+                         SectionStatus::kBudgetExceeded, false,
+                         SectionScope::kNone,
+                         "statistics sample budget exceeded while adapting filters");
+    } else {
+      std::size_t index = 0;
+      bool stopped = false;
+      for (const auto& scanline : stages.scanlines) {
+        if (cancelled(should_cancel, index++)) {
+          accumulator.finish(StatisticsSectionId::kFilters,
+                             SectionStatus::kCancelled, false,
+                             SectionScope::kVerifiedPrefix,
+                             "statistics adaptation cancelled");
+          cancelled_stop = true;
+          stopped = true;
+          break;
+        }
+        std::uint64_t end = 0;
+        if (scanline.length == 0 ||
+            !checked_add(scanline.offset, scanline.length, &end) ||
+            end > static_cast<std::uint64_t>(stages.filtered.size())) {
+          accumulator.finish(StatisticsSectionId::kFilters,
+                             SectionStatus::kInvalidInput, false,
+                             SectionScope::kVerifiedPrefix,
+                             "filtered scanline range is outside its backing buffer");
+          stopped = true;
+          break;
+        }
+        const auto filter = std::to_integer<unsigned char>(
+            stages.filtered[static_cast<std::size_t>(scanline.offset)]);
+        if (!accumulator.add(
+                pnga::statistics::FilterSample{filter, scanline.length - 1})) {
+          stopped = true;
+          break;
+        }
       }
-      std::uint64_t end = 0;
-      if (scanline.length == 0 ||
-          !checked_end(scanline.offset, scanline.length, &end) ||
-          end > sources.stages->filtered.size()) {
-        return invalid("filtered scanline range is outside its backing buffer");
+      if (!stopped) {
+        accumulator.finish(StatisticsSectionId::kFilters,
+                           SectionStatus::kReady, true,
+                           SectionScope::kWholeDocument);
       }
-      const auto filter = std::to_integer<unsigned char>(
-          sources.stages->filtered[static_cast<std::size_t>(scanline.offset)]);
-      filter_samples.push_back({filter, scanline.length - 1});
     }
   }
 
-  if (sources.blocks != nullptr) {
-    if (!sources.blocks->success) {
-      return invalid("cannot collect statistics from failed block index");
-    }
-    if (sources.blocks->blocks.size() > limits.max_samples) {
-      return invalid("statistics sample budget exceeded while adapting blocks");
-    }
-    block_samples.reserve(sources.blocks->blocks.size());
-    std::size_t index = 0;
-    for (const auto& block : sources.blocks->blocks) {
-      if (cancelled(should_cancel, index++)) {
-        return cancelled_result();
-      }
-      if (block.input_bit_end < block.input_bit_begin ||
-          block.output_end < block.output_begin) {
-        return invalid("Deflate block range is inverted");
-      }
-      pnga::statistics::BlockKind kind;
-      switch (block.type) {
-        case pnga::deflate_index::BlockType::kStored:
-          kind = pnga::statistics::BlockKind::kStored;
+  if (sources.blocks != nullptr && !cancelled_stop) {
+    const auto& block_index = *sources.blocks;
+    if (!block_index.success) {
+      accumulator.finish(StatisticsSectionId::kBlocks,
+                         SectionStatus::kInvalidInput, false,
+                         SectionScope::kNone,
+                         "cannot collect statistics from failed block index");
+    } else if (block_index.blocks.size() > limits.max_samples) {
+      accumulator.finish(StatisticsSectionId::kBlocks,
+                         SectionStatus::kBudgetExceeded, false,
+                         SectionScope::kNone,
+                         "statistics sample budget exceeded while adapting blocks");
+    } else {
+      std::size_t index = 0;
+      bool stopped = false;
+      for (const auto& block : block_index.blocks) {
+        if (cancelled(should_cancel, index++)) {
+          accumulator.finish(StatisticsSectionId::kBlocks,
+                             SectionStatus::kCancelled, false,
+                             SectionScope::kVerifiedPrefix,
+                             "statistics adaptation cancelled");
+          cancelled_stop = true;
+          stopped = true;
           break;
-        case pnga::deflate_index::BlockType::kFixed:
-          kind = pnga::statistics::BlockKind::kFixed;
+        }
+        if (block.input_bit_end < block.input_bit_begin ||
+            block.output_end < block.output_begin) {
+          accumulator.finish(StatisticsSectionId::kBlocks,
+                             SectionStatus::kInvalidInput, false,
+                             SectionScope::kVerifiedPrefix,
+                             "Deflate block range is inverted");
+          stopped = true;
           break;
-        case pnga::deflate_index::BlockType::kDynamic:
-          kind = pnga::statistics::BlockKind::kDynamic;
+        }
+        pnga::statistics::BlockKind kind;
+        switch (block.type) {
+          case pnga::deflate_index::BlockType::kStored:
+            kind = pnga::statistics::BlockKind::kStored;
+            break;
+          case pnga::deflate_index::BlockType::kFixed:
+            kind = pnga::statistics::BlockKind::kFixed;
+            break;
+          case pnga::deflate_index::BlockType::kDynamic:
+            kind = pnga::statistics::BlockKind::kDynamic;
+            break;
+        }
+        if (!accumulator.add(pnga::statistics::BlockSample{
+                kind, block.input_bit_end - block.input_bit_begin,
+                block.output_end - block.output_begin})) {
+          stopped = true;
           break;
+        }
       }
-      block_samples.push_back({kind, block.input_bit_end - block.input_bit_begin,
-                               block.output_end - block.output_begin});
+      if (!stopped) {
+        accumulator.finish(StatisticsSectionId::kBlocks, SectionStatus::kReady,
+                           true, SectionScope::kWholeDocument);
+        inflated_bytes = block_index.total_output_bytes;
+        has_inflated = true;
+      }
     }
-    inflated_bytes = sources.blocks->total_output_bytes;
-    has_compression_totals = has_compression_totals ||
-                             sources.blocks->success;
   }
 
-  if (sources.tokens != nullptr) {
-    if (!sources.tokens->success) {
-      return invalid("cannot collect statistics from failed token decode");
-    }
-    if (sources.tokens->tokens.size() > limits.max_samples) {
-      return invalid("statistics sample budget exceeded while adapting tokens");
-    }
-    token_samples.reserve(sources.tokens->tokens.size());
-    std::size_t index = 0;
-    for (const auto& token : sources.tokens->tokens) {
-      if (cancelled(should_cancel, index++)) {
-        return cancelled_result();
+  if (sources.tokens != nullptr && !cancelled_stop) {
+    const auto& token_result = *sources.tokens;
+    const auto finish_token_group = [&](SectionStatus status, bool complete,
+                                        SectionScope scope,
+                                        const char* message) {
+      for (const StatisticsSectionId id :
+           {StatisticsSectionId::kTokens, StatisticsSectionId::kLengths,
+            StatisticsSectionId::kDistances}) {
+        accumulator.finish(id, status, complete, scope, message);
       }
-      if (token.input_bit_end < token.input_bit_begin ||
-          token.output_end < token.output_begin) {
-        return invalid("Deflate token range is inverted");
+    };
+    if (!token_result.success) {
+      finish_token_group(SectionStatus::kInvalidInput, false,
+                         SectionScope::kNone,
+                         "cannot collect statistics from failed token decode");
+    } else if (token_result.tokens.size() > limits.max_samples) {
+      finish_token_group(SectionStatus::kBudgetExceeded, false,
+                         SectionScope::kNone,
+                         "statistics sample budget exceeded while adapting tokens");
+    } else {
+      std::size_t index = 0;
+      bool stopped = false;
+      for (const auto& token : token_result.tokens) {
+        if (cancelled(should_cancel, index++)) {
+          finish_token_group(SectionStatus::kCancelled, false,
+                             SectionScope::kVerifiedPrefix,
+                             "statistics adaptation cancelled");
+          cancelled_stop = true;
+          stopped = true;
+          break;
+        }
+        if (token.input_bit_end < token.input_bit_begin ||
+            token.output_end < token.output_begin) {
+          finish_token_group(SectionStatus::kInvalidInput, false,
+                             SectionScope::kVerifiedPrefix,
+                             "Deflate token range is inverted");
+          stopped = true;
+          break;
+        }
+        pnga::statistics::TokenKind kind;
+        switch (token.kind) {
+          case pnga::deflate_trace::TokenKind::kLiteral:
+            kind = pnga::statistics::TokenKind::kLiteral;
+            break;
+          case pnga::deflate_trace::TokenKind::kLengthDistance:
+            kind = pnga::statistics::TokenKind::kLengthDistance;
+            break;
+          case pnga::deflate_trace::TokenKind::kEndOfBlock:
+            kind = pnga::statistics::TokenKind::kEndOfBlock;
+            break;
+        }
+        if (!accumulator.add(pnga::statistics::TokenSample{
+                kind, token.input_bit_end - token.input_bit_begin,
+                token.output_end - token.output_begin, token.length,
+                token.distance})) {
+          // The accumulator already sealed tokens, lengths and distances.
+          stopped = true;
+          break;
+        }
       }
-      pnga::statistics::TokenKind kind;
-      switch (token.kind) {
-        case pnga::deflate_trace::TokenKind::kLiteral:
-          kind = pnga::statistics::TokenKind::kLiteral;
-          break;
-        case pnga::deflate_trace::TokenKind::kLengthDistance:
-          kind = pnga::statistics::TokenKind::kLengthDistance;
-          break;
-        case pnga::deflate_trace::TokenKind::kEndOfBlock:
-          kind = pnga::statistics::TokenKind::kEndOfBlock;
-          break;
+      if (!stopped) {
+        finish_token_group(SectionStatus::kReady, true,
+                           SectionScope::kWholeDocument, "");
+        inflated_bytes = token_result.output_bytes;
+        has_inflated = true;
       }
-      token_samples.push_back({kind, token.input_bit_end - token.input_bit_begin,
-                               token.output_end - token.output_begin,
-                               token.length, token.distance});
     }
-    inflated_bytes = sources.tokens->output_bytes;
-    has_compression_totals = has_compression_totals || sources.tokens->success;
   }
 
-  return pnga::statistics::collect(
-      pnga::statistics::StatisticsInput{chunk_samples, filter_samples,
-                                         block_samples, token_samples,
-                                         compressed_bytes, inflated_bytes,
-                                         has_compression_totals},
-      limits, std::move(should_cancel));
+  if (!cancelled_stop && (has_compressed || has_inflated)) {
+    accumulator.set_compression_totals(compressed_bytes, inflated_bytes);
+    accumulator.finish(StatisticsSectionId::kOverview, SectionStatus::kReady,
+                       true, SectionScope::kWholeDocument);
+  }
+
+  return accumulator.snapshot();
 }
 
 }  // namespace pnga::analysis_engine
