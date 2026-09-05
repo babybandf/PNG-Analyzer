@@ -18,7 +18,7 @@ name: native-gui-accessibility
 #
 # Cells are never faked: if the hosted session cannot render native windows,
 # the runner/gate records honest refusals/failures. Evidence lands under
-# build/dev/evidence/wp-607a/ (ignored) and is uploaded as an artifact; it is
+# build/evidence/wp-607a/ (ignored) and is uploaded as an artifact; it is
 # never committed.
 
 on:

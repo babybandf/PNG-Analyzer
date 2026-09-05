@@ -13,14 +13,6 @@ capability gap (no user-facing copy affordance); M04 and the Ubuntu/Windows
 manual cells are BLOCKED. All 22 locally/CI-executable automated cells
 (macOS 11 + Windows 11) PASS.
 
-Tracked summary per `docs/development/wp-607a-native-gui-accessibility.md`
-(Evidence contract). Raw records stay under the ignored
-`build/evidence/wp-607a/<platform-id>/` trees; this file stores commands,
-machine facts, per-cell dispositions and hashes of the ignored raw evidence.
-Result vocabulary follows the package Error and status policy (R9): executed
-defects are FAIL; platform/hardware/screen-reader access gaps are BLOCKED;
-Statistics export and APNG timeline are explicit `out_of_scope`, never PASS.
-
 ## 1. Shared facts
 
 - Corpus revision:
