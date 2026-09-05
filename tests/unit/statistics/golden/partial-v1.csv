@@ -15,12 +15,23 @@ schema_version,section,metric,key,value,unit
 1,chunks,bucket.data_bytes,IDAT,110,bytes
 1,chunks,bucket.count,"a""b,c",1,chunks
 1,chunks,bucket.data_bytes,"a""b,c",5,bytes
-1,filters,status,,unavailable,
+1,filters,status,,invalid_input,
 1,filters,complete,,false,
-1,filters,scope,,none,
-1,filters,rows,,,rows
-1,filters,data_bytes,,,bytes
-1,filters,invalid_rows,,,rows
+1,filters,scope,,verified_prefix,
+1,filters,error,,filtered scanline range is outside its backing buffer,
+1,filters,rows,,1,rows
+1,filters,data_bytes,,8,bytes
+1,filters,invalid_rows,,0,rows
+1,filters,bucket.rows,0,1,rows
+1,filters,bucket.data_bytes,0,8,bytes
+1,filters,bucket.rows,1,0,rows
+1,filters,bucket.data_bytes,1,0,bytes
+1,filters,bucket.rows,2,0,rows
+1,filters,bucket.data_bytes,2,0,bytes
+1,filters,bucket.rows,3,0,rows
+1,filters,bucket.data_bytes,3,0,bytes
+1,filters,bucket.rows,4,0,rows
+1,filters,bucket.data_bytes,4,0,bytes
 1,blocks,status,,partial,
 1,blocks,complete,,false,
 1,blocks,scope,,verified_prefix,
@@ -59,9 +70,8 @@ second line",
 1,lengths,error,,"budget hit: ""length histogram"" exceeded
 second line",
 1,lengths,bucket.count,3,1,matches
-1,distances,status,,budget_exceeded,
+1,distances,status,,overflow,
 1,distances,complete,,false,
 1,distances,scope,,verified_prefix,
-1,distances,error,,"budget hit: ""length histogram"" exceeded
-second line",
+1,distances,error,,statistics count overflow,
 1,distances,bucket.count,1,1,matches

@@ -96,8 +96,10 @@ StatisticsSnapshot ready_snapshot() {
   return snapshot;
 }
 
-// Mixed ready/partial/cancelled/budget/unavailable section states, including
-// comma, quote and LF in a synthetic error and a synthetic bucket key.
+// Mixed ready/partial/cancelled/budget/invalid/overflow/unavailable section
+// states, including comma, quote and LF in a synthetic error and a synthetic
+// bucket key. Together with the ready golden this covers every section status
+// of the frozen vocabulary.
 StatisticsSnapshot partial_snapshot() {
   StatisticsSnapshot snapshot;
 
@@ -109,6 +111,17 @@ StatisticsSnapshot partial_snapshot() {
   snapshot.chunks.data.data_bytes = 115;
   snapshot.chunks.data.buckets = std::vector<ChunkBucket>{
       {"IDAT", 2, 110}, {"a\"b,c", 1, 5}};
+
+  snapshot.filters.state.status = SectionStatus::kInvalidInput;
+  snapshot.filters.state.complete = false;
+  snapshot.filters.state.scope = SectionScope::kVerifiedPrefix;
+  snapshot.filters.state.error =
+      "filtered scanline range is outside its backing buffer";
+  snapshot.filters.data.rows = 1;
+  snapshot.filters.data.data_bytes = 8;
+  snapshot.filters.data.invalid_rows = 0;
+  snapshot.filters.data.buckets = std::vector<FilterBucket>{
+      {1, 8}, {0, 0}, {0, 0}, {0, 0}, {0, 0}};
 
   snapshot.blocks.state.status = SectionStatus::kPartial;
   snapshot.blocks.state.complete = false;
@@ -137,11 +150,10 @@ StatisticsSnapshot partial_snapshot() {
       "budget hit: \"length histogram\" exceeded\nsecond line";
   snapshot.lengths.data.buckets = std::vector<ValueBucket>{{3, 1}};
 
-  snapshot.distances.state.status = SectionStatus::kBudgetExceeded;
+  snapshot.distances.state.status = SectionStatus::kOverflow;
   snapshot.distances.state.complete = false;
   snapshot.distances.state.scope = SectionScope::kVerifiedPrefix;
-  snapshot.distances.state.error =
-      "budget hit: \"length histogram\" exceeded\nsecond line";
+  snapshot.distances.state.error = "statistics count overflow";
   snapshot.distances.data.buckets = std::vector<ValueBucket>{{1, 1}};
   return snapshot;
 }

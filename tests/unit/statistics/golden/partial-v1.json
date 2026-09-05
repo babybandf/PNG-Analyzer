@@ -27,13 +27,20 @@
       ]
     },
     "filters": {
-      "status": "unavailable",
+      "status": "invalid_input",
       "complete": false,
-      "scope": "none",
-      "rows": null,
-      "data_bytes": null,
-      "invalid_rows": null,
-      "buckets": []
+      "scope": "verified_prefix",
+      "error": "filtered scanline range is outside its backing buffer",
+      "rows": 1,
+      "data_bytes": 8,
+      "invalid_rows": 0,
+      "buckets": [
+        {"rows": 1, "data_bytes": 8},
+        {"rows": 0, "data_bytes": 0},
+        {"rows": 0, "data_bytes": 0},
+        {"rows": 0, "data_bytes": 0},
+        {"rows": 0, "data_bytes": 0}
+      ]
     },
     "blocks": {
       "status": "partial",
@@ -72,10 +79,10 @@
       ]
     },
     "distances": {
-      "status": "budget_exceeded",
+      "status": "overflow",
       "complete": false,
       "scope": "verified_prefix",
-      "error": "budget hit: \"length histogram\" exceeded\nsecond line",
+      "error": "statistics count overflow",
       "buckets": [
         {"value": 1, "count": 1}
       ]
