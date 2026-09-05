@@ -10,6 +10,11 @@
 // visible rows, 200 deterministic row reads and a checksum). Screenshot
 // capture is deliberately not measured here; visual evidence belongs to the
 // GUI product gate.
+// WP-602H: the statistics scenario gates the lazy whole-document collector
+// over perf-large-rgba8 (fast sections, the complete streaming token scan,
+// the immutable view projection and both shared serializers). It also proves
+// the non-time invariants: the scalar scan retains at most one token record
+// and the declared working memory stays within the frozen 64 MiB cap.
 
 #include <pnga/analysis-engine/block_inspector.h>
 #include <pnga/analysis-engine/decode_trace_inspector.h>
@@ -17,6 +22,8 @@
 #include <pnga/analysis-engine/pixel_provenance.h>
 #include <pnga/analysis-engine/scanline_anchor.h>
 #include <pnga/analysis-engine/stage_analysis.h>
+#include <pnga/analysis-engine/statistics_collector.h>
+#include <pnga/analysis-engine/statistics_view.h>
 #include <pnga/analysis-engine/trace_query.h>
 #include <pnga/deflate-index/block_index.h>
 #include <pnga/deflate-trace/token_decoder.h>
@@ -24,6 +31,7 @@
 #include <pnga/png-format/chunk_index.h>
 #include <pnga/png-format/virtual_idat_stream.h>
 #include <pnga/png-reconstruction/scanline_layout.h>
+#include <pnga/statistics/serialization.h>
 
 #include <algorithm>
 #include <chrono>
@@ -466,9 +474,141 @@ CompressionInspectorMetrics run_compression_inspector_scenario() {
   return metrics;
 }
 
+struct StatisticsScenario {
+  ControlledFixture fixture;
+  std::shared_ptr<MemoryByteSource> source;
+  ChunkIndex chunks;
+  pnga::analysis_engine::StatisticsCollectionResult result;
+  std::uint64_t png_bytes = 0;
+  // Time to the first token-scan progress publication: an upper bound of the
+  // collector's fast-sections phase including the <= 100 ms production
+  // throttle slack (the first overview publication is unconditional).
+  std::uint64_t fast_sections_us = 0;
+  std::uint64_t whole_document_us = 0;
+  std::uint64_t token_count = 0;
+  std::uint64_t peak_retained_token_records = 0;
+  std::uint64_t view_projection_us = 0;
+  std::uint64_t serializer_us = 0;
+  std::uint64_t checksum = 0;
+
+  StatisticsScenario()
+      : fixture(pnga_test::wp607c::make_controlled_fixture(
+              pnga_test::wp607c::ControlledCaseId::kPerfLargeRgba8)),
+        source(std::make_shared<MemoryByteSource>(fixture.png_bytes)),
+        chunks(pnga::png_format::index_chunks(*source)) {
+    png_bytes = fixture.png_bytes.size();
+    require(chunks.valid_signature, "statistics: invalid PNG signature");
+
+    pnga::analysis_engine::StatisticsCollectionRequest request;
+    request.generation = 1;
+    request.source = source;
+    request.chunks = chunks;
+    request.stages = std::make_shared<const pnga::analysis_engine::StageSet>(
+        pnga::analysis_engine::analyze_source(*source));
+    request.limits = pnga::statistics::StatisticsLimits{};
+    // Non-time invariant: the declared working memory stays within the
+    // frozen 64 MiB background cap (ruling R6).
+    require(request.max_working_bytes <= 64ull << 20,
+            "statistics: declared working memory exceeds the 64 MiB cap");
+
+    const auto collect_start = Clock::now();
+    const auto whole = timed([&] {
+      result = pnga::analysis_engine::collect_document_statistics(
+          request, nullptr,
+          [&](const pnga::analysis_engine::StatisticsCollectionResult&,
+              const pnga::analysis_engine::StatisticsProgress& progress) {
+            if (progress.section ==
+                    pnga::statistics::StatisticsSectionId::kTokens &&
+                fast_sections_us == 0) {
+              fast_sections_us =
+                  static_cast<std::uint64_t>(
+                      std::chrono::duration_cast<std::chrono::microseconds>(
+                          Clock::now() - collect_start)
+                          .count());
+            }
+          });
+    });
+    whole_document_us = whole.micros;
+    if (fast_sections_us == 0) {
+      // No token publication fired inside the throttle window; the whole
+      // collection duration is the conservative upper bound.
+      fast_sections_us = whole_document_us;
+    }
+
+    // The frozen WP-602A default sample budget (2^20) is smaller than the
+    // 2,359,296 stored literals of perf-large-rgba8, so the honest bounded
+    // outcome is: the four fast sections ready and the token/length/distance
+    // sections budget_exceeded with the collected verified prefix — never a
+    // falsely complete section.
+    const auto& snapshot = result.snapshot;
+    require(snapshot.tokens.state.status ==
+                    pnga::statistics::SectionStatus::kBudgetExceeded &&
+                !snapshot.tokens.state.complete,
+            "statistics: the token section must stay honestly "
+            "budget_exceeded under the default limits");
+    require(snapshot.tokens.data.count == 1ull << 20,
+            "statistics: the verified token prefix must equal the default "
+            "sample budget");
+    require(snapshot.overview.state.status ==
+                    pnga::statistics::SectionStatus::kReady &&
+                snapshot.overview.state.complete &&
+                snapshot.chunks.state.status ==
+                    pnga::statistics::SectionStatus::kReady &&
+                snapshot.chunks.state.complete &&
+                snapshot.filters.state.status ==
+                    pnga::statistics::SectionStatus::kReady &&
+                snapshot.filters.state.complete &&
+                snapshot.blocks.state.status ==
+                    pnga::statistics::SectionStatus::kReady &&
+                snapshot.blocks.state.complete,
+            "statistics: a fast section is not ready");
+    token_count = snapshot.tokens.data.count;
+    require(token_count > 0, "statistics: no tokens were collected");
+
+    // Non-time invariant: a scalar scan of the same logical stream retains
+    // at most one in-flight token record (never an event/output list).
+    pnga::png_format::VirtualIDATStream stream(chunks);
+    VirtualIdatSource logical(stream, *source);
+    pnga::deflate_trace::TokenScanOptions scan_options;
+    scan_options.observer = [](const pnga::deflate_trace::TokenFact&) {
+      return true;
+    };
+    const pnga::deflate_trace::TokenScanResult scan =
+        pnga::deflate_trace::scan_tokens(logical, scan_options);
+    require(scan.status == pnga::deflate_trace::TokenScanStatus::kReady,
+            "statistics: the scalar token scan is not ready");
+    require(scan.peak_retained_token_records <= 1,
+            "statistics: the scalar scan retained more than one token "
+            "record");
+    peak_retained_token_records = scan.peak_retained_token_records;
+
+    const auto projection = timed([&] {
+      const pnga::analysis_engine::StatisticsView view =
+          pnga::analysis_engine::build_statistics_view(
+              result.generation, result.snapshot);
+      checksum += view.overview.size() + view.chunks.size() +
+                  view.filters.size() + view.deflate.size();
+      require(!view.deflate.empty(), "statistics: the view is empty");
+    });
+    view_projection_us = projection.micros;
+
+    const auto serialization = timed([&] {
+      const auto json = pnga::statistics::serialize_statistics_json(
+          result.document, result.snapshot);
+      const auto csv = pnga::statistics::serialize_statistics_csv(
+          result.document, result.snapshot);
+      require(json.success && csv.success,
+              "statistics: serialization failed");
+      checksum += json.bytes.size() + csv.bytes.size();
+    });
+    serializer_us = serialization.micros;
+  }
+};
+
 void emit_record(const LargeScenario& large,
                  const ProvenanceScenario& provenance,
-                 const CompressionInspectorMetrics& inspector) {
+                 const CompressionInspectorMetrics& inspector,
+                 const StatisticsScenario& statistics) {
   constexpr const char* kCorpusRevision = PNGA_WP607C_CORPUS_REVISION;
   require(std::strlen(kCorpusRevision) == 64,
           "performance corpus revision must be 64 hex characters");
@@ -509,7 +649,19 @@ void emit_record(const LargeScenario& large,
             << inspector.first_visible_rows_us
             << ",\"visible_row_reads_us\":"
             << inspector.visible_row_reads_us
-            << ",\"checksum\":" << inspector.checksum << "}],"
+            << ",\"checksum\":" << inspector.checksum << "},"
+                "{\"id\":\"statistics\",\"width\":1024,\"height\":768,"
+                "\"bit_depth\":8,\"color_type\":6,\"interlace\":0,"
+                "\"png_bytes\":" << statistics.png_bytes
+            << ",\"fast_sections_us\":" << statistics.fast_sections_us
+            << ",\"whole_document_us\":" << statistics.whole_document_us
+            << ",\"token_count\":" << statistics.token_count
+            << ",\"peak_retained_token_records\":"
+            << statistics.peak_retained_token_records
+            << ",\"view_projection_us\":"
+            << statistics.view_projection_us
+            << ",\"serializer_us\":" << statistics.serializer_us
+            << ",\"checksum\":" << statistics.checksum << "}],"
                 "\"ui_scenario\":\"gui_trace_inspector_performance_tests\"}\n";
 }
 
@@ -521,7 +673,8 @@ int main() {
     const ProvenanceScenario provenance;
     const CompressionInspectorMetrics inspector =
         run_compression_inspector_scenario();
-    emit_record(large, provenance, inspector);
+    const StatisticsScenario statistics;
+    emit_record(large, provenance, inspector, statistics);
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "performance runner: FAIL: " << error.what() << '\n';

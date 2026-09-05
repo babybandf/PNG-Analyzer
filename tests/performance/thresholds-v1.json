@@ -29,6 +29,15 @@
         "first_visible_rows_us": 25000,
         "visible_row_reads_us": 25000
       }
+    },
+    {
+      "id": "statistics",
+      "max_us": {
+        "fast_sections_us": 500000,
+        "whole_document_us": 5000000,
+        "view_projection_us": 250000,
+        "serializer_us": 250000
+      }
     }
   ]
 }

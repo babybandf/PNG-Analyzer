@@ -48,6 +48,31 @@ so the measured pipeline is the published behavior:
   using the fixed sequence above.
 - `checksum` — accumulated read facts (recorded, not thresholded).
 
+## statistics scenario (WP-602H)
+
+All measurements are Qt-free and run the real lazy whole-document pipeline
+(`analyze_source` + `collect_document_statistics` over the WP-607C
+`perf-large-rgba8` fixture):
+
+- `fast_sections_us` — time to the first token-scan progress publication, an
+  upper bound of the collector's fast-sections phase (identity, overview,
+  chunks, filters, blocks) including the <= 100 ms production progress
+  throttle slack.
+- `whole_document_us` — the complete collection duration including the full
+  streaming token scan over the virtual IDAT stream (never a payload copy).
+- `token_count` — collected whole-document tokens (recorded, not
+  thresholded); must be positive.
+- `peak_retained_token_records` — non-time invariant, enforced by the runner:
+  a scalar `scan_tokens` pass over the same logical stream must retain at
+  most one token record.
+- `max_working_bytes` — non-time invariant, enforced by the runner: the
+  declared background working memory stays within the frozen 64 MiB cap.
+- `view_projection_us` — `build_statistics_view` over the collected snapshot.
+- `serializer_us` — both shared serializers (JSON and CSV) over the
+  collected snapshot; both must succeed.
+- `checksum` — accumulated view row and serialized byte counts (recorded,
+  not thresholded).
+
 Screenshot capture is deliberately not measured; visual evidence belongs to
 the GUI product gate. The GUI-side response gate is the existing
 `gui_trace_inspector_performance_tests` CTest entry. The wrapper records it as
