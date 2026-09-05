@@ -1,9 +1,12 @@
 #ifndef PNGA_STATISTICS_STATISTICS_H
 #define PNGA_STATISTICS_STATISTICS_H
 
-// WP-602A: bounded, Qt-free statistics aggregation. The engine consumes
-// backend-neutral samples so callers adapt Chunk/PNG filter/Deflate models at
-// the composition boundary without adding reverse dependencies.
+// WP-602A/602B: bounded, Qt-free statistics aggregation with per-section
+// state. The engine consumes backend-neutral samples so callers adapt
+// Chunk/PNG filter/Deflate models at the composition boundary without adding
+// reverse dependencies. Every section carries an independent status,
+// completion flag, scope and error; missing data is unavailable and is never
+// represented as a ready zero value.
 
 #include <cstdint>
 #include <functional>
@@ -14,13 +17,28 @@
 
 namespace pnga::statistics {
 
-enum class BuildStatus {
-  kReady = 0,
-  kCancelled = 1,
-  kOverflow = 2,
-  kBudgetExceeded = 3,
-  kInvalidInput = 4,
+enum class StatisticsSectionId {
+  kOverview,
+  kChunks,
+  kFilters,
+  kBlocks,
+  kTokens,
+  kLengths,
+  kDistances,
 };
+
+enum class SectionStatus {
+  kUnavailable,
+  kReady,
+  kPartial,
+  kCancelled,
+  kBudgetExceeded,
+  kInvalidInput,
+  kOverflow,
+  kError,
+};
+
+enum class SectionScope { kNone, kWholeDocument, kVerifiedPrefix };
 
 enum class BlockKind : std::uint8_t { kStored = 0, kFixed = 1, kDynamic = 2 };
 enum class TokenKind : std::uint8_t {
@@ -37,7 +55,8 @@ struct StatisticsLimits {
 };
 
 // These samples intentionally contain only stable scalar values. They are
-// views into caller-owned data and are consumed synchronously by collect().
+// views into caller-owned data and are consumed synchronously by collect()
+// and StatisticsAccumulator::add().
 struct ChunkSample {
   std::string_view type;  // PNG Chunk type, exactly four bytes
   std::uint64_t data_bytes = 0;
@@ -100,41 +119,69 @@ struct ValueBucket {
   bool operator==(const ValueBucket&) const = default;
 };
 
-struct StatisticsSnapshot {
-  BuildStatus status = BuildStatus::kReady;
+struct SectionState {
+  SectionStatus status = SectionStatus::kUnavailable;
+  bool complete = false;
+  SectionScope scope = SectionScope::kNone;
   std::string error;
 
-  std::uint64_t chunk_count = 0;
-  std::uint64_t chunk_data_bytes = 0;
-  std::vector<ChunkBucket> chunks;
+  bool operator==(const SectionState&) const = default;
+};
 
-  std::uint64_t filter_rows = 0;
-  std::uint64_t filter_data_bytes = 0;
-  std::vector<FilterBucket> filters;  // always five entries, types 0..4
-  std::uint64_t invalid_filter_rows = 0;
-
-  std::uint64_t block_count = 0;
-  std::uint64_t block_compressed_bits = 0;
-  std::uint64_t block_output_bytes = 0;
-  std::vector<BlockBucket> blocks;  // always three entries, stored/fixed/dynamic
-
-  std::uint64_t token_count = 0;
-  std::uint64_t token_input_bits = 0;
-  std::uint64_t token_output_bytes = 0;
-  std::vector<TokenBucket> tokens;  // always three entries, literal/match/EOB
-  std::vector<ValueBucket> lengths;   // sorted by value
-  std::vector<ValueBucket> distances; // sorted by value
-
+struct OverviewStatistics {
   std::uint64_t compressed_bytes = 0;
   std::uint64_t inflated_bytes = 0;
   bool has_compression_totals = false;
+};
 
-  // A compact, locale-independent ratio for callers that need a display
-  // value: compressed bytes per 1000 inflated bytes, rounded down. The raw
-  // totals remain authoritative when the multiplication would overflow.
-  std::uint64_t compression_rate_per_mille() const noexcept;
+struct ChunkStatistics {
+  std::uint64_t count = 0;
+  std::uint64_t data_bytes = 0;
+  std::vector<ChunkBucket> buckets;
+};
 
-  bool complete() const noexcept { return status == BuildStatus::kReady; }
+struct FilterStatistics {
+  std::uint64_t rows = 0;
+  std::uint64_t data_bytes = 0;
+  std::uint64_t invalid_rows = 0;
+  std::vector<FilterBucket> buckets;  // always five entries, types 0..4
+};
+
+struct BlockStatistics {
+  std::uint64_t count = 0;
+  std::uint64_t compressed_bits = 0;
+  std::uint64_t output_bytes = 0;
+  std::vector<BlockBucket> buckets;  // always three entries, stored/fixed/dynamic
+};
+
+struct TokenStatistics {
+  std::uint64_t count = 0;
+  std::uint64_t input_bits = 0;
+  std::uint64_t output_bytes = 0;
+  std::vector<TokenBucket> buckets;  // always three entries, literal/match/EOB
+};
+
+struct ValueStatistics {
+  std::vector<ValueBucket> buckets;  // sorted by value
+};
+
+template <class Data>
+struct StatisticsSection {
+  SectionState state;
+  Data data;
+};
+
+struct StatisticsSnapshot {
+  StatisticsSection<OverviewStatistics> overview;
+  StatisticsSection<ChunkStatistics> chunks;
+  StatisticsSection<FilterStatistics> filters;
+  StatisticsSection<BlockStatistics> blocks;
+  StatisticsSection<TokenStatistics> tokens;
+  StatisticsSection<ValueStatistics> lengths;
+  StatisticsSection<ValueStatistics> distances;
+
+  // True only when every section is ready, complete and whole_document.
+  bool complete() const noexcept;
 };
 
 struct StatisticsInput {
@@ -149,15 +196,48 @@ struct StatisticsInput {
 
 using CancelPredicate = std::function<bool()>;
 
-// Aggregates bounded scalar samples synchronously. The returned snapshot keeps
-// all validated totals collected before cancellation, overflow or a budget
-// limit is observed; it never allocates according to an untrusted sample
-// count. Chunk and histogram buckets are emitted in deterministic sort order.
+// Checked, bounded aggregation of scalar samples into per-section state.
+// Every section starts unavailable; add() feeds one sample through checked
+// arithmetic and deterministic bucket ordering; finish() seals a section.
+// A TokenSample match updates the token bucket and the length/distance
+// histograms atomically after validating length, distance and histogram
+// capacity, and every token failure marks the lengths and distances sections
+// together with tokens. Totals collected before cancellation, overflow or a
+// budget limit are preserved as a verified prefix; the accumulator never
+// allocates according to an untrusted sample count.
+class StatisticsAccumulator {
+ public:
+  explicit StatisticsAccumulator(StatisticsLimits limits = {});
+  bool add(ChunkSample sample);
+  bool add(FilterSample sample);
+  bool add(BlockSample sample);
+  bool add(TokenSample sample);
+  bool set_compression_totals(std::uint64_t compressed,
+                              std::uint64_t inflated);
+  // Seals one section. finish refuses ready+complete with a non
+  // whole_document scope by downgrading it to partial+incomplete and
+  // preserves the first non-ready status and error of an already sealed
+  // section.
+  void finish(StatisticsSectionId id, SectionStatus status, bool complete,
+              SectionScope scope, std::string error = {});
+  const StatisticsSnapshot& snapshot() const noexcept;
+
+ private:
+  StatisticsSnapshot snapshot_;
+  StatisticsLimits limits_;
+  std::uint64_t chunk_samples_ = 0;
+  std::uint64_t filter_samples_ = 0;
+  std::uint64_t block_samples_ = 0;
+  std::uint64_t token_samples_ = 0;
+};
+
+// Compatibility entry implemented through StatisticsAccumulator: feeds all
+// four supplied spans through the accumulator and marks each fed section
+// complete. Empty spans are empty-but-present sources and become ready with
+// zero totals; overview is ready only when compression totals are supplied.
 StatisticsSnapshot collect(const StatisticsInput& input,
                            StatisticsLimits limits = {},
                            CancelPredicate should_cancel = {});
-
-const char* build_status_text(BuildStatus status) noexcept;
 
 }  // namespace pnga::statistics
 

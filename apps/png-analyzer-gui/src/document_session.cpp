@@ -39,7 +39,10 @@ DocumentSession::~DocumentSession() {
   // in-flight (or a replaced, not yet deleteLater'd) worker is running, and
   // unlike the previous facade-owned children they are no longer shielded by
   // the whole widget teardown. Every result is generation-gated, so joining
-  // the threads here is safe and preserves observable behavior.
+  // the threads here is safe and preserves observable behavior. The
+  // statistics worker is cancelled first so it stops promptly at the next
+  // section boundary.
+  stopStatistics();
   const auto workers = findChildren<QThread*>();
   for (QThread* worker : workers) {
     if (worker->isRunning()) {
@@ -70,6 +73,7 @@ bool DocumentSession::replace(const QString& path) {
   stage_worker_ = nullptr;
   validation_worker_ = nullptr;
   chunk_detail_worker_ = nullptr;
+  stopStatistics();
   current_file_path_ = QFileInfo(path).absoluteFilePath();
   emit replaced(generation_);
   return true;
@@ -88,6 +92,7 @@ void DocumentSession::close() {
   stage_worker_ = nullptr;
   validation_worker_ = nullptr;
   chunk_detail_worker_ = nullptr;
+  stopStatistics();
   current_file_path_.clear();
   emit closed(generation_);
 }
@@ -141,6 +146,65 @@ void DocumentSession::requestChunkDetail(
             }
           });
   detail_worker->start();
+}
+
+void DocumentSession::requestStatistics() {
+  if (!hasDocument()) {
+    return;
+  }
+  statistics_requested_ = true;
+  // The request waits while the stage analysis is pending and starts once
+  // the stages publish (onStageDone); a running worker is never duplicated.
+  if (stage_set_ == nullptr || statistics_worker_ != nullptr) {
+    return;
+  }
+  startStatistics();
+}
+
+void DocumentSession::cancelStatistics() {
+  // Cooperative cancellation only: the worker keeps its identity so its
+  // cancelled verified-prefix result is still published for this generation.
+  if (statistics_worker_ != nullptr) {
+    statistics_worker_->cancel();
+  }
+}
+
+void DocumentSession::startStatistics() {
+  if (statistics_worker_ != nullptr || stage_set_ == nullptr ||
+      source_ == nullptr) {
+    return;
+  }
+  pnga::analysis_engine::StatisticsCollectionRequest request;
+  request.generation = generation_;
+  request.source = source_;
+  request.chunks = index_;
+  request.stages = stage_set_;
+  request.limits = pnga::statistics::StatisticsLimits{};
+  // The frozen declared background working-memory cap (ruling R6).
+  request.max_working_bytes = 64ull << 20;
+  auto* worker = new StatisticsWorker(std::move(request), this);
+  statistics_worker_ = worker;
+  connect(worker, &StatisticsWorker::progress, this,
+          &DocumentSession::onStatisticsProgress);
+  connect(worker, &StatisticsWorker::finishedResult, this,
+          &DocumentSession::onStatisticsFinished);
+  connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+  connect(worker, &QThread::finished, this, [this, worker] {
+    if (statistics_worker_ == worker) {
+      statistics_worker_ = nullptr;
+    }
+  });
+  // Background priority: statistics never competes with viewport or
+  // selection work (JobScheduler::kBackground priority ordering).
+  worker->start(QThread::LowPriority);
+}
+
+void DocumentSession::stopStatistics() {
+  if (statistics_worker_ != nullptr) {
+    statistics_worker_->cancel();
+    statistics_worker_ = nullptr;
+  }
+  statistics_requested_ = false;
 }
 
 std::uint64_t DocumentSession::generation() const noexcept {
@@ -243,6 +307,11 @@ void DocumentSession::onStageDone(std::uint64_t generation) {
   stage_worker_ = nullptr;
   openQueryCoordinator(stage_set_->header);
   emit stagesPublished(generation);
+  // WP-602G: a statistics request recorded before the stage analysis
+  // published starts exactly once the stages exist.
+  if (statistics_requested_ && statistics_worker_ == nullptr) {
+    startStatistics();
+  }
 }
 
 void DocumentSession::onValidationDone(std::uint64_t generation) {
@@ -263,4 +332,30 @@ void DocumentSession::onChunkDetailDone(std::uint64_t generation,
   }
   chunk_detail_ = chunk_detail_worker_->result();
   emit chunkDetailPublished(generation, selection_serial);
+}
+
+void DocumentSession::onStatisticsProgress(
+    std::uint64_t generation,
+    std::shared_ptr<const pnga::analysis_engine::StatisticsCollectionResult>
+        result) {
+  // Generation gate before publication: a replaced or closed document never
+  // sees an older collection's progress, not even as a partial row set.
+  if (generation != generation_ || result == nullptr ||
+      result->generation != generation) {
+    return;
+  }
+  emit statisticsProgress(generation, std::move(result));
+}
+
+void DocumentSession::onStatisticsFinished(
+    std::uint64_t generation,
+    std::shared_ptr<const pnga::analysis_engine::StatisticsCollectionResult>
+        result) {
+  // Same gate for the final result; the cancelled verified prefix of the
+  // current generation is still published so Cancel keeps verified rows.
+  if (generation != generation_ || result == nullptr ||
+      result->generation != generation) {
+    return;
+  }
+  emit statisticsFinished(generation, std::move(result));
 }

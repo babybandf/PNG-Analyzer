@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -642,4 +643,338 @@ TEST_CASE("WP-607C controlled cases decode into the frozen token sequences",
       REQUIRE(produced.output_end == expected.output_bytes.end);
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// WP-602C: streaming scalar token scan (scan_tokens). The scalar observer
+// receives every token fact synchronously and aggregate-then-discard
+// consumers retain O(1) token records: TokenScanResult carries only counters
+// (no output vector, no Huffman table vector) plus the auditable
+// peak_retained_token_records metric.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+using pnga::deflate_trace::scan_tokens;
+using pnga::deflate_trace::TokenEvent;
+using pnga::deflate_trace::TokenFact;
+using pnga::deflate_trace::TokenScanOptions;
+using pnga::deflate_trace::TokenScanResult;
+using pnga::deflate_trace::TokenScanStatus;
+
+// Wraps a source, refuses view(), records the largest read() length as
+// bounded-window evidence and counts reads issued after the observer asked
+// the scan to stop.
+class ReadTrackingSource final : public IByteSource {
+ public:
+  explicit ReadTrackingSource(std::vector<std::byte> data,
+                              const std::atomic<bool>* stop_flag = nullptr)
+      : backing_(std::move(data)), stop_flag_(stop_flag) {}
+
+  std::uint64_t size() const noexcept override { return backing_.size(); }
+
+  bool read(std::uint64_t offset, std::byte* out,
+            std::size_t length) const noexcept override {
+    if (stop_flag_ != nullptr &&
+        stop_flag_->load(std::memory_order_relaxed)) {
+      reads_after_stop_.fetch_add(1, std::memory_order_relaxed);
+    }
+    std::size_t prior = max_read_length_.load(std::memory_order_relaxed);
+    while (length > prior &&
+           !max_read_length_.compare_exchange_weak(prior, length,
+                                                   std::memory_order_relaxed)) {
+    }
+    return backing_.read(offset, out, length);
+  }
+
+  std::optional<pnga::io::ByteView> view(std::uint64_t,
+                                         std::size_t) const noexcept override {
+    view_calls_.fetch_add(1, std::memory_order_relaxed);
+    return std::nullopt;  // refuses zero-copy views by contract
+  }
+
+  std::size_t max_read_length() const noexcept {
+    return max_read_length_.load(std::memory_order_relaxed);
+  }
+  std::uint64_t view_calls() const noexcept {
+    return view_calls_.load(std::memory_order_relaxed);
+  }
+  std::uint64_t reads_after_stop() const noexcept {
+    return reads_after_stop_.load(std::memory_order_relaxed);
+  }
+
+ private:
+  MemoryByteSource backing_;
+  const std::atomic<bool>* stop_flag_;
+  mutable std::atomic<std::size_t> max_read_length_{0};
+  mutable std::atomic<std::uint64_t> view_calls_{0};
+  mutable std::atomic<std::uint64_t> reads_after_stop_{0};
+};
+
+// Two stored blocks in one zlib stream ("ABC" then "DE", BFINAL on the last).
+std::vector<std::byte> multi_block_stored_stream() {
+  BitWriter writer;
+  writer.write(0, 1);  // BFINAL=0
+  writer.write(0, 2);  // BTYPE=stored
+  writer.write(0, 5);  // pad to the byte boundary
+  writer.write(3, 16);  // LEN=3
+  writer.write((~3u) & 0xFFFFu, 16);
+  writer.write('A', 8);
+  writer.write('B', 8);
+  writer.write('C', 8);
+  writer.write(1, 1);  // BFINAL=1
+  writer.write(0, 2);  // BTYPE=stored
+  writer.write(0, 5);
+  writer.write(2, 16);  // LEN=2
+  writer.write((~2u) & 0xFFFFu, 16);
+  writer.write('D', 8);
+  writer.write('E', 8);
+  return writer.finish();
+}
+
+// Runs the scalar scan with an unlimited recording observer and requires
+// every delivered TokenFact to match the corresponding rich TokenEvent
+// fields, including the verified prefix of failing streams.
+void require_scalar_equivalent(const IByteSource& source,
+                               std::uint64_t max_output_bytes) {
+  const TokenDecodeResult rich =
+      decode_stored_and_fixed(source, max_output_bytes);
+
+  std::vector<TokenFact> facts;
+  TokenScanOptions options;
+  options.max_output_bytes = max_output_bytes;
+  options.observer = [&](const TokenFact& fact) {
+    facts.push_back(fact);
+    return true;
+  };
+  const TokenScanResult scan = scan_tokens(source, options);
+
+  REQUIRE(scan.token_count == facts.size());
+  REQUIRE(facts.size() == rich.tokens.size());
+  for (std::size_t i = 0; i < facts.size(); ++i) {
+    INFO("token " << i);
+    const TokenFact& fact = facts[i];
+    const TokenEvent& event = rich.tokens[i];
+    REQUIRE(fact.kind == event.kind);
+    REQUIRE(fact.input_bits == event.input_bit_end - event.input_bit_begin);
+    REQUIRE(fact.output_bytes == event.output_end - event.output_begin);
+    REQUIRE(fact.length == event.length);
+    REQUIRE(fact.distance == event.distance);
+    REQUIRE(fact.output_begin == event.output_begin);
+  }
+  REQUIRE(scan.output_bytes == rich.output_bytes);
+  if (rich.success) {
+    REQUIRE(scan.status == TokenScanStatus::kReady);
+    REQUIRE(scan.stream_ended);
+    // The observer sees the end-of-block boundary facts.
+    REQUIRE(std::any_of(facts.begin(), facts.end(), [](const TokenFact& f) {
+      return f.kind == TokenKind::kEndOfBlock;
+    }));
+  } else {
+    REQUIRE(scan.status == TokenScanStatus::kInvalidInput);
+    REQUIRE_FALSE(scan.error.empty());
+    REQUIRE_FALSE(scan.stream_ended);
+  }
+}
+
+}  // namespace
+
+TEST_CASE("Scalar token scan matches the rich decoder on every block type",
+          "[deflate-trace][wp602c]") {
+  // Stored blocks.
+  {
+    const auto raw = make_raw(4096, 0x40);
+    MemoryByteSource source(zlib_compress(raw, 0, Z_DEFAULT_STRATEGY));
+    require_scalar_equivalent(source, 1u << 22);
+  }
+  // Fixed-huffman blocks with length/distance matches.
+  {
+    const auto raw = make_raw(64 * 1024, 0x50);
+    MemoryByteSource source(zlib_compress(raw, 6, Z_FIXED));
+    require_scalar_equivalent(source, 1u << 22);
+  }
+  // Overlap matches: distance-1 copies through the 32 KiB window.
+  {
+    const auto raw = std::vector<std::byte>(200 * 1024, B(0x41));
+    MemoryByteSource source(zlib_compress(raw, 6, Z_FIXED));
+    require_scalar_equivalent(source, 1u << 22);
+  }
+  // Dynamic-huffman blocks.
+  {
+    const auto raw = make_raw(64 * 1024, 0x60);
+    MemoryByteSource source(zlib_compress(raw, 6, Z_DEFAULT_STRATEGY));
+    require_scalar_equivalent(source, 1u << 22);
+  }
+  // Hand-built multi-block stream.
+  {
+    MemoryByteSource source(multi_block_stored_stream());
+    require_scalar_equivalent(source, 1u << 22);
+  }
+  // Truncated inside the deflate data, keeping a two-literal verified prefix.
+  {
+    BitWriter writer;
+    writer.write(1, 1);  // BFINAL
+    writer.write(0, 2);  // BTYPE=stored
+    writer.write(0, 5);  // pad to the byte boundary
+    writer.write(10, 16);  // LEN=10, but only two data bytes follow
+    writer.write((~10u) & 0xFFFFu, 16);
+    writer.write('A', 8);
+    writer.write('B', 8);
+    MemoryByteSource source(writer.finish());  // finish() appends Adler bytes
+    require_scalar_equivalent(source, 1u << 22);
+  }
+  // Invalid stream: fixed-huffman distance code 30 behind a literal prefix.
+  {
+    BitWriter writer;
+    writer.write(1, 1);  // BFINAL
+    writer.write(1, 2);  // BTYPE=fixed
+    writer.write_huffman(48, 8);  // literal 'A' (symbol 65)
+    writer.write_huffman(1, 7);   // length symbol 257 (length 3)
+    writer.write_huffman(30, 5);  // invalid distance code 30
+    MemoryByteSource source(writer.finish());
+    require_scalar_equivalent(source, 1u << 22);
+  }
+}
+
+TEST_CASE("Scalar token scan matches the rich decoder on corpus cases",
+          "[deflate-trace][wp602c]") {
+  using pnga_test::wp607c::ControlledCaseId;
+  using pnga_test::wp607c::make_controlled_fixture;
+
+  const ControlledCaseId valid_cases[] = {
+      ControlledCaseId::kTraceStoredLiterals,
+      ControlledCaseId::kTraceFixedNonoverlap,
+      ControlledCaseId::kTraceDynamicOverlapRepeats,
+      ControlledCaseId::kTraceMultiblockBfinal,
+      ControlledCaseId::kIdatSplitZlibHeader,
+      ControlledCaseId::kIdatSplitToken,
+      ControlledCaseId::kIdatSplitAdler,
+  };
+  for (const auto id : valid_cases) {
+    const auto fixture = make_controlled_fixture(id);
+    CAPTURE(fixture.stable_id);
+    MemoryByteSource file(fixture.png_bytes);
+    const auto chunks = pnga::png_format::index_chunks(file);
+    const pnga::png_format::VirtualIDATStream stream(chunks);
+    CorpusIdatSource logical(stream, file);
+    require_scalar_equivalent(logical, 1u << 20);
+  }
+}
+
+TEST_CASE("Cancellation keeps the counted scalar prefix",
+          "[deflate-trace][wp602c]") {
+  const auto raw = make_raw(64 * 1024, 0x50);
+  MemoryByteSource source(zlib_compress(raw, 6, Z_FIXED));
+
+  const auto run_scan = [](const IByteSource& source, bool cancel,
+                           TokenScanResult* out, std::uint64_t* observed,
+                           std::uint64_t* output_sum) {
+    TokenScanOptions options;
+    options.max_output_bytes = 1u << 22;
+    // Cancel at the first scan check after 100 observed facts, so the
+    // counted prefix is non-empty and the stop point is deterministic.
+    options.should_cancel = [cancel, observed] {
+      return cancel && *observed >= 100;
+    };
+    *observed = 0;
+    *output_sum = 0;
+    options.observer = [&](const TokenFact& fact) {
+      ++(*observed);
+      *output_sum += fact.output_bytes;
+      return true;
+    };
+    *out = scan_tokens(source, options);
+  };
+
+  TokenScanResult baseline;
+  std::uint64_t baseline_seen = 0;
+  std::uint64_t baseline_output = 0;
+  run_scan(source, false, &baseline, &baseline_seen, &baseline_output);
+  REQUIRE(baseline.status == TokenScanStatus::kReady);
+
+  TokenScanResult cancelled;
+  std::uint64_t cancelled_seen = 0;
+  std::uint64_t cancelled_output = 0;
+  run_scan(source, true, &cancelled, &cancelled_seen, &cancelled_output);
+  REQUIRE(cancelled.status == TokenScanStatus::kCancelled);
+  REQUIRE_FALSE(cancelled.stream_ended);
+  REQUIRE(cancelled.token_count == cancelled_seen);
+  REQUIRE(cancelled_seen > 0);
+  REQUIRE(cancelled_seen < baseline_seen);
+  // Counters stay exact for the verified prefix.
+  REQUIRE(cancelled.output_bytes == cancelled_output);
+  // The stop point is deterministic across identical runs.
+  TokenScanResult again;
+  std::uint64_t again_seen = 0;
+  std::uint64_t again_output = 0;
+  run_scan(source, true, &again, &again_seen, &again_output);
+  REQUIRE(again.token_count == cancelled.token_count);
+  REQUIRE(again.input_bits == cancelled.input_bits);
+}
+
+TEST_CASE("A stopping observer returns Partial without reading later input",
+          "[deflate-trace][wp602c]") {
+  const auto raw = make_raw(64 * 1024, 0x50);
+  std::atomic<bool> stop_asked{false};
+  ReadTrackingSource source(zlib_compress(raw, 6, Z_FIXED), &stop_asked);
+
+  TokenScanOptions options;
+  options.max_output_bytes = 1u << 22;
+  std::uint64_t seen = 0;
+  options.observer = [&](const TokenFact&) {
+    ++seen;
+    if (seen == 10) {
+      stop_asked.store(true, std::memory_order_relaxed);
+      return false;
+    }
+    return true;
+  };
+  const TokenScanResult scan = scan_tokens(source, options);
+
+  REQUIRE(scan.status == TokenScanStatus::kPartial);
+  REQUIRE(scan.token_count == 10);
+  REQUIRE(seen == 10);
+  REQUIRE_FALSE(scan.stream_ended);
+  // No read() was issued after the observer asked to stop.
+  REQUIRE(source.reads_after_stop() == 0);
+}
+
+TEST_CASE("Scalar scan retains O(1) token records over a million-token stream",
+          "[deflate-trace][wp602c]") {
+  // Level 0 stored blocks emit exactly one literal per byte and one EOB per
+  // stored block, so the token count is known without the rich decoder.
+  const auto raw = make_raw(1'200'000, 0x50);
+  const auto stream = zlib_compress(raw, 0, Z_DEFAULT_STRATEGY);
+  REQUIRE_FALSE(stream.empty());
+
+  ReadTrackingSource source(stream, nullptr);
+  TokenScanOptions options;
+  options.max_output_bytes = 2'000'000;
+  std::uint64_t literals = 0;
+  std::uint64_t end_of_blocks = 0;
+  options.observer = [&](const TokenFact& fact) {
+    if (fact.kind == TokenKind::kLiteral) {
+      ++literals;
+    } else if (fact.kind == TokenKind::kEndOfBlock) {
+      ++end_of_blocks;
+    }
+    return true;
+  };
+  const TokenScanResult scan = scan_tokens(source, options);
+
+  REQUIRE(scan.status == TokenScanStatus::kReady);
+  REQUIRE(scan.stream_ended);
+  REQUIRE(scan.token_count > 1'000'000);
+  REQUIRE(literals == raw.size());
+  REQUIRE(end_of_blocks == scan.token_count - literals);
+  REQUIRE(scan.output_bytes == raw.size());
+  REQUIRE(scan.input_bits == (stream.size() - 6) * 8);
+  // Auditable O(1) retention: only the single in-flight TokenFact exists;
+  // TokenScanResult itself carries no output vector and no Huffman table
+  // vector, only counters and this metric.
+  REQUIRE(scan.peak_retained_token_records <= 1);
+  // Bounded read() operation over a view()-refusing source: the scan never
+  // maps the stream and never issues a whole-input read.
+  REQUIRE(source.view_calls() == 0);
+  REQUIRE(source.max_read_length() <= 64 * 1024);
 }

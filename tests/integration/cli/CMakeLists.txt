@@ -5,6 +5,8 @@ add_executable(pnga_cli_tests
   cli_test.cpp
 )
 target_link_libraries(pnga_cli_tests PRIVATE
+  pnga::analysis_engine
+  pnga::statistics
   pnga::io
   pnga::png_format
   Catch2::Catch2WithMain

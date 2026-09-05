@@ -419,9 +419,14 @@ M5 UI Gate 通过后，按以下顺序推进：
 原 WP-602 拆成两个小工作包，并在 M5 Gate 时决定是否进入 v1：
 
 - `WP-602A Statistics Engine`：Chunk、filter、block、token、length/distance 的 Qt-free 聚合模型。
-- `WP-602B Statistics UI & Export`：已决定不进入首个单文件 v1；表格/图表、确定性 JSON/CSV export 与 selection 导航需后续重新批准。
+- `WP-602B Statistics UI & Export`：v1 时曾决定延后；后经 WP-602B–H 工作包
+  （`docs/development/wp-602b-statistics-ui-export-reentry.md`，裁决 R1–R13）重新批准并
+  于 2026-09-06 实现并通过 WP-602H 收口 Gate：逐 section 状态、whole-document 流式
+  Token 聚合、唯一确定性 JSON/CSV serializer、`pnga statistics` CLI、四页 Statistics
+  Inspector、有界 occurrence 导航、QSaveFile 原子导出与惰性后台收集。APNG 与 Compare
+  字段仍被禁止进入 schema v1。
 
-它们只依赖现有 trace/validation 数据，不依赖 Compare。若 M5 Gate 时资源不足，两项整体移动到 v1 后，不影响单文件分析闭环。
+它们只依赖现有 trace/validation 数据，不依赖 Compare。
 
 ### 6.3 Compare 延后
 
@@ -438,7 +443,8 @@ WP-5U1～WP-5U5B、WP-5T0A～WP-5T0B、WP-505A～WP-505C、bounded Trace Gate �
 WP-5U6A～WP-5U6C、WP-600A～WP-600C、WP-603A～WP-603C、WP-604A～WP-604B、WP-605A～WP-605C 已落地。
 当前没有可在不新增架构边界的情况下直接实现的发布工作包；`WP-602A Statistics
 Engine` 的范围、接口、首版 Qt-free 实现和 immutable analysis 适配器已冻结并提交，
-`WP-602B Statistics UI & Export` 已按 v1 范围决策延后，WP-603D 的 Ubuntu CI runtime
+`WP-602B Statistics UI & Export` 已由 WP-602B–H 重新批准、实现并通过 WP-602H Gate
+（2026-09-06，见 re-entry 包的 completion record），WP-603D 的 Ubuntu CI runtime
 evidence 已通过，Linux performance threshold 也已接入并通过。Linux Debian 原生包
 安装/卸载 Gate 已在 CI run `32611030790` 通过并接入 Ubuntu CI；macOS/Windows
 原生 CLI 安装器 smoke 已在 CI run `32613347180` 通过，portable ZIP/TGZ 也已作为
@@ -455,9 +461,9 @@ WP-5U0 已冻结的产品决策继续作为后续实现约束：
 - Inspector 首版标签固定为 Reconstruct、Pixel、Scanline、Source、Format Context。
 - 默认窗口采用 1200×760、最小 900×600、Preview/Hex 60%/40%。
 - Statistics 不作为首个单文件 v1 的强制验收项。
-- WP-602A 首版只提供 bounded scalar aggregation；UI/export 继续留在 WP-602B
+- WP-602A 首版只提供 bounded scalar aggregation；UI/export 原留在 WP-602B
   决策，不自动扩大当前 v1 surface。
-- WP-602B 已决定延后；当前 user guide 与 CLI JSON contract 不增加 Statistics
-  入口，后续若重启必须先冻结 schema、预算与导航验收。
+- WP-602B 原决定延后；该决策已由 WP-602B–H（re-entry 包，裁决 R1–R13）取代：
+  schema、预算与导航验收先行冻结，UI/CLI/export 已按冻结验收实现并通过收口 Gate。
 
 这些决策一旦冻结，后续每个带后缀的最小工作包都能以自动测试、固定样本和人工 checklist 独立验收，不需要开发者在实现中临时猜测产品语义。

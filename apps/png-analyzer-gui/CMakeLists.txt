@@ -34,6 +34,8 @@ set(PNGA_GUI_APP_SOURCES
   src/workspace_controller.cpp
   src/document_session.cpp
   src/selection_navigation_controller.cpp
+  src/statistics_controller.cpp
+  src/statistics_worker.cpp
   src/trace_controller.cpp
 )
 

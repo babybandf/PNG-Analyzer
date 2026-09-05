@@ -1,0 +1,86 @@
+{
+  "schema": "pnga.statistics",
+  "schema_version": 1,
+  "document": {
+    "file_size": 1234,
+    "fingerprint": "fnv1a64-v1:0123456789abcdef"
+  },
+  "sections": {
+    "overview": {
+      "status": "ready",
+      "complete": true,
+      "scope": "whole_document",
+      "compressed_bytes": 65,
+      "inflated_bytes": 120,
+      "has_compression_totals": true
+    },
+    "chunks": {
+      "status": "ready",
+      "complete": true,
+      "scope": "whole_document",
+      "count": 3,
+      "data_bytes": 133,
+      "buckets": [
+        {"type": "IDAT", "count": 2, "data_bytes": 120},
+        {"type": "IHDR", "count": 1, "data_bytes": 13}
+      ]
+    },
+    "filters": {
+      "status": "ready",
+      "complete": true,
+      "scope": "whole_document",
+      "rows": 3,
+      "data_bytes": 30,
+      "invalid_rows": 0,
+      "buckets": [
+        {"rows": 2, "data_bytes": 20},
+        {"rows": 0, "data_bytes": 0},
+        {"rows": 0, "data_bytes": 0},
+        {"rows": 0, "data_bytes": 0},
+        {"rows": 1, "data_bytes": 10}
+      ]
+    },
+    "blocks": {
+      "status": "ready",
+      "complete": true,
+      "scope": "whole_document",
+      "count": 2,
+      "compressed_bits": 30,
+      "output_bytes": 120,
+      "buckets": [
+        {"blocks": 0, "compressed_bits": 0, "output_bytes": 0},
+        {"blocks": 1, "compressed_bits": 10, "output_bytes": 20},
+        {"blocks": 1, "compressed_bits": 20, "output_bytes": 100}
+      ]
+    },
+    "tokens": {
+      "status": "ready",
+      "complete": true,
+      "scope": "whole_document",
+      "count": 4,
+      "input_bits": 40,
+      "output_bytes": 10,
+      "buckets": [
+        {"count": 1, "input_bits": 8, "output_bytes": 1},
+        {"count": 2, "input_bits": 25, "output_bytes": 9},
+        {"count": 1, "input_bits": 7, "output_bytes": 0}
+      ]
+    },
+    "lengths": {
+      "status": "ready",
+      "complete": true,
+      "scope": "whole_document",
+      "buckets": [
+        {"value": 5, "count": 2}
+      ]
+    },
+    "distances": {
+      "status": "ready",
+      "complete": true,
+      "scope": "whole_document",
+      "buckets": [
+        {"value": 3, "count": 2}
+      ]
+    }
+  }
+}

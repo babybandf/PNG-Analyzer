@@ -1,0 +1,77 @@
+schema_version,section,metric,key,value,unit
+1,overview,status,,unavailable,
+1,overview,complete,,false,
+1,overview,scope,,none,
+1,overview,compressed_bytes,,,bytes
+1,overview,inflated_bytes,,,bytes
+1,overview,has_compression_totals,,false,
+1,chunks,status,,cancelled,
+1,chunks,complete,,false,
+1,chunks,scope,,verified_prefix,
+1,chunks,error,,statistics collection cancelled,
+1,chunks,count,,3,chunks
+1,chunks,data_bytes,,115,bytes
+1,chunks,bucket.count,IDAT,2,chunks
+1,chunks,bucket.data_bytes,IDAT,110,bytes
+1,chunks,bucket.count,"a""b,c",1,chunks
+1,chunks,bucket.data_bytes,"a""b,c",5,bytes
+1,filters,status,,invalid_input,
+1,filters,complete,,false,
+1,filters,scope,,verified_prefix,
+1,filters,error,,filtered scanline range is outside its backing buffer,
+1,filters,rows,,1,rows
+1,filters,data_bytes,,8,bytes
+1,filters,invalid_rows,,0,rows
+1,filters,bucket.rows,0,1,rows
+1,filters,bucket.data_bytes,0,8,bytes
+1,filters,bucket.rows,1,0,rows
+1,filters,bucket.data_bytes,1,0,bytes
+1,filters,bucket.rows,2,0,rows
+1,filters,bucket.data_bytes,2,0,bytes
+1,filters,bucket.rows,3,0,rows
+1,filters,bucket.data_bytes,3,0,bytes
+1,filters,bucket.rows,4,0,rows
+1,filters,bucket.data_bytes,4,0,bytes
+1,blocks,status,,partial,
+1,blocks,complete,,false,
+1,blocks,scope,,verified_prefix,
+1,blocks,count,,1,blocks
+1,blocks,compressed_bits,,10,bits
+1,blocks,output_bytes,,20,bytes
+1,blocks,bucket.blocks,stored,1,blocks
+1,blocks,bucket.compressed_bits,stored,10,bits
+1,blocks,bucket.output_bytes,stored,20,bytes
+1,blocks,bucket.blocks,fixed,0,blocks
+1,blocks,bucket.compressed_bits,fixed,0,bits
+1,blocks,bucket.output_bytes,fixed,0,bytes
+1,blocks,bucket.blocks,dynamic,0,blocks
+1,blocks,bucket.compressed_bits,dynamic,0,bits
+1,blocks,bucket.output_bytes,dynamic,0,bytes
+1,tokens,status,,budget_exceeded,
+1,tokens,complete,,false,
+1,tokens,scope,,verified_prefix,
+1,tokens,error,,"budget hit: ""length histogram"" exceeded
+second line",
+1,tokens,count,,3,tokens
+1,tokens,input_bits,,25,bits
+1,tokens,output_bytes,,4,bytes
+1,tokens,bucket.count,literal,2,tokens
+1,tokens,bucket.input_bits,literal,17,bits
+1,tokens,bucket.output_bytes,literal,2,bytes
+1,tokens,bucket.count,match,1,tokens
+1,tokens,bucket.input_bits,match,8,bits
+1,tokens,bucket.output_bytes,match,2,bytes
+1,tokens,bucket.count,eob,0,tokens
+1,tokens,bucket.input_bits,eob,0,bits
+1,tokens,bucket.output_bytes,eob,0,bytes
+1,lengths,status,,budget_exceeded,
+1,lengths,complete,,false,
+1,lengths,scope,,verified_prefix,
+1,lengths,error,,"budget hit: ""length histogram"" exceeded
+second line",
+1,lengths,bucket.count,3,1,matches
+1,distances,status,,overflow,
+1,distances,complete,,false,
+1,distances,scope,,verified_prefix,
+1,distances,error,,statistics count overflow,
+1,distances,bucket.count,1,1,matches

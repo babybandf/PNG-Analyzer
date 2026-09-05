@@ -1,0 +1,91 @@
+{
+  "schema": "pnga.statistics",
+  "schema_version": 1,
+  "document": {
+    "file_size": 68719476736,
+    "fingerprint": "fnv1a64-v1:deadbeefdeadbeef"
+  },
+  "sections": {
+    "overview": {
+      "status": "unavailable",
+      "complete": false,
+      "scope": "none",
+      "compressed_bytes": null,
+      "inflated_bytes": null,
+      "has_compression_totals": false
+    },
+    "chunks": {
+      "status": "cancelled",
+      "complete": false,
+      "scope": "verified_prefix",
+      "error": "statistics collection cancelled",
+      "count": 3,
+      "data_bytes": 115,
+      "buckets": [
+        {"type": "IDAT", "count": 2, "data_bytes": 110},
+        {"type": "a\"b,c", "count": 1, "data_bytes": 5}
+      ]
+    },
+    "filters": {
+      "status": "invalid_input",
+      "complete": false,
+      "scope": "verified_prefix",
+      "error": "filtered scanline range is outside its backing buffer",
+      "rows": 1,
+      "data_bytes": 8,
+      "invalid_rows": 0,
+      "buckets": [
+        {"rows": 1, "data_bytes": 8},
+        {"rows": 0, "data_bytes": 0},
+        {"rows": 0, "data_bytes": 0},
+        {"rows": 0, "data_bytes": 0},
+        {"rows": 0, "data_bytes": 0}
+      ]
+    },
+    "blocks": {
+      "status": "partial",
+      "complete": false,
+      "scope": "verified_prefix",
+      "count": 1,
+      "compressed_bits": 10,
+      "output_bytes": 20,
+      "buckets": [
+        {"blocks": 1, "compressed_bits": 10, "output_bytes": 20},
+        {"blocks": 0, "compressed_bits": 0, "output_bytes": 0},
+        {"blocks": 0, "compressed_bits": 0, "output_bytes": 0}
+      ]
+    },
+    "tokens": {
+      "status": "budget_exceeded",
+      "complete": false,
+      "scope": "verified_prefix",
+      "error": "budget hit: \"length histogram\" exceeded\nsecond line",
+      "count": 3,
+      "input_bits": 25,
+      "output_bytes": 4,
+      "buckets": [
+        {"count": 2, "input_bits": 17, "output_bytes": 2},
+        {"count": 1, "input_bits": 8, "output_bytes": 2},
+        {"count": 0, "input_bits": 0, "output_bytes": 0}
+      ]
+    },
+    "lengths": {
+      "status": "budget_exceeded",
+      "complete": false,
+      "scope": "verified_prefix",
+      "error": "budget hit: \"length histogram\" exceeded\nsecond line",
+      "buckets": [
+        {"value": 3, "count": 1}
+      ]
+    },
+    "distances": {
+      "status": "overflow",
+      "complete": false,
+      "scope": "verified_prefix",
+      "error": "statistics count overflow",
+      "buckets": [
+        {"value": 1, "count": 1}
+      ]
+    }
+  }
+}

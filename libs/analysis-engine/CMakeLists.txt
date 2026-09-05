@@ -6,6 +6,7 @@ add_library(pnga_analysis_engine
   src/block_inspector.cpp
   src/coordinate_query.cpp
   src/decode_trace_inspector.cpp
+  src/document_fingerprint.cpp
   src/filtered_scanlines.cpp
   src/huffman_inspector.cpp
   src/job_scheduler.cpp
@@ -18,6 +19,9 @@ add_library(pnga_analysis_engine
   src/stage_pixel_process_view.cpp
   src/stage_viewport.cpp
   src/statistics_adapter.cpp
+  src/statistics_collector.cpp
+  src/statistics_occurrence_query.cpp
+  src/statistics_view.cpp
   src/trace_query.cpp
   src/trace_orchestrator.cpp
   src/trace_inspector_bundle.cpp

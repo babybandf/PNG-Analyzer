@@ -9,6 +9,7 @@
 // one is discarded before any controller or widget sees it.
 
 #include "document_workers.h"
+#include "statistics_worker.h"
 
 #include <pnga/analysis-engine/query_coordinator.h>
 #include <pnga/analysis-engine/reference_decode.h>
@@ -56,6 +57,14 @@ class DocumentSession final : public QObject {
   void requestChunkDetail(const pnga::png_format::ChunkNode& node,
                           std::uint64_t selection_serial);
 
+  // WP-602G: lazy whole-document statistics collection. The request is
+  // recorded even while the stage analysis is pending and starts exactly one
+  // low-priority worker once the stages publish; a repeated request while a
+  // worker runs never duplicates it. Replace and close cancel the worker and
+  // every queued result of an older generation is dropped.
+  void requestStatistics();
+  void cancelStatistics();
+
   std::uint64_t generation() const noexcept;
   bool hasDocument() const noexcept;
   const QString& currentFilePath() const noexcept;
@@ -77,6 +86,14 @@ class DocumentSession final : public QObject {
   void chunkDetailPublished(std::uint64_t generation,
                             std::uint64_t selection_serial);
   void rowQueryStatus(std::uint64_t row, int status);
+  void statisticsProgress(
+      std::uint64_t generation,
+      std::shared_ptr<const pnga::analysis_engine::StatisticsCollectionResult>
+          result);
+  void statisticsFinished(
+      std::uint64_t generation,
+      std::shared_ptr<const pnga::analysis_engine::StatisticsCollectionResult>
+          result);
 
  private slots:
   void onDecodeDone(std::uint64_t generation);
@@ -84,11 +101,21 @@ class DocumentSession final : public QObject {
   void onValidationDone(std::uint64_t generation);
   void onChunkDetailDone(std::uint64_t generation,
                          std::uint64_t selection_serial);
+  void onStatisticsProgress(
+      std::uint64_t generation,
+      std::shared_ptr<const pnga::analysis_engine::StatisticsCollectionResult>
+          result);
+  void onStatisticsFinished(
+      std::uint64_t generation,
+      std::shared_ptr<const pnga::analysis_engine::StatisticsCollectionResult>
+          result);
 
  private:
   void startDecode();
   void startStageAnalysis();
   void startValidation();
+  void startStatistics();
+  void stopStatistics();
 
   std::shared_ptr<pnga::io::IByteSource> source_;
   pnga::png_format::ChunkIndex index_;
@@ -100,6 +127,8 @@ class DocumentSession final : public QObject {
   StageWorker* stage_worker_ = nullptr;
   ValidationWorker* validation_worker_ = nullptr;
   ChunkDetailWorker* chunk_detail_worker_ = nullptr;
+  StatisticsWorker* statistics_worker_ = nullptr;
+  bool statistics_requested_ = false;
   std::unique_ptr<pnga::analysis_engine::QueryCoordinator> query_;
   QueryStatusBridge* query_bridge_ = nullptr;
   std::uint64_t generation_ = 0;

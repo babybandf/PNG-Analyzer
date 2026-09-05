@@ -162,6 +162,8 @@ set(PNGA_GUI_APP_TEST_SOURCES
   ../../apps/png-analyzer-gui/src/workspace_controller.cpp
   ../../apps/png-analyzer-gui/src/document_session.cpp
   ../../apps/png-analyzer-gui/src/selection_navigation_controller.cpp
+  ../../apps/png-analyzer-gui/src/statistics_controller.cpp
+  ../../apps/png-analyzer-gui/src/statistics_worker.cpp
   ../../apps/png-analyzer-gui/src/trace_controller.cpp
 )
 
@@ -199,6 +201,9 @@ add_pnga_gui_app_test(pnga_gui_workspace_controller_tests
 
 add_pnga_gui_app_test(pnga_gui_document_session_tests
   document_session_test.cpp gui_document_session_tests)
+
+add_pnga_gui_app_test(pnga_gui_statistics_controller_tests
+  statistics_controller_test.cpp gui_statistics_controller_tests)
 
 add_pnga_gui_app_test(pnga_gui_selection_navigation_controller_tests
   selection_navigation_controller_test.cpp
@@ -317,6 +322,22 @@ set_tests_properties(gui_compression_inspector_product_gate_tests PROPERTIES
   FIXTURES_REQUIRED wp607c-generated-corpus
   ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
   LABELS "gui;wp607c;wp5u12")
+
+# WP-602H product gate: drives the real MainWindow over the WP-607C corpus
+# and closes the Statistics product matrix (lazy open/hover non-regression,
+# ready/malformed/large/rapid-switch/cancel/stale, locales, CLI/GUI byte
+# equality, CSV importability, 320 px, keyboard/a11y, O(1) retention).
+add_pnga_gui_app_test(pnga_gui_statistics_product_gate_tests
+  statistics_product_gate_test.cpp
+  gui_statistics_product_gate_tests)
+target_compile_definitions(pnga_gui_statistics_product_gate_tests PRIVATE
+  PNGA_WP607C_CORPUS_DIR="${CMAKE_BINARY_DIR}/tests/corpus/wp-607c"
+  PNGA_CLI_PATH="$<TARGET_FILE:pnga_cli>")
+add_dependencies(pnga_gui_statistics_product_gate_tests pnga_cli)
+set_tests_properties(gui_statistics_product_gate_tests PROPERTIES
+  FIXTURES_REQUIRED wp607c-generated-corpus
+  ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+  LABELS "gui;wp607c;wp602")
 
 # WP-5U14N native theme evidence capture target (R1: test-only). Renders the
 # real MainWindow on the native platform only; entries skip under offscreen
@@ -506,6 +527,20 @@ target_compile_features(pnga_gui_decode_trace_inspector_tests PRIVATE cxx_std_20
 add_test(NAME gui_decode_trace_inspector_tests
   COMMAND pnga_gui_decode_trace_inspector_tests)
 
+add_executable(pnga_gui_statistics_inspector_tests
+  statistics_inspector_test.cpp
+)
+set_target_properties(pnga_gui_statistics_inspector_tests PROPERTIES AUTOMOC ON)
+target_link_libraries(pnga_gui_statistics_inspector_tests PRIVATE
+  pnga::ui_qt
+  pnga::analysis_engine
+  Qt6::Test
+)
+target_compile_features(pnga_gui_statistics_inspector_tests PRIVATE cxx_std_20)
+
+add_test(NAME gui_statistics_inspector_tests
+  COMMAND pnga_gui_statistics_inspector_tests)
+
 add_executable(pnga_gui_trace_inspector_binding_tests
   trace_inspector_binding_test.cpp
 )
@@ -585,6 +620,9 @@ add_custom_target(pnga_gui_tests DEPENDS
   pnga_gui_block_inspector_tests
   pnga_gui_huffman_inspector_tests
   pnga_gui_decode_trace_inspector_tests
+  pnga_gui_statistics_inspector_tests
+  pnga_gui_statistics_controller_tests
+  pnga_gui_statistics_product_gate_tests
   pnga_gui_trace_inspector_binding_tests
   pnga_gui_trace_inspector_performance_tests
   pnga_gui_about_tests

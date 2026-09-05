@@ -1,6 +1,6 @@
 # WP-602B–H — Statistics UI, CLI and Deterministic Export Re-entry
 
-Status: **approved and frozen for implementation** (2026-09-05)
+Status: **PASS — completed and closed** (2026-09-06, WP-602H gate evidence below)
 
 Binding review:
 `docs/development/wp-602b-h-written-package-review.md`.
@@ -168,3 +168,78 @@ git diff --check
 exports, bounded memory/work and responsive UI. A schema ambiguity, falsely
 complete section, retained whole-file events or locale-dependent byte is
 `FAIL`. A required architecture change outside allowed paths is `BLOCKED`.
+
+## WP-602H completion record (2026-09-06)
+
+Branch `wp-602b-h-statistics-ui-export`; the evidence below was produced by
+the Task 9 gate commit. All commands ran from the repository root with exit
+code 0 unless stated otherwise.
+
+Verification matrix (exact commands, all exit 0):
+
+1. `python3 scripts/verify_repository_layout.py`
+2. `python3 scripts/verify_dependencies.py`
+3. `cmake --preset dev`
+4. `cmake --build --preset dev --parallel 4`
+5. `QT_QPA_PLATFORM=offscreen ctest --preset dev -R 'statistics|cli|main_window|selection|gui' --output-on-failure` — 41/41 pass
+6. `QT_QPA_PLATFORM=offscreen ctest --preset dev --output-on-failure` — 60/60 pass (was 59 before the product gate)
+7. `python3 scripts/run_gui_gate.py` — PASS, three configured scales
+8. `python3 scripts/run_performance_corpus.py --preset dev --enforce-thresholds` — PASS
+9. `python3 scripts/run_sanitizer_fuzz_gate.py` — PASS (`asan` preset configured in the worktree; 2 deterministic replays + fuzz smoke)
+10. `git diff --check`
+
+Product gate: `gui_statistics_product_gate_tests` (tests/gui/
+statistics_product_gate_test.cpp) — 8 slots, all pass under the offscreen
+platform in ~3 s: lazy start with zero statistics activity on file open and
+200 delivered hover events; ready full pass (four frozen pages, honest
+sections); malformed verified prefix with explicit Partial labeling; large
+bounded collection with `budget_exceeded` token prefix (never falsely
+complete); rapid switch and stale generation/occurrence non-publication;
+cancel with verified rows retained; GUI export == shared serializer == real
+CLI stdout bytes (JSON and CSV; `ui-gray1-none` exit 0); strict RFC 4180 CSV
+importability; 320 px Inspector; keyboard chains and accessible names/roles.
+
+Performance (`statistics` scenario on WP-607C `perf-large-rgba8`,
+thresholds-v1.json):
+
+- `fast_sections_us` = 99,272 (max 500,000). Measured as the time to the
+  first token-scan progress publication; the whole collection finished
+  inside the 100 ms production throttle window, so the conservative whole
+  duration is reported.
+- `whole_document_us` = 99,272 (max 5,000,000)
+- `token_count` = 1,048,576 — the frozen WP-602A default sample budget; the
+  token section stays `budget_exceeded`/incomplete (2^20 < 2,359,296 stored
+  literals), never a falsely complete section
+- `peak_retained_token_records` = 1 (non-time invariant, enforced by the
+  runner and the GUI gate over the complete 2.36M-token stream)
+- `view_projection_us` = 69 (max 250,000)
+- `serializer_us` = 91 (max 250,000)
+- Non-time invariant: declared `max_working_bytes` = 64 MiB, the frozen
+  background reservation (asserted by the runner and the GUI gate)
+
+Schema golden SHA-256 (tests/unit/statistics/golden/):
+
+- `ready-v1.json` — `07be9dca520763884f5a9461ea8b15de7806f3351843f1bc83e4d6c0045c3bd9`
+- `ready-v1.csv` — `c4cd4ec373c20ad1f7e847729bb69d215145a8e6848263e2ff3f24e49e88ae23`
+- `partial-v1.json` — `e68a584e3b39cb1e1dca38ea8134ff94037e79c4cb22ef4eb42019ad681aece5`
+- `partial-v1.csv` — `1b0106cba1d949adbe7fadc9fbe9cc6e9ccfadd171c30d202fd38e8e86682dda`
+
+Locale list: `C` baseline plus `de_DE`, `ru_RU` and `zh_CN` display passes on
+the real MainWindow; the DisplayRole follows the current QLocale while every
+JSON/CSV export stays byte-identical. The committed goldens additionally
+cover the C, `C.UTF-8` and non-English C-locale passes of the serializer.
+
+Honest-status notes: the malformed `error-truncated-token` fixture raises no
+structural validation issue (the corruption is decoder-level), so the frozen
+CLI exit mapping yields 4, not 3; invalid_input sections keep their verified
+prefix values (zeros are real zeros), and the empty-versus-zero distinction
+is pinned by the committed `partial-v1.csv` golden.
+
+Changed-path audit (Task 9 only; no production, parser, reconstruction or
+dependency change): `tests/gui/statistics_product_gate_test.cpp` (new),
+`tests/gui/CMakeLists.txt`, `tests/performance/performance_runner.cpp`,
+`tests/performance/thresholds-v1.json`, `tests/performance/README.md`, this
+document, and
+`docs/architecture/png-analyzer-current-development-plan-2026-08-22.md`.
+`build/asan` was configured in the worktree to run the sanitizer gate; it is
+not a repository path.

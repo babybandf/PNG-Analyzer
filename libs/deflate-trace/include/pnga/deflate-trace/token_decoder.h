@@ -11,6 +11,7 @@
 #include <pnga/io/byte_source.h>
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -115,6 +116,73 @@ struct TokenDecodeResult {
 // stream fails with a stable error.
 TokenDecodeResult decode_stored_and_fixed(const pnga::io::IByteSource& source,
                                           std::uint64_t max_output_bytes);
+
+// --- WP-602C: streaming scalar token scan -----------------------------------
+
+// Terminal status of a scalar token scan. kReady means the final block was
+// decoded; kPartial means the observer asked to stop; kCancelled and
+// kBudgetExceeded keep the counted verified prefix; kInvalidInput marks
+// malformed input; kError marks I/O or internal failures.
+enum class TokenScanStatus {
+  kReady,
+  kPartial,
+  kCancelled,
+  kBudgetExceeded,
+  kInvalidInput,
+  kError,
+};
+
+// Scalar facts of one decoded token, delivered synchronously to the observer.
+// input_bits/output_bytes are the per-token consumed/produced totals. This is
+// an aggregate-then-discard record: the scan never retains it.
+struct TokenFact {
+  TokenKind kind = TokenKind::kLiteral;
+  std::uint64_t input_bits = 0;
+  std::uint64_t output_bytes = 0;
+  std::uint16_t length = 0;
+  std::uint16_t distance = 0;
+  std::uint64_t output_begin = 0;
+};
+
+struct TokenScanOptions {
+  // Budgets; 0 means unlimited. A scan that would decode beyond a budget
+  // stops with kBudgetExceeded and the exact consumed input/output prefix.
+  std::uint64_t max_input_bytes = 0;
+  std::uint64_t max_output_bytes = 0;
+  std::uint64_t max_tokens = 0;
+  // Cooperative cancellation, checked at least every 256 tokens and at every
+  // input-window refill.
+  std::function<bool()> should_cancel;
+  // Receives every decoded token fact (literals, length-distance matches and
+  // end-of-block boundaries) in stream order. Returning false stops the scan
+  // with kPartial at the counted prefix without reading later input. The
+  // fact is borrowed only for the duration of the call; the scan retains no
+  // events, tables or output.
+  std::function<bool(const TokenFact&)> observer;
+};
+
+struct TokenScanResult {
+  TokenScanStatus status = TokenScanStatus::kError;
+  std::string error;                // stable message on failure
+  std::uint64_t token_count = 0;    // facts delivered to the observer
+  std::uint64_t input_bits = 0;     // Deflate bits consumed
+  std::uint64_t output_bytes = 0;   // inflated bytes produced
+  bool stream_ended = false;
+  // Auditable retention metric: the maximum number of token records the scan
+  // held at any moment. The scalar scan materializes exactly one in-flight
+  // TokenFact per observer delivery and retains no event/output/table list,
+  // so this is at most 1.
+  std::uint64_t peak_retained_token_records = 0;
+};
+
+// Streams the Deflate tokens of `source` (a full zlib stream) through the
+// scalar observer without building a TokenEvent list, an output buffer or
+// Huffman table traces. The scan shares the block/symbol interpretation with
+// decode_stored_and_fixed, reads the source through bounded read() windows
+// (view() is never used) and keeps only the RFC 1951 32 KiB LZ window and a
+// fixed decoder workspace.
+TokenScanResult scan_tokens(const pnga::io::IByteSource& source,
+                            const TokenScanOptions& options);
 
 }  // namespace pnga::deflate_trace
 

@@ -1,9 +1,16 @@
 // WP-103 CLI integration tests: run the real pnga binary against generated
 // PNG fixtures and compare deterministic JSON output and exit codes.
+// WP-602E adds the `statistics` command contract: stdout carries only the
+// report bytes, stderr only diagnostics, with the frozen exit-code table.
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <pnga/analysis-engine/statistics_collector.h>
+#include <pnga/analysis-engine/stage_analysis.h>
+#include <pnga/analysis-engine/validation.h>
+#include <pnga/io/byte_source.h>
 #include <pnga/png-format/chunk_index.h>
+#include <pnga/statistics/serialization.h>
 
 #include <zlib.h>
 
@@ -13,6 +20,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -115,32 +123,153 @@ std::string json_escape(const std::string& s) {
 struct CliResult {
   int exit_code;
   std::string stdout_text;
+  std::string stderr_text;
 };
 
-CliResult run_cli(const std::string& args) {
+// Core runner: redirects stdout and stderr of the real binary into two
+// temporary files and returns both streams plus the exit code. With
+// `normalize_newline` the stdout trailing puts() line ending (LF on POSIX,
+// CRLF under Windows text-mode redirection) is dropped so the WP-103 goldens
+// stay byte-exact on every platform; the statistics contract tests capture
+// exact bytes instead.
+CliResult run_cli_streams(const std::string& args, bool normalize_newline) {
   const std::string outfile =
       (std::filesystem::temp_directory_path() / "pnga_cli_stdout.txt").string();
+  const std::string errfile =
+      (std::filesystem::temp_directory_path() / "pnga_cli_stderr.txt").string();
   const std::string cmd = quote_if_needed(kCliPath) + " " + args + " > " +
-                          quote(outfile) + " 2>&1";
+                          quote(outfile) + " 2> " + quote(errfile);
   const int rc = std::system(cmd.c_str());
 #ifdef _WIN32
   const int exit_code = rc;
 #else
   const int exit_code = WEXITSTATUS(rc);
 #endif
-  std::ifstream in(outfile, std::ios::binary);
-  std::string content((std::istreambuf_iterator<char>(in)),
-                      std::istreambuf_iterator<char>());
-  // Normalize the line ending emitted by puts(): Windows cmd redirection
-  // writes CRLF (CRT text mode), POSIX writes LF. Drop both so goldens are
-  // byte-exact on every platform.
-  if (!content.empty() && content.back() == '\n') {
-    content.pop_back();
+  const auto read_all = [](const std::string& path) {
+    std::ifstream in(path, std::ios::binary);
+    return std::string((std::istreambuf_iterator<char>(in)),
+                       std::istreambuf_iterator<char>());
+  };
+  std::string content = read_all(outfile);
+  if (normalize_newline) {
+    if (!content.empty() && content.back() == '\n') {
+      content.pop_back();
+    }
+    if (!content.empty() && content.back() == '\r') {
+      content.pop_back();
+    }
   }
-  if (!content.empty() && content.back() == '\r') {
-    content.pop_back();
+  return {exit_code, content, read_all(errfile)};
+}
+
+// WP-103 inspect/validate runner: stdout only, trailing newline normalized.
+CliResult run_cli(const std::string& args) {
+  return run_cli_streams(args, /*normalize_newline=*/true);
+}
+
+// WP-602E statistics runner: exact bytes on both streams.
+CliResult run_cli_exact(const std::string& args) {
+  return run_cli_streams(args, /*normalize_newline=*/false);
+}
+
+// --- WP-602E statistics fixtures --------------------------------------------
+
+// zlib stream with fixed stored blocks (level 0) so the token count is
+// deterministic without a decoder: one literal per filtered byte.
+std::vector<std::byte> zlib_deflate_level0(const std::vector<std::byte>& raw) {
+  z_stream strm{};
+  if (deflateInit2(&strm, 0, Z_DEFLATED, 15, 8, Z_DEFAULT_STRATEGY) != Z_OK) {
+    return {};
   }
-  return {exit_code, content};
+  const uLongf bound = compressBound(static_cast<uLong>(raw.size()));
+  std::vector<std::byte> out(static_cast<std::size_t>(bound));
+  strm.next_in = reinterpret_cast<Bytef*>(const_cast<std::byte*>(raw.data()));
+  strm.avail_in = static_cast<uInt>(raw.size());
+  strm.next_out = reinterpret_cast<Bytef*>(out.data());
+  strm.avail_out = static_cast<uInt>(out.size());
+  const int rc = deflate(&strm, Z_FINISH);
+  deflateEnd(&strm);
+  if (rc != Z_STREAM_END) {
+    return {};
+  }
+  out.resize(strm.total_out);
+  return out;
+}
+
+// Builds a valid grayscale 8-bit PNG with the given width/height, one IDAT
+// chunk and a level-0 zlib stream (deterministic token counts).
+std::vector<std::byte> gray_level0_png(std::uint32_t w, std::uint32_t h) {
+  std::vector<std::byte> filtered;
+  for (std::uint32_t y = 0; y < h; ++y) {
+    filtered.push_back(std::byte{0});  // filter type None
+    for (std::uint32_t x = 0; x < w; ++x) {
+      filtered.push_back(static_cast<std::byte>(1 + ((x * 3 + y * 7) % 250)));
+    }
+  }
+  std::vector<std::byte> bytes(pnga::png_format::kPngSignature.begin(),
+                               pnga::png_format::kPngSignature.end());
+  const auto push = [&bytes](const char* type,
+                             const std::vector<std::byte>& data) {
+    const std::uint32_t len = static_cast<std::uint32_t>(data.size());
+    for (const int shift : {24, 16, 8, 0}) {
+      bytes.push_back(std::byte(static_cast<unsigned char>((len >> shift) & 0xFFu)));
+    }
+    uLong crc = crc32(0, Z_NULL, 0);
+    crc = crc32(crc, reinterpret_cast<const Bytef*>(type), 4);
+    for (int i = 0; i < 4; ++i) {
+      bytes.push_back(std::byte(static_cast<unsigned char>(type[i])));
+    }
+    if (!data.empty()) {
+      crc = crc32(crc, reinterpret_cast<const Bytef*>(data.data()),
+                  static_cast<uInt>(data.size()));
+      bytes.insert(bytes.end(), data.begin(), data.end());
+    }
+    for (const int shift : {24, 16, 8, 0}) {
+      bytes.push_back(std::byte(static_cast<unsigned char>((crc >> shift) & 0xFFu)));
+    }
+  };
+  std::vector<std::byte> ihdr(13, std::byte{0});
+  ihdr[0] = std::byte(static_cast<unsigned char>((w >> 24) & 0xFFu));
+  ihdr[1] = std::byte(static_cast<unsigned char>((w >> 16) & 0xFFu));
+  ihdr[2] = std::byte(static_cast<unsigned char>((w >> 8) & 0xFFu));
+  ihdr[3] = std::byte(static_cast<unsigned char>(w & 0xFFu));
+  ihdr[4] = std::byte(static_cast<unsigned char>((h >> 24) & 0xFFu));
+  ihdr[5] = std::byte(static_cast<unsigned char>((h >> 16) & 0xFFu));
+  ihdr[6] = std::byte(static_cast<unsigned char>((h >> 8) & 0xFFu));
+  ihdr[7] = std::byte(static_cast<unsigned char>(h & 0xFFu));
+  ihdr[8] = std::byte{8};  // bit depth
+  ihdr[9] = std::byte{0};  // color type gray
+  push("IHDR", ihdr);
+  push("IDAT", zlib_deflate_level0(filtered));
+  push("IEND", {});
+  return bytes;
+}
+
+// Mirrors the CLI's synchronous composition with the same public APIs and
+// request values so the direct serializer output is the exact expected report.
+std::string direct_statistics_bytes(const std::vector<std::byte>& png,
+                                    bool csv) {
+  using pnga::analysis_engine::StatisticsCollectionRequest;
+  auto source = std::make_shared<pnga::io::MemoryByteSource>(png);
+  const auto chunks = pnga::png_format::index_chunks(*source);
+  const auto stages = std::make_shared<const pnga::analysis_engine::StageSet>(
+      pnga::analysis_engine::analyze_source(*source));
+  StatisticsCollectionRequest request;
+  request.generation = 0;
+  request.source = source;
+  request.chunks = chunks;
+  request.stages = stages;
+  request.limits = pnga::statistics::StatisticsLimits{};
+  request.max_working_bytes = 64ull << 20;
+  const auto result =
+      pnga::analysis_engine::collect_document_statistics(request, nullptr, {});
+  const pnga::statistics::SerializationResult serialized =
+      csv ? pnga::statistics::serialize_statistics_csv(result.document,
+                                                       result.snapshot)
+          : pnga::statistics::serialize_statistics_json(result.document,
+                                                        result.snapshot);
+  REQUIRE(serialized.success);
+  return serialized.bytes;
 }
 
 }  // namespace
@@ -230,4 +359,127 @@ TEST_CASE("pnga rejects an unknown command with the format-error exit code",
           "[cli][wp103]") {
   const CliResult r = run_cli("frobnicate --json");
   REQUIRE(r.exit_code == 2);
+}
+
+TEST_CASE("pnga statistics --help documents the schema and exit codes",
+          "[cli][wp602e]") {
+  const CliResult r = run_cli_exact("statistics --help");
+  REQUIRE(r.exit_code == 0);
+  REQUIRE(r.stderr_text.empty());
+  REQUIRE(r.stdout_text.find("pnga.statistics schema_version=1") !=
+          std::string::npos);
+  REQUIRE(r.stdout_text.find("0 ready") != std::string::npos);
+  REQUIRE(r.stdout_text.find("1 I/O") != std::string::npos);
+  REQUIRE(r.stdout_text.find("2 argument") != std::string::npos);
+  REQUIRE(r.stdout_text.find("3 validation") != std::string::npos);
+  REQUIRE(r.stdout_text.find("4 partial") != std::string::npos);
+}
+
+TEST_CASE("pnga statistics emits ready JSON report bytes on stdout only",
+          "[cli][wp602e]") {
+  const auto png = gray_level0_png(24, 8);
+  const auto path = test_file("pnga_statistics_ready.png");
+  write_file(path, png);
+
+  const CliResult r =
+      run_cli_exact("statistics " + quote(path.string()) + " --format json");
+  REQUIRE(r.exit_code == 0);
+  // stdout carries only report bytes, byte-identical to the shared serializer.
+  REQUIRE(r.stdout_text == direct_statistics_bytes(png, /*csv=*/false));
+  REQUIRE(r.stdout_text.find("pnga:") == std::string::npos);
+  // stderr carries only diagnostics and stays empty on success.
+  REQUIRE(r.stderr_text.empty());
+}
+
+TEST_CASE("pnga statistics emits ready CSV report bytes on stdout only",
+          "[cli][wp602e]") {
+  const auto png = gray_level0_png(24, 8);
+  const auto path = test_file("pnga_statistics_ready.png");
+  write_file(path, png);
+
+  const CliResult r =
+      run_cli_exact("statistics " + quote(path.string()) + " --format csv");
+  REQUIRE(r.exit_code == 0);
+  REQUIRE(r.stdout_text == direct_statistics_bytes(png, /*csv=*/true));
+  REQUIRE(r.stdout_text.rfind("schema_version,section,metric,key,value,unit\n",
+                              0) == 0);
+  REQUIRE(r.stderr_text.empty());
+}
+
+TEST_CASE("pnga statistics reports a missing file with exit code 1",
+          "[cli][wp602e]") {
+  const auto path = test_file("pnga_statistics_missing.png");
+  const CliResult r =
+      run_cli_exact("statistics " + quote(path.string()) + " --format json");
+  REQUIRE(r.exit_code == 1);
+  REQUIRE(r.stdout_text.empty());
+  REQUIRE_FALSE(r.stderr_text.empty());
+}
+
+TEST_CASE("pnga statistics rejects argument and format errors with exit 2",
+          "[cli][wp602e]") {
+  const auto path = test_file("pnga_statistics_args.png");
+  write_file(path, gray_level0_png(4, 4));
+
+  const auto run = [&path](const std::string& args) {
+    return run_cli_exact("statistics " + args);
+  };
+  // Missing --format.
+  REQUIRE(run(quote(path.string())).exit_code == 2);
+  // Missing --format value.
+  REQUIRE(run(quote(path.string()) + " --format").exit_code == 2);
+  // Empty --format= value.
+  REQUIRE(run(quote(path.string()) + " --format=").exit_code == 2);
+  // Unknown --format value.
+  REQUIRE(run(quote(path.string()) + " --format xml").exit_code == 2);
+  // Duplicate --format.
+  REQUIRE(run(quote(path.string()) + " --format json --format csv")
+              .exit_code == 2);
+  // Missing file argument.
+  REQUIRE(run("--format json").exit_code == 2);
+  // More than one file argument.
+  REQUIRE(run(quote(path.string()) + " " + quote(path.string()) +
+              " --format json")
+              .exit_code == 2);
+  // Unknown option.
+  REQUIRE(run(quote(path.string()) + " --json --format json").exit_code == 2);
+  // stdout stays empty; diagnostics go to stderr only.
+  const CliResult r = run(quote(path.string()) + " --format xml");
+  REQUIRE(r.exit_code == 2);
+  REQUIRE(r.stdout_text.empty());
+  REQUIRE_FALSE(r.stderr_text.empty());
+}
+
+TEST_CASE("pnga statistics reports malformed input with usable statistics "
+          "as exit 3",
+          "[cli][wp602e]") {
+  // Truncate the file so the IDAT chunk is incomplete: the chunk envelope is
+  // structurally invalid (a validation issue) while the collected Chunk
+  // statistics remain a usable verified prefix.
+  auto png = gray_level0_png(24, 8);
+  png.resize(png.size() - 20);  // cuts into the IDAT data, CRC and IEND
+  const auto path = test_file("pnga_statistics_truncated.png");
+  write_file(path, png);
+
+  const CliResult r =
+      run_cli_exact("statistics " + quote(path.string()) + " --format json");
+  REQUIRE(r.exit_code == 3);
+  REQUIRE(r.stdout_text == direct_statistics_bytes(png, /*csv=*/false));
+  REQUIRE(r.stderr_text.empty());
+}
+
+TEST_CASE("pnga statistics reports budget-limited statistics as exit 4",
+          "[cli][wp602e]") {
+  // A level-0 stored stream wider than the frozen 1,048,576 token sample
+  // budget: tokens/lengths/distances stop budget_exceeded while the other
+  // sections stay ready, and the file is structurally valid.
+  const auto png = gray_level0_png(1'048'600, 1);
+  const auto path = test_file("pnga_statistics_budget.png");
+  write_file(path, png);
+
+  const CliResult r =
+      run_cli_exact("statistics " + quote(path.string()) + " --format json");
+  REQUIRE(r.exit_code == 4);
+  REQUIRE(r.stdout_text == direct_statistics_bytes(png, /*csv=*/false));
+  REQUIRE(r.stderr_text.empty());
 }
