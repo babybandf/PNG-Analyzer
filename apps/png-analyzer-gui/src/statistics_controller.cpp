@@ -168,10 +168,22 @@ StatisticsController::StatisticsController(MainWindowWidgets widgets,
 }
 
 StatisticsController::~StatisticsController() {
+  // DocumentSession precedent (document_session.cpp:139-151): destroying a
+  // still-running QThread is fatal. The controller is destroyed before the
+  // session, so it joins its own occurrence workers here. The scan is
+  // bounded (4,096 tokens / 8 MiB input / 64 MiB index budget), so after the
+  // cooperative cancel every join terminates promptly. Superseded workers
+  // stay children until their deleteLater runs, so all of them are joined.
   if (occurrence_worker_ != nullptr) {
     occurrence_worker_->cancel();
-    occurrence_worker_ = nullptr;
   }
+  const auto workers = findChildren<StatisticsOccurrenceWorker*>();
+  for (StatisticsOccurrenceWorker* worker : workers) {
+    if (worker->isRunning()) {
+      worker->wait();
+    }
+  }
+  occurrence_worker_ = nullptr;
 }
 
 void StatisticsController::onDocumentReplaced(std::uint64_t /*generation*/) {
@@ -280,19 +292,23 @@ void StatisticsController::onOccurrenceRequested(
   request.generation = session_.generation();
   const int serial = next_occurrence_serial_++;
   active_occurrence_serial_ = serial;
-  occurrence_worker_ = new StatisticsOccurrenceWorker(
+  auto* worker = new StatisticsOccurrenceWorker(
       session_.source(), session_.index(), session_.stageSet(), request,
       serial, this);
-  connect(occurrence_worker_, &StatisticsOccurrenceWorker::occurrenceDone,
-          this, &StatisticsController::onOccurrenceDone);
-  connect(occurrence_worker_, &QThread::finished, occurrence_worker_,
-          &QObject::deleteLater);
-  connect(occurrence_worker_, &QThread::finished, this, [this] {
-    // Any finished occurrence worker clears the running pointer; the
-    // stale-serial gate keeps its result from publishing afterwards.
-    occurrence_worker_ = nullptr;
+  occurrence_worker_ = worker;
+  connect(worker, &StatisticsOccurrenceWorker::occurrenceDone, this,
+          &StatisticsController::onOccurrenceDone);
+  connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+  connect(worker, &QThread::finished, this, [this, worker] {
+    // Identity-checked clear (DocumentSession precedent): the finish of a
+    // superseded worker must not clear the pointer of a newer worker that
+    // is still running, so at most one scan exists and the newest scan
+    // stays cancelable.
+    if (occurrence_worker_ == worker) {
+      occurrence_worker_ = nullptr;
+    }
   });
-  occurrence_worker_->start();
+  worker->start();
 }
 
 void StatisticsController::onOccurrenceDone(

@@ -134,6 +134,7 @@ class StatisticsControllerTest : public QObject {
   void partialExportRemainsEnabledAndLabeled();
   void exportFailureLeavesTargetUntouched();
   void occurrencePublishesOnceAndStalePublishesNothing();
+  void occurrenceSupersedeChainPublishesOnceAndSettles();
 };
 
 void StatisticsControllerTest::noCollectionBeforeSelectingStatistics() {
@@ -428,6 +429,60 @@ void StatisticsControllerTest::
   QVERIFY(session.replace(png.fileName()));
   QTest::qWait(300);
   QCOMPARE(recorder.count, 1);
+}
+
+void StatisticsControllerTest::
+    occurrenceSupersedeChainPublishesOnceAndSettles() {
+  QTemporaryFile png;
+  QVERIFY(writeFixture(png));
+
+  QMainWindow window;
+  MainWindowWidgets widgets = buildMainWindowUi(window, nullptr);
+  DocumentSession session(&window);
+  StatisticsController controller(widgets, session, &window);
+  BusRecorder recorder(&window);
+  QObject::connect(widgets.bus,
+                   &pnga::ui::qt::SelectionBus::selectionChanged, &recorder,
+                   &BusRecorder::onSelectionChanged);
+  QSignalSpy finished(&session, &DocumentSession::statisticsFinished);
+  QVERIFY(finished.isValid());
+
+  QVERIFY(session.replace(png.fileName()));
+  widgets.bus->setDocumentGeneration(session.generation());
+  session.startPrimaryWorkers();
+  widgets.inspector_tabs->setCurrentWidget(widgets.statistics_inspector);
+  QTRY_VERIFY_WITH_TIMEOUT(finished.count() == 1, 10000);
+  widgets.statistics_inspector->findChild<QTabWidget*>(
+             QStringLiteral("statisticsPages"))
+      ->setCurrentIndex(1);
+  auto* model = chunksModel(widgets);
+  const int idat_row = rowById(model, "chunks.IDAT");
+  QVERIFY(idat_row >= 0);
+  widgets.statistics_inspector
+      ->findChild<QTableView*>(QStringLiteral("statisticsChunksTable"))
+      ->selectionModel()
+      ->select(model->index(idat_row, 0),
+               QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+
+  // Supersede chain: three immediate requests (A, B, C) with no settling in
+  // between. Only the active serial (C) publishes through the bus — exactly
+  // once — while A and B publish nothing.
+  auto* occurrence = inspectorButton(widgets, "statisticsShowOccurrence");
+  occurrence->click();
+  occurrence->click();
+  occurrence->click();
+  QTRY_VERIFY_WITH_TIMEOUT(recorder.count == 1, 10000);
+  QCOMPARE(recorder.last_origin, 4);
+  QVERIFY(!recorder.last.physical_spans.empty());
+
+  // The lifecycle settles: identity-checked clearing keeps the newest
+  // worker cancelable until its own finish, and every worker of the chain
+  // is eventually deleted (deleteLater ran for each one). Quitting the
+  // controller afterwards joins cleanly instead of destroying a running
+  // QThread.
+  QTRY_VERIFY_WITH_TIMEOUT(
+      controller.findChildren<StatisticsOccurrenceWorker*>().isEmpty(),
+      10000);
 }
 
 QTEST_MAIN(StatisticsControllerTest)
