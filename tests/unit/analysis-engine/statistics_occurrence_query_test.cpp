@@ -20,6 +20,7 @@
 
 #include <zlib.h>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -239,6 +240,145 @@ std::vector<std::byte> wide_stored_png(std::uint32_t w, std::uint32_t h) {
   push("IDAT", comp);
   push("IEND", {});
   return bytes;
+}
+
+// Deflate test-side bit writer (independent of production code): header
+// fields pack LSB-first, Huffman codes MSB-of-code-first, bits LSB-first
+// within each byte (RFC 1951 section 3.1.1).
+class TestBitWriter {
+ public:
+  void write_byte(unsigned char value) {
+    bytes_.push_back(std::byte(value));
+    bit_count_ += 8;
+  }
+
+  void write_lsb(std::uint32_t value, unsigned count) {
+    for (unsigned i = 0; i < count; ++i) {
+      put_bit((value >> i) & 1u);
+    }
+  }
+
+  void write_code(std::uint32_t code, unsigned length) {
+    for (unsigned i = 0; i < length; ++i) {
+      put_bit((code >> (length - 1 - i)) & 1u);
+    }
+  }
+
+  void align_to_byte() {
+    while (bit_count_ % 8 != 0) {
+      put_bit(0);
+    }
+  }
+
+  void append_u32_be(std::uint32_t value) {
+    for (const int shift : {24, 16, 8, 0}) {
+      bytes_.push_back(
+          std::byte(static_cast<unsigned char>((value >> shift) & 0xFFu)));
+    }
+  }
+
+  const std::vector<std::byte>& bytes() const noexcept { return bytes_; }
+
+ private:
+  void put_bit(unsigned bit) {
+    if (bit_count_ / 8 == bytes_.size()) {
+      bytes_.push_back(std::byte{0});
+    }
+    if (bit != 0) {
+      bytes_[bit_count_ / 8] |=
+          std::byte(static_cast<unsigned char>(1u << (bit_count_ % 8)));
+    }
+    ++bit_count_;
+  }
+
+  std::vector<std::byte> bytes_;
+  std::uint64_t bit_count_ = 0;
+};
+
+// Wraps an arbitrary zlib payload in a valid 2x1 gray8 PNG whose filtered
+// row is filter-None plus one pixel byte.
+std::vector<std::byte> png_with_idat(std::uint32_t w, std::uint32_t h,
+                                     const std::vector<std::byte>& idat) {
+  std::vector<std::byte> bytes(pnga::png_format::kPngSignature.begin(),
+                               pnga::png_format::kPngSignature.end());
+  const auto push = [&bytes](const char* type,
+                             const std::vector<std::byte>& data) {
+    const std::uint32_t len = static_cast<std::uint32_t>(data.size());
+    for (const int shift : {24, 16, 8, 0}) {
+      bytes.push_back(
+          std::byte(static_cast<unsigned char>((len >> shift) & 0xFFu)));
+    }
+    uLong crc = crc32(0, Z_NULL, 0);
+    crc = crc32(crc, reinterpret_cast<const Bytef*>(type), 4);
+    for (int i = 0; i < 4; ++i) {
+      bytes.push_back(std::byte(static_cast<unsigned char>(type[i])));
+    }
+    if (!data.empty()) {
+      crc = crc32(crc, reinterpret_cast<const Bytef*>(data.data()),
+                  static_cast<uInt>(data.size()));
+      bytes.insert(bytes.end(), data.begin(), data.end());
+    }
+    for (const int shift : {24, 16, 8, 0}) {
+      bytes.push_back(
+          std::byte(static_cast<unsigned char>((crc >> shift) & 0xFFu)));
+    }
+  };
+  std::vector<std::byte> ihdr(13, std::byte{0});
+  ihdr[0] = std::byte(static_cast<unsigned char>((w >> 24) & 0xFFu));
+  ihdr[1] = std::byte(static_cast<unsigned char>((w >> 16) & 0xFFu));
+  ihdr[2] = std::byte(static_cast<unsigned char>((w >> 8) & 0xFFu));
+  ihdr[3] = std::byte(static_cast<unsigned char>(w & 0xFFu));
+  ihdr[4] = std::byte(static_cast<unsigned char>((h >> 24) & 0xFFu));
+  ihdr[5] = std::byte(static_cast<unsigned char>((h >> 16) & 0xFFu));
+  ihdr[6] = std::byte(static_cast<unsigned char>((h >> 8) & 0xFFu));
+  ihdr[7] = std::byte(static_cast<unsigned char>(h & 0xFFu));
+  ihdr[8] = std::byte{8};
+  ihdr[9] = std::byte{0};
+  push("IHDR", ihdr);
+  push("IDAT", idat);
+  push("IEND", {});
+  return bytes;
+}
+
+void append_adler32(std::vector<std::byte>& stream,
+                    const std::array<std::byte, 2>& raw) {
+  const std::uint32_t value = static_cast<std::uint32_t>(adler32(
+      adler32(0L, Z_NULL, 0), reinterpret_cast<const Bytef*>(raw.data()),
+      static_cast<uInt>(raw.size())));
+  stream.push_back(std::byte(static_cast<unsigned char>(value >> 24)));
+  stream.push_back(std::byte(static_cast<unsigned char>(value >> 16)));
+  stream.push_back(std::byte(static_cast<unsigned char>(value >> 8)));
+  stream.push_back(std::byte(static_cast<unsigned char>(value)));
+}
+
+// Fixed-huffman stream with an EMPTY middle block: block 0 emits literal
+// 0x00, block 1 emits nothing (its EOB lands at the same inflated offset
+// as block 0's), block 2 emits literal 0x41. DEFLATE-relative facts:
+//   EOB#1 input [11,18) output 1; EOB#2 input [21,28) output 1;
+//   EOB#3 input [39,46) output 2; literal#1 input [3,11) output 0.
+std::vector<std::byte> empty_middle_block_png() {
+  TestBitWriter w;
+  w.write_byte(0x78);
+  w.write_byte(0x9C);
+  // Block 0: BFINAL=0, BTYPE=01, literal 0x00, EOB.
+  w.write_lsb(0, 1);
+  w.write_lsb(1, 2);
+  w.write_code(0x30, 8);
+  w.write_code(0, 7);
+  // Block 1: BFINAL=0, BTYPE=01, EMPTY (EOB only).
+  w.write_lsb(0, 1);
+  w.write_lsb(1, 2);
+  w.write_code(0, 7);
+  // Block 2: BFINAL=1, BTYPE=01, literal 0x41, EOB.
+  w.write_lsb(1, 1);
+  w.write_lsb(1, 2);
+  w.write_code(0x71, 8);
+  w.write_code(0, 7);
+  w.align_to_byte();
+  const std::array<std::byte, 2> raw = {std::byte{0x00}, std::byte{0x41}};
+  std::vector<std::byte> payload(w.bytes());
+  append_adler32(payload, raw);
+  return png_with_idat(2, 1, payload);
 }
 
 }  // namespace
@@ -738,4 +878,188 @@ TEST_CASE("Occurrence physical spans cover tokens that cross IDAT chunks",
           2);
   REQUIRE(first.selection.physical_spans[0].offset <
           first.selection.physical_spans[1].offset);
+}
+
+TEST_CASE("End-of-block occurrences resolve first, next and previous",
+          "[analysis-engine][wp602f]") {
+  const QueryFixture fixture =
+      make_query_fixture(ControlledCaseId::kTraceFixedNonoverlap);
+  const auto facts = make_controlled_fixture(
+      ControlledCaseId::kTraceFixedNonoverlap).expected.tokens;
+  const auto& eob = facts[4];
+  REQUIRE(eob.kind == pnga_test::wp607c::TokenKind::kEndOfBlock);
+
+  // first: the fixed block's 7-bit end-of-block code.
+  const auto first = query_statistics_occurrence(
+      *fixture.source, fixture.chunks, fixture.stages.get(), &fixture.blocks,
+      make_request(StatisticsBucketDomain::kTokenKind, "eob"), nullptr);
+  require_ready_selection(first, eob.input_bits.begin, eob.input_bits.end,
+                          fixture);
+
+  // next past the only end-of-block finds nothing.
+  const auto next = query_statistics_occurrence(
+      *fixture.source, fixture.chunks, fixture.stages.get(), &fixture.blocks,
+      make_request(StatisticsBucketDomain::kTokenKind, "eob",
+                   OccurrenceDirection::kNext, eob.output_bytes.begin),
+      nullptr);
+  REQUIRE(next.status == OccurrenceStatus::kNotFound);
+
+  // previous before the end of the stream finds the same end-of-block.
+  const auto previous = query_statistics_occurrence(
+      *fixture.source, fixture.chunks, fixture.stages.get(), &fixture.blocks,
+      make_request(StatisticsBucketDomain::kTokenKind, "eob",
+                   OccurrenceDirection::kPrevious, eob.output_bytes.begin + 1),
+      nullptr);
+  REQUIRE(previous.status == OccurrenceStatus::kReady);
+  REQUIRE(previous.selection == first.selection);
+}
+
+TEST_CASE("Zero-width stored boundary end-of-block resolves to its exact "
+          "boundary",
+          "[analysis-engine][wp602f]") {
+  const QueryFixture fixture =
+      make_query_fixture(ControlledCaseId::kTraceStoredLiterals);
+  const auto first = query_statistics_occurrence(
+      *fixture.source, fixture.chunks, fixture.stages.get(), &fixture.blocks,
+      make_request(StatisticsBucketDomain::kTokenKind, "eob"), nullptr);
+  REQUIRE(first.status == OccurrenceStatus::kReady);
+  REQUIRE(first.generation == 5);
+  REQUIRE(first.searched_tokens >= 1);
+  // The synthetic stored boundary consumes no input bits: the honest result
+  // is a zero-width selection at the exact boundary byte (the first Adler
+  // byte, IDAT-logical 13).
+  REQUIRE(first.selection.stage == pnga::trace_model::Stage::kTrace);
+  REQUIRE(first.selection.logical.has_value());
+  REQUIRE(first.selection.logical->start == 13);
+  REQUIRE(first.selection.logical->length == 0);
+  REQUIRE(first.selection.physical_spans.size() == 1);
+  REQUIRE(first.selection.physical_spans[0].offset == 13);
+  REQUIRE(first.selection.physical_spans[0].length == 0);
+}
+
+TEST_CASE("Consecutive end-of-block facts attribute to their own blocks",
+          "[analysis-engine][wp602f]") {
+  QueryFixture fixture;
+  fixture.bytes = empty_middle_block_png();
+  fixture.source = std::make_shared<MemoryByteSource>(fixture.bytes);
+  fixture.chunks = index_chunks(*fixture.source);
+  fixture.stages = std::make_shared<const StageSet>(
+      pnga::analysis_engine::analyze_source(*fixture.source));
+  VirtualIDATStream stream(fixture.chunks);
+  IdatByteSource logical(stream, *fixture.source);
+  fixture.blocks = index_blocks(logical, 1u << 22);
+  REQUIRE(fixture.blocks.success);
+  // The middle block is empty: zero-width inflated output.
+  REQUIRE(fixture.blocks.blocks.size() == 3);
+  REQUIRE(fixture.blocks.blocks[1].output_begin ==
+          fixture.blocks.blocks[1].output_end);
+
+  // first end-of-block: block 0's, deflate bits [11,18).
+  const auto first = query_statistics_occurrence(
+      *fixture.source, fixture.chunks, fixture.stages.get(), &fixture.blocks,
+      make_request(StatisticsBucketDomain::kTokenKind, "eob"), nullptr);
+  REQUIRE(first.status == OccurrenceStatus::kReady);
+  REQUIRE(first.selection.logical.has_value());
+  REQUIRE(first.selection.logical->start == 3);
+  REQUIRE(first.selection.logical->length == 2);
+  REQUIRE(first.selection.physical_spans ==
+          expected_physical_spans(fixture.chunks,
+                                  fixture.blocks.zlib_header_bits, 11, 18));
+
+  // previous before output 2: the EMPTY middle block's end-of-block. Its
+  // bits are [21,28), not block 0's [11,18).
+  const auto previous = query_statistics_occurrence(
+      *fixture.source, fixture.chunks, fixture.stages.get(), &fixture.blocks,
+      make_request(StatisticsBucketDomain::kTokenKind, "eob",
+                   OccurrenceDirection::kPrevious, 2),
+      nullptr);
+  REQUIRE(previous.status == OccurrenceStatus::kReady);
+  REQUIRE(previous.selection.logical.has_value());
+  REQUIRE(previous.selection.logical->start == 4);
+  REQUIRE(previous.selection.logical->length == 2);
+  REQUIRE(previous.selection.physical_spans ==
+          expected_physical_spans(fixture.chunks,
+                                  fixture.blocks.zlib_header_bits, 21, 28));
+
+  // next after output 1: the final block's end-of-block at output 2.
+  const auto next = query_statistics_occurrence(
+      *fixture.source, fixture.chunks, fixture.stages.get(), &fixture.blocks,
+      make_request(StatisticsBucketDomain::kTokenKind, "eob",
+                   OccurrenceDirection::kNext, 1),
+      nullptr);
+  REQUIRE(next.status == OccurrenceStatus::kReady);
+  REQUIRE(next.selection.logical.has_value());
+  REQUIRE(next.selection.logical->start == 6);
+  REQUIRE(next.selection.logical->length == 2);
+  REQUIRE(next.selection.physical_spans ==
+          expected_physical_spans(fixture.chunks,
+                                  fixture.blocks.zlib_header_bits, 39, 46));
+
+  // A literal after the empty block still anchors to its own block.
+  const auto literal = query_statistics_occurrence(
+      *fixture.source, fixture.chunks, fixture.stages.get(), &fixture.blocks,
+      make_request(StatisticsBucketDomain::kTokenKind, "literal",
+                   OccurrenceDirection::kNext, 0),
+      nullptr);
+  REQUIRE(literal.status == OccurrenceStatus::kReady);
+  REQUIRE(literal.selection.logical.has_value());
+  REQUIRE(literal.selection.logical->start == 5);
+  REQUIRE(literal.selection.logical->length == 2);
+}
+
+TEST_CASE("Previous occurrence scans report a partial when the budget "
+          "stops before the cursor",
+          "[analysis-engine][wp602f]") {
+  std::vector<std::byte> many = wide_stored_png(5'000, 1);
+  QueryFixture fixture;
+  fixture.bytes = std::move(many);
+  fixture.source = std::make_shared<MemoryByteSource>(fixture.bytes);
+  fixture.chunks = index_chunks(*fixture.source);
+  fixture.stages = std::make_shared<const StageSet>(
+      pnga::analysis_engine::analyze_source(*fixture.source));
+  VirtualIDATStream stream(fixture.chunks);
+  IdatByteSource logical(stream, *fixture.source);
+  fixture.blocks = index_blocks(logical, 1u << 22);
+  REQUIRE(fixture.blocks.success);
+
+  // The 4,096-token budget stops far before the cursor: a match inside the
+  // searched prefix is not the nearest previous occurrence, so the honest
+  // answer is the searched-range partial.
+  const auto partial = query_statistics_occurrence(
+      *fixture.source, fixture.chunks, fixture.stages.get(), &fixture.blocks,
+      make_request(StatisticsBucketDomain::kTokenKind, "literal",
+                   OccurrenceDirection::kPrevious, 10'000'000),
+      nullptr);
+  REQUIRE(partial.status == OccurrenceStatus::kPartial);
+  REQUIRE(partial.generation == 5);
+  REQUIRE(partial.searched_tokens == 4096);
+  REQUIRE(partial.selection.empty());
+  REQUIRE_FALSE(partial.error.empty());
+
+  // When the budget stops after the cursor was reached, the last match
+  // before the cursor is the true nearest previous occurrence.
+  const auto ready = query_statistics_occurrence(
+      *fixture.source, fixture.chunks, fixture.stages.get(), &fixture.blocks,
+      make_request(StatisticsBucketDomain::kTokenKind, "literal",
+                   OccurrenceDirection::kPrevious, 4'000),
+      nullptr);
+  REQUIRE(ready.status == OccurrenceStatus::kReady);
+  REQUIRE(ready.selection.logical.has_value());
+  // Stored literal 3999: deflate bits [40+8*3999, 48+8*3999), i.e.
+  // IDAT-logical bytes [4006, 4007).
+  REQUIRE(ready.selection.logical->start == 4006);
+  REQUIRE(ready.selection.logical->length == 1);
+  REQUIRE(ready.selection.physical_spans ==
+          expected_physical_spans(fixture.chunks,
+                                  fixture.blocks.zlib_header_bits,
+                                  40 + 8 * 3999, 48 + 8 * 3999));
+
+  // The end-of-block budget path: the only end-of-block lives beyond the
+  // token budget, so the scan stops with the searched-range partial.
+  const auto eob_partial = query_statistics_occurrence(
+      *fixture.source, fixture.chunks, fixture.stages.get(), &fixture.blocks,
+      make_request(StatisticsBucketDomain::kTokenKind, "eob"), nullptr);
+  REQUIRE(eob_partial.status == OccurrenceStatus::kPartial);
+  REQUIRE(eob_partial.searched_tokens == 4096);
+  REQUIRE(eob_partial.selection.empty());
 }

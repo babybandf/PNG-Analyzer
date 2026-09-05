@@ -390,6 +390,14 @@ StatisticsOccurrenceResult run_token_occurrence(
   VirtualIDATStream stream(chunks);
   VirtualIdatByteSource logical(stream, source);
 
+  // The block index carries the zlib wrapper origin (16 bits for PNG's
+  // non-FDICT streams, the value the scalar scan enforces). Token fact
+  // widths are DEFLATE-relative and are translated with it; the constant
+  // below is only the fallback for an index without a wrapper origin.
+  const std::uint64_t wrapper_bits = blocks.zlib_header_bits != 0
+                                         ? blocks.zlib_header_bits
+                                         : kZlibWrapperBits;
+
   // Observer state: the block cursor advances with the absolute output
   // offsets (blocks tile the inflated output), the width counter sums token
   // widths inside the current block, and the anchor holds the current
@@ -401,19 +409,15 @@ StatisticsOccurrenceResult run_token_occurrence(
   std::uint64_t width_in_block = 0;
   bool anchor_known = false;
   std::uint64_t anchor_bit = 0;
-
-  const auto deflate_begin_of = [&](const pnga::deflate_index::DeflateBlock&
-                                        block) {
-    return block.input_bit_begin - kZlibWrapperBits;
-  };
+  bool overflow = false;
 
   const auto compute_anchor = [&](const pnga::deflate_index::DeflateBlock&
                                       block) {
     anchor_known = false;
-    if (block.input_bit_begin < kZlibWrapperBits) {
+    if (block.input_bit_begin < wrapper_bits) {
       return;
     }
-    const std::uint64_t begin = deflate_begin_of(block);
+    const std::uint64_t begin = block.input_bit_begin - wrapper_bits;
     switch (block.type) {
       case BlockType::kFixed:
         anchor_bit = begin + 3;
@@ -439,8 +443,12 @@ StatisticsOccurrenceResult run_token_occurrence(
                              std::uint64_t total_token_width) {
     // header width = block width - summed token widths; the anchor is the
     // DEFLATE-relative block start plus the header width.
-    const std::uint64_t begin = deflate_begin_of(block);
-    const std::uint64_t block_width = block.input_bit_end - block.input_bit_begin;
+    if (block.input_bit_begin < wrapper_bits) {
+      return;
+    }
+    const std::uint64_t begin = block.input_bit_begin - wrapper_bits;
+    const std::uint64_t block_width =
+        block.input_bit_end - block.input_bit_begin;
     if (block_width < total_token_width) {
       return;
     }
@@ -448,8 +456,16 @@ StatisticsOccurrenceResult run_token_occurrence(
     anchor_known = true;
     if (best.found && !best.exact &&
         best.block_ordinal == block_ordinal) {
-      best.deflate_begin = anchor_bit + best.width_before_in_block;
-      best.deflate_end = best.deflate_begin + best.match_width;
+      std::uint64_t match_begin = 0;
+      std::uint64_t match_end = 0;
+      if (!checked_add(anchor_bit, best.width_before_in_block,
+                       &match_begin) ||
+          !checked_add(match_begin, best.match_width, &match_end)) {
+        overflow = true;
+        return;
+      }
+      best.deflate_begin = match_begin;
+      best.deflate_end = match_end;
       best.exact = true;
     }
   };
@@ -466,20 +482,7 @@ StatisticsOccurrenceResult run_token_occurrence(
     std::uint64_t deflate_begin = 0;
     std::uint64_t deflate_end = 0;
     bool exact = false;
-    if (fact.kind == pnga::deflate_trace::TokenKind::kEndOfBlock) {
-      // The EOB is the current block's last token: it pins the block end
-      // exactly and recovers the block's anchor.
-      const pnga::deflate_index::DeflateBlock& block =
-          blocks.blocks[block_ordinal];
-      const std::uint64_t end = deflate_begin_of(block) +
-                                (block.input_bit_end - block.input_bit_begin);
-      if (fact.input_bits <= end) {
-        deflate_begin = end - fact.input_bits;
-        deflate_end = end;
-        exact = true;
-      }
-      retro_fix(block, width_in_block + fact.input_bits);
-    } else {
+    if (fact.kind != pnga::deflate_trace::TokenKind::kEndOfBlock) {
       // Advance the block cursor; blocks tile the inflated output.
       while (block_ordinal + 1 < blocks.blocks.size() &&
              fact.output_begin >=
@@ -489,8 +492,13 @@ StatisticsOccurrenceResult run_token_occurrence(
         compute_anchor(blocks.blocks[block_ordinal]);
       }
       if (anchor_known) {
-        deflate_begin = anchor_bit + width_in_block;
-        deflate_end = deflate_begin + fact.input_bits;
+        std::uint64_t begin = 0;
+        if (!checked_add(anchor_bit, width_in_block, &begin) ||
+            !checked_add(begin, fact.input_bits, &deflate_end)) {
+          overflow = true;
+          return false;
+        }
+        deflate_begin = begin;
         exact = true;
       }
     }
@@ -526,8 +534,37 @@ StatisticsOccurrenceResult run_token_occurrence(
         best.match_width = fact.input_bits;
       }
     }
-    width_in_block =
-        width_in_block + fact.input_bits;  // bounded by the block width
+
+    // Width accounting and block-cursor advancement. The EOB belongs to
+    // the block being decoded; the NEXT fact belongs to the next block, so
+    // the cursor advances here — empty blocks emit consecutive EOB facts
+    // at the same output offset and would otherwise be misattributed to
+    // the previous block.
+    std::uint64_t total_width = 0;
+    if (!checked_add(width_in_block, fact.input_bits, &total_width)) {
+      overflow = true;
+      return false;
+    }
+    if (fact.kind == pnga::deflate_trace::TokenKind::kEndOfBlock) {
+      // The EOB is the current block's last token: retro_fix recovers this
+      // block's anchor from the summed token widths (which pins any EOB
+      // match to end - width) and the cursor then advances so the NEXT
+      // fact belongs to the next block. Empty blocks emit consecutive EOB
+      // facts at the same output offset and would otherwise be
+      // misattributed to the previous block.
+      const pnga::deflate_index::DeflateBlock& block =
+          blocks.blocks[block_ordinal];
+      retro_fix(block, total_width);
+      if (block_ordinal + 1 < blocks.blocks.size()) {
+        ++block_ordinal;
+        width_in_block = 0;
+        compute_anchor(blocks.blocks[block_ordinal]);
+      } else {
+        width_in_block = total_width;
+      }
+    } else {
+      width_in_block = total_width;
+    }
 
     // first/next stop as soon as the recorded match carries exact input
     // bits (immediately for anchored blocks, at the block's EOB otherwise);
@@ -542,7 +579,11 @@ StatisticsOccurrenceResult run_token_occurrence(
   const pnga::deflate_trace::TokenScanResult scan =
       pnga::deflate_trace::scan_tokens(logical, options);
   result.searched_tokens = scan.token_count;
-  result.searched_input_bytes = (scan.input_bits + 7) / 8;
+  std::uint64_t rounded_input = 0;
+  if (!checked_add(scan.input_bits, 7, &rounded_input)) {
+    return make_error(generation, "occurrence token accounting overflow");
+  }
+  result.searched_input_bytes = rounded_input / 8;
 
   if (scan.status == pnga::deflate_trace::TokenScanStatus::kCancelled ||
       cancelled()) {
@@ -550,15 +591,47 @@ StatisticsOccurrenceResult run_token_occurrence(
     result.error = "occurrence scan cancelled";
     return result;
   }
+  if (overflow) {
+    return make_error(generation, "occurrence token accounting overflow");
+  }
+  if (best.found && request.direction == OccurrenceDirection::kPrevious &&
+      request.after_output_offset.has_value() &&
+      scan.status == pnga::deflate_trace::TokenScanStatus::kBudgetExceeded &&
+      scan.output_bytes < *request.after_output_offset) {
+    // The budget stopped the scan before it reached the cursor: the last
+    // match inside the searched prefix is not necessarily the nearest one
+    // before the cursor, so the honest answer is the searched-range partial.
+    result.status = OccurrenceStatus::kPartial;
+    result.error = "occurrence scan reached the occurrence budget before "
+                   "the cursor";
+    return result;
+  }
   if (best.found) {
     // A recorded match is verified-prefix evidence; build the typed
     // selection with every cross-IDAT physical span.
     Selection& selection = result.selection;
     selection.stage = Stage::kTrace;
+    std::uint64_t logical_begin = 0;
+    std::uint64_t logical_end = 0;
+    if (best.exact && best.deflate_begin == best.deflate_end) {
+      // Zero-width occurrence (a stored block's boundary EOB): honest
+      // kReady at the exact boundary byte, consuming no input bytes.
+      if (!checked_add(wrapper_bits, best.deflate_begin, &logical_begin)) {
+        return make_error(generation, "occurrence token accounting overflow");
+      }
+      selection.physical_spans.push_back(
+          BitSpan{logical_begin / 8, 0, 0, false});
+      selection.logical = StreamSpan{logical_begin / 8, 0};
+      result.status = OccurrenceStatus::kReady;
+      return result;
+    }
     std::string error;
     if (best.exact) {
-      if (!map_logical_bits(stream, kZlibWrapperBits + best.deflate_begin,
-                            kZlibWrapperBits + best.deflate_end, &selection,
+      if (!checked_add(wrapper_bits, best.deflate_begin, &logical_begin) ||
+          !checked_add(wrapper_bits, best.deflate_end, &logical_end)) {
+        return make_error(generation, "occurrence token accounting overflow");
+      }
+      if (!map_logical_bits(stream, logical_begin, logical_end, &selection,
                             &error)) {
         return make_error(generation, error);
       }

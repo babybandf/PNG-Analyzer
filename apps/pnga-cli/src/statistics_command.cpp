@@ -85,15 +85,23 @@ std::optional<StatisticsArguments> parse_statistics_arguments(
     if (arg.rfind("--format", 0) == 0 &&
         (arg.size() == 8 || arg[8] == '=')) {
       std::string_view value;
-      if (arg.size() > 9 && arg[8] == '=') {
-        value = arg.substr(9);
-      } else if (i + 1 < argc) {
-        value = argv[++i];
-      } else {
+      if (arg.size() == 9 && arg[8] == '=') {
         std::fprintf(err,
                      "pnga statistics: --format requires a value "
                      "(json or csv)\n");
         return std::nullopt;
+      }
+      if (arg.size() > 9 && arg[8] == '=') {
+        value = arg.substr(9);
+      } else if (arg.size() == 8) {
+        if (i + 1 < argc) {
+          value = argv[++i];
+        } else {
+          std::fprintf(err,
+                       "pnga statistics: --format requires a value "
+                       "(json or csv)\n");
+          return std::nullopt;
+        }
       }
       if (parsed.has_format) {
         std::fprintf(err, "pnga statistics: --format given more than once\n");

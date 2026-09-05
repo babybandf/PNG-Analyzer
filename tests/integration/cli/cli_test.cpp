@@ -428,6 +428,8 @@ TEST_CASE("pnga statistics rejects argument and format errors with exit 2",
   REQUIRE(run(quote(path.string())).exit_code == 2);
   // Missing --format value.
   REQUIRE(run(quote(path.string()) + " --format").exit_code == 2);
+  // Empty --format= value.
+  REQUIRE(run(quote(path.string()) + " --format=").exit_code == 2);
   // Unknown --format value.
   REQUIRE(run(quote(path.string()) + " --format xml").exit_code == 2);
   // Duplicate --format.
