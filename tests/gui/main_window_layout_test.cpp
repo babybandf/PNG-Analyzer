@@ -47,6 +47,7 @@ class MainWindowLayoutTest : public QObject {
   void workspaceV1MigratesStablePages();
   void corruptSettingsFallBackToDefaults();
   void resetLayoutRestoresDefaultsWithoutFileState();
+  void resetLayoutRedocksDraggedInspectorInNormativeArea();
   void coordinateInteractionUsesToolbarAndKeyboard();
   void coordinateToolbarScrollsLocallyWhenInspectorIsNarrow();
   void inspectorSwitchesKeepColumnWidths();
@@ -279,6 +280,96 @@ void MainWindowLayoutTest::resetLayoutRestoresDefaultsWithoutFileState() {
   QCOMPARE(window.dockWidgetArea(inspector_dock), Qt::RightDockWidgetArea);
   QVERIFY(chunks->isVisible());
   QVERIFY(inspector_dock->isVisible());
+}
+
+void MainWindowLayoutTest::resetLayoutRedocksDraggedInspectorInNormativeArea() {
+  // Product-owner repro: the Inspector starts docked in its normative area
+  // and is then dragged by its title bar with Qt's dock drag machinery
+  // (not setFloating()) and released over the center of the image viewport.
+  // Reset Layout must restore the normative topology regardless of that drag.
+  const auto rect_text = [](const QRect& rect) {
+    return QStringLiteral("(%1,%2 %3x%4)")
+        .arg(rect.x())
+        .arg(rect.y())
+        .arg(rect.width())
+        .arg(rect.height());
+  };
+  MainWindow window;
+  window.resize(1200, 760);
+  window.show();
+  QCoreApplication::processEvents();
+  auto* inspector_dock =
+      window.findChild<QDockWidget*>(QStringLiteral("inspectorDock"));
+  auto* image = window.findChild<pnga::ui::qt::DeliveredImageView*>();
+  QVERIFY(inspector_dock != nullptr);
+  QVERIFY(image != nullptr);
+  QVERIFY(!inspector_dock->isFloating());
+  QCOMPARE(window.dockWidgetArea(inspector_dock), Qt::RightDockWidgetArea);
+
+  const QPoint press_global =
+      inspector_dock->mapToGlobal(QPoint(inspector_dock->rect().center().x(),
+                                         9));
+  const QPoint release_global = image->mapToGlobal(image->rect().center());
+  constexpr int kSteps = 12;
+  const auto send_mouse = [&](QEvent::Type type, const QPoint& global_pos,
+                              Qt::MouseButtons buttons) {
+    QMouseEvent event(type,
+                      QPointF(inspector_dock->mapFromGlobal(global_pos)),
+                      QPointF(global_pos), Qt::LeftButton, buttons,
+                      Qt::NoModifier);
+    QCoreApplication::sendEvent(inspector_dock, &event);
+    QCoreApplication::processEvents();
+  };
+  send_mouse(QEvent::MouseButtonPress, press_global, Qt::LeftButton);
+  for (int step = 1; step <= kSteps; ++step) {
+    send_mouse(QEvent::MouseMove,
+               press_global + (release_global - press_global) * step / kSteps,
+               Qt::LeftButton);
+  }
+  send_mouse(QEvent::MouseButtonRelease, release_global, Qt::NoButton);
+  QCoreApplication::processEvents();
+
+  // The drag machinery leaves the Inspector floating over the release point
+  // (the reported pre-reset state; observed on offscreen and native runs).
+  QVERIFY(inspector_dock->isFloating());
+
+  QAction* reset = nullptr;
+  for (QAction* action : window.menuBar()->actions()) {
+    if (action->menu() != nullptr &&
+        action->menu()->title() == QStringLiteral("&View")) {
+      for (QAction* child : action->menu()->actions()) {
+        if (child->text() == QStringLiteral("&Reset Layout")) {
+          reset = child;
+        }
+      }
+    }
+  }
+  QVERIFY(reset != nullptr);
+  reset->trigger();
+  QCoreApplication::processEvents();
+
+  // Frozen layout contract (flow-ui §14/§20): after Reset Layout the
+  // Inspector is docked again in the right dock area, visible, spanning the
+  // right side of the window with the normative width bounds — never at the
+  // dragged position.
+  QVERIFY2(!inspector_dock->isFloating(),
+           qPrintable(QStringLiteral("still floating at %1")
+                          .arg(rect_text(inspector_dock->geometry()))));
+  QCOMPARE(window.dockWidgetArea(inspector_dock), Qt::RightDockWidgetArea);
+  QVERIFY(inspector_dock->isVisible());
+  const QRect dock_geometry = inspector_dock->geometry();
+  QVERIFY2(dock_geometry.center().x() > window.width() / 2,
+           qPrintable(QStringLiteral("dock geometry %1 in window width %2")
+                          .arg(rect_text(dock_geometry))
+                          .arg(window.width())));
+  QVERIFY2(inspector_dock->width() >= inspector_dock->minimumWidth(),
+           qPrintable(QStringLiteral("dock width %1 < minimum %2")
+                          .arg(inspector_dock->width())
+                          .arg(inspector_dock->minimumWidth())));
+  QVERIFY2(inspector_dock->height() >= window.height() / 2,
+           qPrintable(QStringLiteral("dock height %1 vs window height %2")
+                          .arg(inspector_dock->height())
+                          .arg(window.height())));
 }
 
 void MainWindowLayoutTest::coordinateInteractionUsesToolbarAndKeyboard() {
