@@ -22,6 +22,8 @@ add_executable(pnga_analysis_engine_tests
   trace_inspector_state_test.cpp
   statistics_adapter_test.cpp
   statistics_collector_test.cpp
+  statistics_occurrence_query_test.cpp
+  statistics_view_test.cpp
 )
 target_link_libraries(pnga_analysis_engine_tests PRIVATE
   pnga::analysis_engine
