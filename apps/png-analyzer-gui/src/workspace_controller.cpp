@@ -12,6 +12,7 @@
 #include <QAction>
 #include <QCheckBox>
 #include <QDir>
+#include <QEvent>
 #include <QFileInfo>
 #include <QMetaObject>
 #include <QMenu>
@@ -97,6 +98,44 @@ int migrateInspectorIndexV1(int index) {
   return index == 2 ? 1 : 0;
 }
 
+// A floating dock keeps the main window layout frozen until something clears
+// QMainWindowLayout::savedState; Qt's title-bar double-click would then plug
+// the dock in place at its dragged position. The filter re-docks through the
+// same path Reset Layout uses: plug the dock, pin it to the area its
+// placeholder still bookkeeps (the previous dock position) and normalize the
+// frozen drag state so the layout geometry is applied. Consuming the event
+// keeps Qt's default double-click handler from plugging again. Both the
+// client-area and the native non-client-area event are handled: macOS
+// generates the latter for the floating title bar.
+class DockTitleBarFilter final : public QObject {
+ public:
+  DockTitleBarFilter(QMainWindow& window, WorkspaceController& controller,
+                     QObject* parent)
+      : QObject(parent), window_(window), controller_(controller) {}
+
+  bool eventFilter(QObject* watched, QEvent* event) override {
+    if (event->type() == QEvent::MouseButtonDblClick ||
+        event->type() == QEvent::NonClientAreaMouseButtonDblClick) {
+      auto* dock = qobject_cast<QDockWidget*>(watched);
+      if (dock != nullptr && dock->isFloating()) {
+        const Qt::DockWidgetArea previous_area = window_.dockWidgetArea(dock);
+        dock->setFloating(false);
+        if (previous_area != Qt::NoDockWidgetArea) {
+          window_.addDockWidget(previous_area, dock);
+        }
+        controller_.normalize_frozen_dock_state();
+        event->accept();
+        return true;
+      }
+    }
+    return QObject::eventFilter(watched, event);
+  }
+
+ private:
+  QMainWindow& window_;
+  WorkspaceController& controller_;
+};
+
 }  // namespace
 
 WorkspaceController::WorkspaceController(QMainWindow& window,
@@ -104,7 +143,12 @@ WorkspaceController::WorkspaceController(QMainWindow& window,
                                          OpenRecentFile open_recent_file)
     : window_(window),
       w_(widgets),
-      open_recent_file_(std::move(open_recent_file)) {}
+      open_recent_file_(std::move(open_recent_file)) {
+  auto* dock_title_bar_filter =
+      new DockTitleBarFilter(window, *this, &window);
+  w_.chunks_dock->installEventFilter(dock_title_bar_filter);
+  w_.inspector_dock->installEventFilter(dock_title_bar_filter);
+}
 
 void WorkspaceController::normalize_frozen_dock_state() {
   window_.restoreState(window_.saveState());
