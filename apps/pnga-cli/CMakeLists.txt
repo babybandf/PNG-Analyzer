@@ -5,6 +5,7 @@
 add_executable(pnga_cli
   src/main.cpp
   src/report.cpp
+  src/statistics_command.cpp
 )
 set_target_properties(pnga_cli PROPERTIES OUTPUT_NAME pnga)
 target_link_libraries(pnga_cli PRIVATE
@@ -12,5 +13,6 @@ target_link_libraries(pnga_cli PRIVATE
   pnga::io
   pnga::png_format
   pnga::analysis_engine
+  pnga::statistics
 )
 target_compile_features(pnga_cli PRIVATE cxx_std_20)

@@ -37,12 +37,25 @@ changes preserve the compatible image selection.
 pnga --version
 pnga inspect image.png --json
 pnga validate image.png --json
+pnga statistics image.png --format json
+pnga statistics image.png --format csv
 ```
 
 `inspect` reports the physical Chunk envelope and remains useful when later
 semantic validation fails. `validate` composes structural, integrity,
 semantic, resource and zlib preflight rules. JSON field order, issue ids,
 messages, offsets and spec references are locale-independent.
+
+`statistics` composes the whole-document report on demand and writes only
+report bytes to stdout; diagnostics go to stderr. The report uses the
+`pnga.statistics` schema (schema_version=1) with one status, completion and
+scope per section (overview, chunks, filters, blocks, tokens, lengths,
+distances). Output is UTF-8 without BOM, LF-only and ends with exactly one
+newline; identical input yields byte-identical output on every platform.
+Exit codes: `0` ready, `1` I/O failure, `2` argument or format error,
+`3` validation issues with usable statistics, `4` partial, cancelled or
+budget-limited statistics. A partial report still contains the verified
+rows collected before the limit was reached.
 
 ## Understanding stages and trace
 

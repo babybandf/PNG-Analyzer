@@ -17,6 +17,7 @@
 #include <system_error>
 
 #include "report.h"
+#include "statistics_command.h"
 
 namespace {
 
@@ -56,10 +57,20 @@ void print_usage(FILE* out) {
                "  pnga --version           print version and exit\n"
                "  pnga inspect <file>      dump the physical Chunk tree\n"
                "  pnga validate <file>     report structural issues\n"
+               "  pnga statistics <file> --format json|csv\n"
+               "                           whole-document statistics report\n"
+               "                           (schema pnga.statistics "
+               "schema_version=1)\n"
                "options:\n"
                "  --json                   deterministic JSON output\n"
                "exit codes:\n"
-               "  0 ok; 1 cannot read file; 2 format error; 3 validation issues\n");
+               "  0 ok; 1 cannot read file; 2 format error; 3 validation "
+               "issues\n"
+               "statistics exit codes:\n"
+               "  0 ready; 1 I/O failure; 2 argument or format error;\n"
+               "  3 validation issues with usable statistics; 4 partial, "
+               "cancelled\n"
+               "  or budget-limited statistics (see: pnga statistics --help)\n");
 }
 
 bool has_flag(int argc, char** argv, const char* flag) {
@@ -150,6 +161,9 @@ int main(int argc, char** argv) {
   }
   if (std::strcmp(cmd, "validate") == 0) {
     return run_analyze_command(argc, argv, /*validate=*/true);
+  }
+  if (std::strcmp(cmd, "statistics") == 0) {
+    return pnga::cli::run_statistics_command_line(argc, argv, stdout, stderr);
   }
 
   std::fprintf(stderr, "pnga: unknown command '%s'\n", cmd);
