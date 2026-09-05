@@ -69,13 +69,21 @@ void drag_dock_title_to(QDockWidget* dock, const QPoint& release_global) {
 // A floating dock uses native window decorations (wmSupportsNativeWindowDeco
 // is true offscreen, as on macOS), so a real title-bar double-click arrives
 // as the non-client-area event that QDockWidget::event routes to
-// toggleTopLevel(); the client-area QTest::mouseDClick is ignored there.
-void send_dock_title_dblclick(QDockWidget* dock) {
+// toggleTopLevel(); the client-area variant is ignored there. A docked dock
+// has no native decorations, so its title-bar double-click is the
+// client-area event. QTest::mouseDClick is deliberately not used: it always
+// sends the client-area variant (ignored while floating) and its spontaneous
+// press/release pairs leave testlib mouse state that breaks the next test
+// function's QCursor-based hover synthesis.
+void send_dock_title_dblclick(QDockWidget* dock, bool floating) {
   const QPoint global =
       dock->mapToGlobal(QPoint(dock->rect().center().x(), 9));
-  QMouseEvent event(QEvent::NonClientAreaMouseButtonDblClick,
-                    QPointF(dock->mapFromGlobal(global)), QPointF(global),
-                    Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+  const QEvent::Type type = floating
+                                ? QEvent::NonClientAreaMouseButtonDblClick
+                                : QEvent::MouseButtonDblClick;
+  QMouseEvent event(type, QPointF(dock->mapFromGlobal(global)),
+                    QPointF(global), Qt::LeftButton, Qt::NoButton,
+                    Qt::NoModifier);
   QCoreApplication::sendEvent(dock, &event);
   QCoreApplication::processEvents();
 }
@@ -94,6 +102,7 @@ class MainWindowLayoutTest : public QObject {
   void resetLayoutRestoresDefaultsWithoutFileState();
   void resetLayoutRedocksDraggedInspectorInNormativeArea();
   void dockTitleDoubleClickRedocksDraggedInspector();
+  void dockTitleToggleCycleRedocksWithoutDrag();
   void coordinateInteractionUsesToolbarAndKeyboard();
   void coordinateToolbarScrollsLocallyWhenInspectorIsNarrow();
   void inspectorSwitchesKeepColumnWidths();
@@ -398,6 +407,65 @@ void MainWindowLayoutTest::resetLayoutRedocksDraggedInspectorInNormativeArea() {
                           .arg(window.height())));
 }
 
+void MainWindowLayoutTest::dockTitleToggleCycleRedocksWithoutDrag() {
+  // No-drag toggle cycle: double-clicking the docked Inspector's title bar
+  // floats it, and double-clicking the floating title bar again must re-dock
+  // it into its normative dock area — never embed it in place at the current
+  // position. Unlike the drag scenarios this cycle never enters the drag
+  // machinery, so it exercises the plain title-bar toggle path.
+  const auto rect_text = [](const QRect& rect) {
+    return QStringLiteral("(%1,%2 %3x%4)")
+        .arg(rect.x())
+        .arg(rect.y())
+        .arg(rect.width())
+        .arg(rect.height());
+  };
+  MainWindow window;
+  window.resize(1200, 760);
+  window.show();
+  QCoreApplication::processEvents();
+  auto* inspector_dock =
+      window.findChild<QDockWidget*>(QStringLiteral("inspectorDock"));
+  QVERIFY(inspector_dock != nullptr);
+  QVERIFY(!inspector_dock->isFloating());
+  QCOMPARE(window.dockWidgetArea(inspector_dock), Qt::RightDockWidgetArea);
+  const QPoint docked_global = inspector_dock->mapToGlobal(QPoint(0, 0));
+
+  // First double-click: the docked title bar is client-area (no native
+  // decorations while docked) and must float the dock near its position.
+  send_dock_title_dblclick(inspector_dock, false);
+  QVERIFY(inspector_dock->isFloating());
+  QVERIFY2((inspector_dock->mapToGlobal(QPoint(0, 0)) - docked_global)
+                   .manhattanLength() <= 100,
+           qPrintable(QStringLiteral(
+                          "floated too far from the docked position: %1")
+                          .arg(rect_text(inspector_dock->geometry()))));
+
+  // Second double-click: the floating title bar is the native non-client
+  // area (offscreen and macOS) and must re-dock the Inspector into its
+  // normative area with normative geometry — never in-place.
+  send_dock_title_dblclick(inspector_dock, true);
+
+  QVERIFY2(!inspector_dock->isFloating(),
+           qPrintable(QStringLiteral("still floating at %1")
+                          .arg(rect_text(inspector_dock->geometry()))));
+  QCOMPARE(window.dockWidgetArea(inspector_dock), Qt::RightDockWidgetArea);
+  QVERIFY(inspector_dock->isVisible());
+  const QRect dock_geometry = inspector_dock->geometry();
+  QVERIFY2(dock_geometry.center().x() > window.width() / 2,
+           qPrintable(QStringLiteral("dock geometry %1 in window width %2")
+                          .arg(rect_text(dock_geometry))
+                          .arg(window.width())));
+  QVERIFY2(inspector_dock->width() >= inspector_dock->minimumWidth(),
+           qPrintable(QStringLiteral("dock width %1 < minimum %2")
+                          .arg(inspector_dock->width())
+                          .arg(inspector_dock->minimumWidth())));
+  QVERIFY2(inspector_dock->height() >= window.height() / 2,
+           qPrintable(QStringLiteral("dock height %1 vs window height %2")
+                          .arg(inspector_dock->height())
+                          .arg(window.height())));
+}
+
 void MainWindowLayoutTest::dockTitleDoubleClickRedocksDraggedInspector() {
   // Second symptom of the frozen drag state: after dragging the Inspector
   // out, double-clicking its floating title bar must re-dock it into its
@@ -426,7 +494,7 @@ void MainWindowLayoutTest::dockTitleDoubleClickRedocksDraggedInspector() {
                      image->mapToGlobal(image->rect().center()));
   QVERIFY(inspector_dock->isFloating());
 
-  send_dock_title_dblclick(inspector_dock);
+  send_dock_title_dblclick(inspector_dock, true);
   QCoreApplication::processEvents();
 
   // The title-bar double-click re-docks the Inspector into its previous
