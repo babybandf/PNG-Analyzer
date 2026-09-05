@@ -189,6 +189,8 @@ MainWindow::MainWindow(QWidget* parent,
   widgets_.preview_tabs->installEventFilter(this);
   widgets_.hex_source_tabs->installEventFilter(this);
   widgets_.inspector_tabs->installEventFilter(this);
+  widgets_.chunks_dock->installEventFilter(this);
+  widgets_.inspector_dock->installEventFilter(this);
 
   connect(widgets_.x_spin, qOverload<int>(&QSpinBox::valueChanged), this,
           [this](int) {
@@ -276,6 +278,31 @@ void MainWindow::paintEvent(QPaintEvent* event) {
 }
 
 bool MainWindow::eventFilter(QObject* watched, QEvent* event) {
+  // A floating dock keeps the main window layout frozen until something
+  // clears QMainWindowLayout::savedState; Qt's title-bar double-click would
+  // then plug the dock in place at its dragged position. Re-dock through the
+  // same path Reset Layout uses: plug the dock, pin it to the area its
+  // placeholder still bookkeeps (the previous dock position) and normalize
+  // the frozen drag state so the layout geometry is applied. Consuming the
+  // event keeps Qt's default double-click handler from plugging again.
+  // Both the client-area and the native non-client-area event are handled:
+  // macOS generates the latter for the floating title bar.
+  if ((watched == widgets_.chunks_dock ||
+       watched == widgets_.inspector_dock) &&
+      (event->type() == QEvent::MouseButtonDblClick ||
+       event->type() == QEvent::NonClientAreaMouseButtonDblClick)) {
+    auto* dock = qobject_cast<QDockWidget*>(watched);
+    if (dock != nullptr && dock->isFloating()) {
+      const Qt::DockWidgetArea previous_area = dockWidgetArea(dock);
+      dock->setFloating(false);
+      if (previous_area != Qt::NoDockWidgetArea) {
+        addDockWidget(previous_area, dock);
+      }
+      workspace_->normalize_frozen_dock_state();
+      event->accept();
+      return true;
+    }
+  }
   if ((watched == widgets_.x_spin || watched == widgets_.y_spin || watched == widgets_.lock_check ||
        watched == widgets_.base_button || watched == widgets_.preview_tabs ||
        watched == widgets_.hex_source_tabs || watched == widgets_.inspector_tabs) &&

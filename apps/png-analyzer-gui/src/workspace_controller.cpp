@@ -106,6 +106,10 @@ WorkspaceController::WorkspaceController(QMainWindow& window,
       w_(widgets),
       open_recent_file_(std::move(open_recent_file)) {}
 
+void WorkspaceController::normalize_frozen_dock_state() {
+  window_.restoreState(window_.saveState());
+}
+
 void WorkspaceController::applyDefaults() {
   const auto preserved_locked = view_state_.locked;
   const auto preserved_hover = view_state_.hover;
@@ -113,14 +117,14 @@ void WorkspaceController::applyDefaults() {
   // setFloating(false) re-docks through Qt's plug-back path and
   // addDockWidget() pins each dock to its normative side. A dock that the
   // drag machinery left floating keeps QMainWindowLayout::savedState valid,
-  // which freezes main-window setGeometry() calls, so the saveState/
-  // restoreState round-trip below ends that frozen drag state and applies
-  // the re-docked layout geometry before the normative dimensions are set.
+  // which freezes main-window setGeometry() calls, so the normalization
+  // below ends that frozen drag state and applies the re-docked layout
+  // geometry before the normative dimensions are set.
   w_.chunks_dock->setFloating(false);
   window_.addDockWidget(Qt::LeftDockWidgetArea, w_.chunks_dock);
   w_.inspector_dock->setFloating(false);
   window_.addDockWidget(Qt::RightDockWidgetArea, w_.inspector_dock);
-  window_.restoreState(window_.saveState());
+  normalize_frozen_dock_state();
   window_.resize(1200, 760);
   w_.center_splitter->setSizes({456, 304});
   w_.chunks_splitter->setSizes({360, 180});

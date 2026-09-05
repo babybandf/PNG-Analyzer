@@ -26,6 +26,13 @@ class WorkspaceController final {
   void save() const;
   void applyDefaults();
   void configureDockInteraction();
+  // Ends the frozen drag state a dock keeps after the dock drag machinery
+  // released it floating: QMainWindowLayout::savedState stays valid, which
+  // makes QMainWindow::setGeometry() a no-op until a successful plug clears
+  // it. The public-API saveState/restoreState round-trip clears that state
+  // and re-applies the current layout, so redock paths position the dock
+  // again. Called by Reset Layout and by the dock title-bar event filter.
+  void normalize_frozen_dock_state();
   void refreshRecentFilesMenu();
   void rememberOpenedFile(const QString& path);
   void rememberLastOpenDirectory(const QString& path);
