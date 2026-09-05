@@ -1,7 +1,9 @@
 # WP-607 — Cross-platform Quality Evidence
 
-Status: **design approved; WP-607C PASS; WP-607A FAIL (closed 2026-09-05); WP-607B/D and overall WP-607 incomplete**
-(2026-09-04)
+Status: **partially complete; WP-607C PASS; WP-607A FAIL (closed with
+deferred residuals 2026-09-05); WP-607B/D deferred to the first formal
+cross-platform release gate; overall WP-607 incomplete**
+(2026-09-05)
 
 ## Goal
 
@@ -34,7 +36,9 @@ evidence record `build/evidence/wp-607c-corpus.json` (not committed), SHA-256
 `8498e1b45f6d99916b88b1bdb85b389ac83e6510981c304e28df26e84182c1c2`; full suite
 52/52 CTest entries; double generation byte-identical; fresh-build rerun
 identical. WP-5U12F must re-run `scripts/run_wp607c_corpus_gate.py` as its
-first preflight step. WP-607A/B/D and overall WP-607 remain incomplete.
+first preflight step. WP-607A is closed FAIL with deferred residuals; WP-607B/D
+are deferred to the first formal cross-platform release gate and overall
+WP-607 remains incomplete.
 
 Create deterministic generators and manifest entries for:
 
@@ -68,6 +72,14 @@ on CI). Evidence:
 `docs/evidence/wp-607a-native-gui-accessibility.md` (final status FAIL,
 §7 coverage audit, §8 named cells). WP-607C PASS is unchanged.
 
+Product disposition (2026-09-05): the dedicated copy affordance is deferred as
+low priority. Some selectable text widgets already use Qt's platform-standard
+copy behavior, but this was not verified as a uniform product capability and
+does not change M05 to PASS. VoiceOver, Ubuntu native execution and Windows
+manual/scale execution are also deferred until the corresponding product
+priority or execution environment is available. Deferral closes no evidence
+cell and does not change the recorded WP-607A final status.
+
 Run on Windows stable x64, macOS stable arm64 and Ubuntu LTS x86_64 using native
 window systems. Record File Open, `.png` drag/drop, menus/shortcuts, dock drag/
 float/reset, 100/150/200% scale where supported, keyboard-only core workflows,
@@ -80,6 +92,12 @@ Static-v1 closure may record later workflows as `out_of_scope`, never PASS.
 
 ## WP-607B — Native performance baselines
 
+Status: **DEFERRED — first formal cross-platform release gate** (2026-09-05).
+This is not a blocker for feature development. The existing WP-604 deterministic
+performance corpus and Linux CI threshold gate remain mandatory regression
+protection. Reopen WP-607B after the release feature surface is frozen and
+before claiming Windows/macOS native performance or marking WP-607 PASS.
+
 On Windows and macOS, use the frozen WP-604 corpus and record at least five cold
 and twenty warm samples for index, first preview, random row P50/P95, committed
 selection P50/P95, bounded Trace P50/P95, cache reopen and peak RSS. Background
@@ -87,6 +105,10 @@ load is documented. Fixed thresholds live in a reviewed JSON file; a regression
 requires a code fix or independent approval, not an unreviewed baseline update.
 
 ## WP-607D — Evidence audit
+
+Status: **DEFERRED with WP-607B** (2026-09-05). Run the final audit only after
+the deferred WP-607A evidence is dispositioned and WP-607B is completed or the
+WP-607 acceptance scope is formally amended.
 
 Verify all artifact hashes, matrix coverage, machine records, fixture manifest
 links and command exit statuses. Produce one summary that names missing cells,

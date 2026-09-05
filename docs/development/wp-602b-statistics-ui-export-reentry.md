@@ -1,6 +1,12 @@
 # WP-602B–H — Statistics UI, CLI and Deterministic Export Re-entry
 
-Status: **design approved; pending written-package review** (2026-09-01)
+Status: **approved and frozen for implementation** (2026-09-05)
+
+Binding review:
+`docs/development/wp-602b-h-written-package-review.md`.
+
+Implementation plan:
+`docs/superpowers/plans/2026-09-05-wp-602b-h-statistics-ui-export.md`.
 
 ## Goal
 
