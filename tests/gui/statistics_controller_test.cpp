@@ -12,6 +12,7 @@
 #include "statistics_controller.h"
 
 #include <pnga/analysis-engine/statistics_collector.h>
+#include <pnga/analysis-engine/statistics_view.h>
 #include <pnga/analysis-engine/stage_analysis.h>
 #include <pnga/io/byte_source.h>
 #include <pnga/png-format/chunk_index.h>
@@ -134,6 +135,7 @@ class StatisticsControllerTest : public QObject {
   void partialExportRemainsEnabledAndLabeled();
   void exportFailureLeavesTargetUntouched();
   void exportGateFailureGivesFeedback();
+  void midCollectionExportWritesLabeledPartial();
   void occurrencePublishesOnceAndStalePublishesNothing();
   void occurrenceSupersedeChainPublishesOnceAndSettles();
 };
@@ -516,6 +518,64 @@ void StatisticsControllerTest::exportGateFailureGivesFeedback() {
   // The rejected click must not leave a stale success message behind.
   QVERIFY(!progressLabel(widgets)->text().contains(
       QStringLiteral("Exported")));
+}
+
+void StatisticsControllerTest::midCollectionExportWritesLabeledPartial() {
+  QTemporaryFile png;
+  QVERIFY(writeFixture(png));
+
+  QMainWindow window;
+  MainWindowWidgets widgets = buildMainWindowUi(window, nullptr);
+  DocumentSession session(&window);
+  StatisticsController controller(widgets, session, &window);
+  QVERIFY(session.replace(png.fileName()));
+  session.startPrimaryWorkers();
+  widgets.inspector_tabs->setCurrentWidget(widgets.statistics_inspector);
+
+  // Drive the progress callback directly with the final-shaped result: the
+  // controller must treat it as an in-flight prefix (result_ stays null) and
+  // a mid-collection export click must write the partial report, labeled.
+  qRegisterMetaType<std::shared_ptr<
+      const pnga::analysis_engine::StatisticsCollectionResult>>();
+  auto collected = collectReference(png.fileName());
+  // The real worker stamps the session generation onto every progress
+  // result before emitting (document_session.cpp:178); mirror that here.
+  collected.generation = session.generation();
+  auto progress_result = std::make_shared<
+      const pnga::analysis_engine::StatisticsCollectionResult>(collected);
+  QMetaObject::invokeMethod(&controller, "onStatisticsProgress",
+                            Qt::DirectConnection,
+                            Q_ARG(std::uint64_t, session.generation()),
+                            Q_ARG(std::shared_ptr<
+                                      const pnga::analysis_engine::
+                                          StatisticsCollectionResult>,
+                                  progress_result));
+
+  auto* json_button =
+      inspectorButton(widgets, "statisticsExportJson");
+  QVERIFY(json_button != nullptr);
+  QVERIFY(json_button->isEnabled());
+
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString json_path = dir.filePath(QStringLiteral("midrun.json"));
+  controller.setSavePathCallback(
+      [json_path] { return json_path; });
+  json_button->click();
+
+  QFile out(json_path);
+  QVERIFY(out.open(QIODevice::ReadOnly));
+  const QByteArray bytes = out.readAll();
+  out.close();
+  const auto expected = pnga::statistics::serialize_statistics_json(
+      collected.document, collected.snapshot);
+  QVERIFY(expected.success);
+  QCOMPARE(bytes,
+           QByteArray(expected.bytes.data(),
+                      static_cast<int>(expected.bytes.size())));
+  const QString label = progressLabel(widgets)->text();
+  QVERIFY(label.contains(QStringLiteral("Exported JSON (partial)")));
+  QVERIFY(label.contains(QStringLiteral("collection is still running")));
 }
 
 QTEST_MAIN(StatisticsControllerTest)

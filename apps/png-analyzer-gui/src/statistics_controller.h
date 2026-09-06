@@ -110,6 +110,10 @@ class StatisticsController final : public QObject {
   DocumentSession& session_;
   std::shared_ptr<const pnga::analysis_engine::StatisticsCollectionResult>
       result_;
+  // Latest in-flight progress result: a mid-collection export click exports
+  // the verified prefix, labeled partial by the snapshot's own statuses.
+  std::shared_ptr<const pnga::analysis_engine::StatisticsCollectionResult>
+      last_progress_;
   // Generation of the last accepted final result; tab activation only
   // re-requests when this differs from the current document generation.
   std::uint64_t result_generation_ = 0;

@@ -191,6 +191,7 @@ void StatisticsController::onDocumentReplaced(std::uint64_t /*generation*/) {
     w_.statistics_inspector->clear();
   }
   result_.reset();
+  last_progress_.reset();
   result_generation_ = 0;
   if (occurrence_worker_ != nullptr) {
     occurrence_worker_->cancel();
@@ -250,6 +251,7 @@ void StatisticsController::onStatisticsProgress(
       result->generation != generation) {
     return;  // stale progress never overwrites the current document's view
   }
+  last_progress_ = result;
   publishResult(generation, *result);
   if (w_.statistics_inspector != nullptr) {
     w_.statistics_inspector->setProgress(
@@ -349,12 +351,18 @@ void StatisticsController::exportStatistics(int format) {
   // A gated export click must never be a silent no-op: the buttons enable on
   // the first verified section (mid-collection), so explain why the save
   // dialog did not open.
-  if (result_ == nullptr) {
+  // Mid-collection export: the latest progress result carries the verified
+  // prefix and its own document identity; the snapshot's statuses label it
+  // partial honestly (R13). With nothing collected yet, explain the refusal.
+  const pnga::analysis_engine::StatisticsCollectionResult* exportable =
+      result_ != nullptr ? result_.get() : last_progress_.get();
+  const bool partial_export = exportable != nullptr && result_ == nullptr;
+  if (exportable == nullptr) {
     w_.statistics_inspector->setProgress(QStringLiteral(
         "Export unavailable — statistics collection is still running."));
     return;
   }
-  if (!any_section_usable(result_->snapshot)) {
+  if (!any_section_usable(exportable->snapshot)) {
     w_.statistics_inspector->setProgress(QStringLiteral(
         "Export unavailable — no verified statistics section."));
     return;
@@ -377,10 +385,10 @@ void StatisticsController::exportStatistics(int format) {
   // Serialize through the sole shared serializer BEFORE opening the
   // destination; no custom Statistics serialization path exists here.
   const auto serialized =
-      json ? pnga::statistics::serialize_statistics_json(result_->document,
-                                                        result_->snapshot)
-           : pnga::statistics::serialize_statistics_csv(result_->document,
-                                                        result_->snapshot);
+      json ? pnga::statistics::serialize_statistics_json(exportable->document,
+                                                        exportable->snapshot)
+           : pnga::statistics::serialize_statistics_csv(exportable->document,
+                                                        exportable->snapshot);
   if (!serialized.success) {
     w_.statistics_inspector->setProgress(
         QStringLiteral("Export failed: %1")
@@ -401,12 +409,16 @@ void StatisticsController::exportStatistics(int format) {
         QStringLiteral("Export failed: cannot write %1").arg(path));
     return;
   }
-  // Partial output remains exportable and is labeled explicitly.
+  // Partial output remains exportable and is labeled explicitly; a
+  // mid-collection export is partial by definition and labeled as such.
   const QString target = json ? QStringLiteral("JSON") : QStringLiteral("CSV");
+  const bool partial_output = partial_export ||
+                              !exportable->snapshot.complete();
   w_.statistics_inspector->setProgress(
-      result_->snapshot.complete()
-          ? QStringLiteral("Exported %1: %2").arg(target, path)
-          : QStringLiteral("Exported %1 (partial): %2").arg(target, path));
+      partial_output
+          ? QStringLiteral("Exported %1 (partial): %2 — collection is still "
+                           "running.").arg(target, path)
+          : QStringLiteral("Exported %1: %2").arg(target, path));
 }
 
 void StatisticsController::setSavePathCallback(
