@@ -133,6 +133,7 @@ class StatisticsControllerTest : public QObject {
   void exportMatchesSharedSerializer();
   void partialExportRemainsEnabledAndLabeled();
   void exportFailureLeavesTargetUntouched();
+  void exportGateFailureGivesFeedback();
   void occurrencePublishesOnceAndStalePublishesNothing();
   void occurrenceSupersedeChainPublishesOnceAndSettles();
 };
@@ -483,6 +484,38 @@ void StatisticsControllerTest::
   QTRY_VERIFY_WITH_TIMEOUT(
       controller.findChildren<StatisticsOccurrenceWorker*>().isEmpty(),
       10000);
+}
+
+void StatisticsControllerTest::exportGateFailureGivesFeedback() {
+  QTemporaryFile png;
+  QVERIFY(writeFixture(png));
+
+  QMainWindow window;
+  MainWindowWidgets widgets = buildMainWindowUi(window, nullptr);
+  DocumentSession session(&window);
+  StatisticsController controller(widgets, session, &window);
+
+  // User-visible state: the inspector shows a usable section (export buttons
+  // enabled), but the controller holds no final result — exactly the state a
+  // mid-collection click lands in. The gated click must explain itself.
+  const auto reference = collectReference(png.fileName());
+  auto view = std::make_shared<const pnga::analysis_engine::StatisticsView>(
+      pnga::analysis_engine::build_statistics_view(1, reference.snapshot));
+  widgets.statistics_inspector->setView(std::move(view));
+  auto* json_button =
+      inspectorButton(widgets, "statisticsExportJson");
+  QVERIFY(json_button != nullptr);
+  QVERIFY(json_button->isEnabled());
+
+  controller.setSavePathCallback(
+      [] { return QString(QStringLiteral("/tmp/never-written.json")); });
+  json_button->click();
+
+  QVERIFY(progressLabel(widgets)->text().contains(
+      QStringLiteral("Export unavailable")));
+  // The rejected click must not leave a stale success message behind.
+  QVERIFY(!progressLabel(widgets)->text().contains(
+      QStringLiteral("Exported")));
 }
 
 QTEST_MAIN(StatisticsControllerTest)

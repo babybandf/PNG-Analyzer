@@ -343,9 +343,20 @@ void StatisticsController::publishResult(
 }
 
 void StatisticsController::exportStatistics(int format) {
-  if (w_.statistics_inspector == nullptr || result_ == nullptr ||
-      !any_section_usable(result_->snapshot)) {
-    // Export stays disabled until a verified section exists.
+  if (w_.statistics_inspector == nullptr) {
+    return;
+  }
+  // A gated export click must never be a silent no-op: the buttons enable on
+  // the first verified section (mid-collection), so explain why the save
+  // dialog did not open.
+  if (result_ == nullptr) {
+    w_.statistics_inspector->setProgress(QStringLiteral(
+        "Export unavailable — statistics collection is still running."));
+    return;
+  }
+  if (!any_section_usable(result_->snapshot)) {
+    w_.statistics_inspector->setProgress(QStringLiteral(
+        "Export unavailable — no verified statistics section."));
     return;
   }
   const QString path = save_path_ ? save_path_() : [&]() {
