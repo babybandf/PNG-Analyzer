@@ -13,6 +13,7 @@
 #include "pnga/ui/qt/statistics_table_model.h"
 
 #include <QHeaderView>
+#include <QHBoxLayout>
 #include <QItemSelectionModel>
 #include <QKeyEvent>
 #include <QLabel>
@@ -21,7 +22,6 @@
 #include <QTableView>
 #include <QTabWidget>
 #include <QVBoxLayout>
-#include <QGridLayout>
 
 #include <QMetaType>
 
@@ -83,11 +83,12 @@ StatisticsInspector::StatisticsInspector(QWidget* parent) : QWidget(parent) {
   layout->setContentsMargins(4, 2, 4, 2);
   layout->setSpacing(2);
 
-  // A compact two-column action grid keeps the dock's minimum width well
-  // below the narrow-Inspector contract (no button-driven horizontal
-  // growth); long rows scroll inside the tables instead.
-  auto* actions = new QGridLayout;
+  // Keep the primary actions in the requested reading order. The export row
+  // uses equal stretch factors so JSON and CSV have the same width at every
+  // Inspector size; long rows scroll inside the tables instead.
+  auto* actions = new QVBoxLayout;
   actions->setContentsMargins(0, 0, 0, 0);
+  actions->setSpacing(2);
   refresh_button_ = new QPushButton(QStringLiteral("Refresh"), this);
   refresh_button_->setObjectName(QStringLiteral("statisticsRefresh"));
   refresh_button_->setAccessibleName(QStringLiteral("Refresh statistics"));
@@ -101,16 +102,37 @@ StatisticsInspector::StatisticsInspector(QWidget* parent) : QWidget(parent) {
   export_csv_button_->setObjectName(QStringLiteral("statisticsExportCsv"));
   export_csv_button_->setAccessibleName(QStringLiteral("Export statistics CSV"));
   occurrence_button_ =
-      new QPushButton(QStringLiteral("Show occurrence"), this);
+      new QPushButton(QStringLiteral("Show in Hex"), this);
   occurrence_button_->setObjectName(QStringLiteral("statisticsShowOccurrence"));
   occurrence_button_->setAccessibleName(
-      QStringLiteral("Show statistics occurrence"));
-  actions->addWidget(refresh_button_, 0, 0);
-  actions->addWidget(cancel_button_, 0, 1);
-  actions->addWidget(export_json_button_, 1, 0);
-  actions->addWidget(export_csv_button_, 1, 1);
-  actions->addWidget(occurrence_button_, 2, 0);
-  actions->setColumnStretch(1, 1);
+      QStringLiteral("Show selected occurrence in Hex"));
+
+  // The action rows must not become the Inspector's minimum-width source.
+  // Their equal-stretch layouts still fill a normal dock, while Ignored lets
+  // the controls compress with a narrow dock instead of forcing it wider.
+  const auto allow_narrow_inspector = [](QPushButton* button) {
+    button->setMinimumWidth(0);
+    button->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+  };
+  for (QPushButton* button : {refresh_button_, occurrence_button_, cancel_button_,
+                              export_json_button_, export_csv_button_}) {
+    allow_narrow_inspector(button);
+  }
+
+  auto* primary_actions = new QHBoxLayout;
+  primary_actions->setContentsMargins(0, 0, 0, 0);
+  primary_actions->setSpacing(2);
+  primary_actions->addWidget(refresh_button_, 1);
+  primary_actions->addWidget(occurrence_button_, 1);
+  primary_actions->addWidget(cancel_button_, 1);
+  actions->addLayout(primary_actions);
+
+  auto* export_actions = new QHBoxLayout;
+  export_actions->setContentsMargins(0, 0, 0, 0);
+  export_actions->setSpacing(2);
+  export_actions->addWidget(export_json_button_, 1);
+  export_actions->addWidget(export_csv_button_, 1);
+  actions->addLayout(export_actions);
   layout->addLayout(actions);
 
   progress_label_ = new QLabel(this);
@@ -212,7 +234,7 @@ StatisticsInspector::StatisticsInspector(QWidget* parent) : QWidget(parent) {
   connect(occurrence_button_, &QPushButton::clicked, this, [this] {
     requestOccurrenceFromPage(pages_widget_->currentIndex());
   });
-  // Switching pages re-evaluates Show occurrence against that page's
+  // Switching pages re-evaluates Show in Hex against that page's
   // selection.
   connect(pages_widget_, &QTabWidget::currentChanged, this,
           [this](int) { updateOccurrenceButton(); });
@@ -222,11 +244,11 @@ StatisticsInspector::StatisticsInspector(QWidget* parent) : QWidget(parent) {
 
   // Keyboard tab order covers every action and every page table; hidden
   // tables are skipped by Qt and the visible page's table receives focus.
-  QWidget::setTabOrder(refresh_button_, cancel_button_);
+  QWidget::setTabOrder(refresh_button_, occurrence_button_);
+  QWidget::setTabOrder(occurrence_button_, cancel_button_);
   QWidget::setTabOrder(cancel_button_, export_json_button_);
   QWidget::setTabOrder(export_json_button_, export_csv_button_);
-  QWidget::setTabOrder(export_csv_button_, occurrence_button_);
-  QWidget::setTabOrder(occurrence_button_, pages_[0].table);
+  QWidget::setTabOrder(export_csv_button_, pages_[0].table);
   QWidget::setTabOrder(pages_[0].table, pages_[1].table);
   QWidget::setTabOrder(pages_[1].table, pages_[2].table);
   QWidget::setTabOrder(pages_[2].table, pages_[3].table);

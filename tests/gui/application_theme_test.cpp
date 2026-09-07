@@ -20,6 +20,7 @@ class ApplicationThemeTest final : public QObject {
   void modeSerializationIsStable();
   void settingsRoundTripUsesAppearanceKey();
   void lightAndDarkModesApplySafely();
+  void interactiveControlsExposeConsistentHoverStates();
   void systemModeTracksQtColorScheme();
 };
 
@@ -72,6 +73,20 @@ void ApplicationThemeTest::lightAndDarkModesApplySafely() {
           theme.color(ApplicationTheme::ColorToken::kAccentPressed).lightness());
   QCOMPARE(qApp->palette().color(QPalette::Window),
            QColor(QStringLiteral("#0F172A")));
+}
+
+void ApplicationThemeTest::interactiveControlsExposeConsistentHoverStates() {
+  ApplicationTheme theme(qApp);
+  QVERIFY(theme.setMode(ApplicationTheme::ThemeMode::kLight, false));
+
+  const QString stylesheet = qApp->styleSheet();
+  QVERIFY(stylesheet.contains(QStringLiteral("QPushButton:hover")));
+  QVERIFY(stylesheet.contains(QStringLiteral("QPushButton:pressed")));
+  QVERIFY(stylesheet.contains(QStringLiteral("QPushButton:disabled")));
+  QVERIFY(stylesheet.contains(QStringLiteral(
+      "QTabWidget#inspectorTabs > QTabBar::tab:hover")));
+  QVERIFY(stylesheet.contains(QStringLiteral("background: #1d4ed8")));
+  QVERIFY(stylesheet.contains(QStringLiteral("color: #ffffff")));
 }
 
 void ApplicationThemeTest::systemModeTracksQtColorScheme() {

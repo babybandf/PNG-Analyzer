@@ -30,8 +30,8 @@ QTabWidget#compressionInspectorPages > QTabBar::tab {
 QTabWidget#previewTabs > QTabBar::tab:hover,
 QTabWidget#inspectorTabs > QTabBar::tab:hover,
 QTabWidget#compressionInspectorPages > QTabBar::tab:hover {
-  background: @BASE@;
-  color: @TEXT@;
+  background: @ACCENT_HOVER@;
+  color: @ACCENT_TEXT@;
 }
 QTabWidget#previewTabs > QTabBar::tab:selected,
 QTabWidget#inspectorTabs > QTabBar::tab:selected,
@@ -59,8 +59,8 @@ QTabBar#hexSourceTabs::tab {
   margin: 2px;
 }
 QTabBar#hexSourceTabs::tab:hover {
-  background: @BASE@;
-  color: @TEXT@;
+  background: @ACCENT_HOVER@;
+  color: @ACCENT_TEXT@;
 }
 QTabBar#hexSourceTabs::tab:selected {
   background: @BASE@;
@@ -91,26 +91,31 @@ QTableWidget, QTreeView, QTextEdit {
    rules the non-hover state is painted by the native style, and switching
    renderers on hover can blank the button (observed on macOS — the label
    disappears). A complete box model keeps every state in one pipeline. */
-QPushButton#numericBase {
+QPushButton {
   background: @RAISED@;
   color: @TEXT@;
   border: 1px solid transparent;
   border-radius: 4px;
   padding: 3px 10px;
+  min-height: 24px;
+}
+QPushButton:hover {
+  background: @ACCENT_HOVER@;
+  color: @ACCENT_TEXT@;
+}
+QPushButton:pressed {
+  background: @ACCENT_PRESSED@;
+  color: @ACCENT_TEXT@;
+}
+QPushButton:disabled {
+  background: @DISABLED_SURFACE@;
+  color: @DISABLED_TEXT@;
 }
 QPushButton#numericBase:focus,
 QCheckBox#lockCoordinate:focus,
 QSpinBox#xCoordinate:focus,
 QSpinBox#yCoordinate:focus {
   border: 2px solid @FOCUS_RING@;
-}
-QPushButton#numericBase:hover {
-  background: @ACCENT_HOVER@;
-  color: @ACCENT_TEXT@;
-}
-QPushButton#numericBase:pressed {
-  background: @ACCENT_PRESSED@;
-  color: @ACCENT_TEXT@;
 }
 
 QFrame#imageZoomControls {

@@ -130,6 +130,7 @@ class StatisticsInspectorTest : public QObject {
   void readyThenPartialPublishVerifiedRows();
   void selectionPreservedByStableRowId();
   void occurrenceActionContract();
+  void actionLayoutMatchesToolbarContract();
   void actionSignalsFireOnceAndEscapeCancels();
   void keyboardTabOrderCoversActionsAndTables();
   void narrowWidthKeepsTablesScrollable();
@@ -179,10 +180,17 @@ void StatisticsInspectorTest::constructionContract() {
       const QWidget* widget = qobject_cast<const QWidget*>(object);
       if (widget != nullptr) {
         QVERIFY2(!widget->accessibleName().isEmpty(),
-                 qPrintable(name));
+             qPrintable(name));
       }
     }
   }
+
+  auto* occurrence = inspector.findChild<QPushButton*>(
+      QStringLiteral("statisticsShowOccurrence"));
+  QVERIFY(occurrence != nullptr);
+  QCOMPARE(occurrence->text(), QStringLiteral("Show in Hex"));
+  QCOMPARE(occurrence->accessibleName(),
+           QStringLiteral("Show selected occurrence in Hex"));
 
   // Page labels and their fixed order (R11): Overview | Chunks | Filters |
   // DEFLATE, and no fifth inner page.
@@ -397,6 +405,35 @@ void StatisticsInspectorTest::occurrenceActionContract() {
   QCOMPARE(requests.count(), 2);
 }
 
+void StatisticsInspectorTest::actionLayoutMatchesToolbarContract() {
+  pnga::ui::qt::StatisticsInspector inspector;
+  inspector.resize(480, 400);
+  inspector.show();
+  QVERIFY(QTest::qWaitForWindowExposed(&inspector));
+  QTest::qWait(50);
+
+  auto* refresh = inspector.findChild<QPushButton*>(
+      QStringLiteral("statisticsRefresh"));
+  auto* occurrence = inspector.findChild<QPushButton*>(
+      QStringLiteral("statisticsShowOccurrence"));
+  auto* cancel = inspector.findChild<QPushButton*>(
+      QStringLiteral("statisticsCancel"));
+  auto* export_json = inspector.findChild<QPushButton*>(
+      QStringLiteral("statisticsExportJson"));
+  auto* export_csv = inspector.findChild<QPushButton*>(
+      QStringLiteral("statisticsExportCsv"));
+  QVERIFY(refresh != nullptr && occurrence != nullptr && cancel != nullptr &&
+          export_json != nullptr && export_csv != nullptr);
+
+  QCOMPARE(refresh->y(), occurrence->y());
+  QCOMPARE(occurrence->y(), cancel->y());
+  QVERIFY(refresh->x() < occurrence->x());
+  QVERIFY(occurrence->x() < cancel->x());
+  QCOMPARE(export_json->width(), export_csv->width());
+  QCOMPARE(export_json->y(), export_csv->y());
+  QVERIFY(refresh->y() < export_json->y());
+}
+
 void StatisticsInspectorTest::actionSignalsFireOnceAndEscapeCancels() {
   pnga::ui::qt::StatisticsInspector inspector;
   // A published view with a usable section enables the export actions.
@@ -448,11 +485,14 @@ void StatisticsInspectorTest::keyboardTabOrderCoversActionsAndTables() {
       inspector.findChild<QPushButton*>(QStringLiteral("statisticsRefresh"));
   refresh->setFocus();
   QVERIFY(refresh->hasFocus());
+  QVERIFY(inspector.findChild<QPushButton*>(
+              QStringLiteral("statisticsShowOccurrence"))
+              ->isEnabled());
 
   const QStringList expected{
+      QStringLiteral("statisticsShowOccurrence"),
       QStringLiteral("statisticsCancel"), QStringLiteral("statisticsExportJson"),
-      QStringLiteral("statisticsExportCsv"), QStringLiteral("statisticsShowOccurrence"),
-      QStringLiteral("statisticsChunksTable")};
+      QStringLiteral("statisticsExportCsv"), QStringLiteral("statisticsChunksTable")};
   for (const QString& expected_name : expected) {
     QTest::keyClick(&inspector, Qt::Key_Tab);
     const QString reached = inspector.focusWidget() == nullptr

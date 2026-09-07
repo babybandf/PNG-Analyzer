@@ -252,6 +252,8 @@ QString ApplicationTheme::expandedStylesheet(bool* ok) {
       {QStringLiteral("@ACCENT_PRESSED@"), tokens_.accent_pressed},
       {QStringLiteral("@ACCENT_TEXT@"), tokens_.accent_text},
       {QStringLiteral("@FOCUS_RING@"), tokens_.focus_ring},
+      {QStringLiteral("@DISABLED_TEXT@"), tokens_.disabled_text},
+      {QStringLiteral("@DISABLED_SURFACE@"), tokens_.disabled_surface},
   };
   for (const auto& substitution : substitutions) {
     stylesheet.replace(substitution.first,

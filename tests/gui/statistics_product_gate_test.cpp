@@ -1124,8 +1124,8 @@ void StatisticsProductGateTest::inspector320KeyboardAccessibilityOccurrence() {
                .isEmpty());
 
   // Keyboard tab chains cover every action and every page table: for each
-  // current page, Refresh walks Refresh→Cancel→Export JSON→Export CSV→
-  // [Show occurrence]→the visible page table. Show occurrence participates
+  // current page, Refresh walks Refresh→[Show occurrence]→Cancel→Export
+  // JSON→Export CSV→the visible page table. Show occurrence participates
   // only when the current page has a selected navigation row (it is disabled
   // and skipped otherwise, mirroring the widget-level contract).
   auto* pages = statistics_inspector(window)
@@ -1140,12 +1140,13 @@ void StatisticsProductGateTest::inspector320KeyboardAccessibilityOccurrence() {
         statistics_table(window, page_table_names[page]));
     statistics_button(window, "statisticsRefresh")->setFocus();
     QVERIFY(statistics_button(window, "statisticsRefresh")->hasFocus());
-    QStringList expected{QStringLiteral("statisticsCancel"),
-                         QStringLiteral("statisticsExportJson"),
-                         QStringLiteral("statisticsExportCsv")};
+    QStringList expected;
     if (has_navigation) {
       expected << QStringLiteral("statisticsShowOccurrence");
     }
+    expected << QStringLiteral("statisticsCancel")
+             << QStringLiteral("statisticsExportJson")
+             << QStringLiteral("statisticsExportCsv");
     expected << QString::fromLatin1(page_table_names[page]);
     for (const QString& expected_name : expected) {
       QTest::keyClick(&window, Qt::Key_Tab);

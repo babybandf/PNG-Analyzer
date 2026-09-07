@@ -5,7 +5,7 @@
 // Overview | Chunks | Filters | DEFLATE — present the immutable Task 6 rows
 // through model-backed tables; the DEFLATE page shows Blocks/Tokens/Lengths/
 // Distances as grouped rows instead of a fifth inner page. The actions
-// Refresh, Cancel, Export JSON, Export CSV and Show occurrence emit typed
+// Refresh, Cancel, Export JSON, Export CSV and Show in Hex emit typed
 // signals only; navigation travels through the existing typed pipeline
 // (ruling R12) and the widget never parses or decodes PNG data.
 
