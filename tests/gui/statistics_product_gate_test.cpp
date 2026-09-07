@@ -745,6 +745,27 @@ void StatisticsProductGateTest::largeCollectionBoundedRetention() {
   QCOMPARE(exported,
            QByteArray(expected_json.bytes.data(),
                       static_cast<int>(expected_json.bytes.size())));
+  // The unknown-totals export contract is shared with the real CLI: the
+  // budget-limited document's JSON and CSV stdout bytes match the GUI and
+  // the shared serializer exactly (exit 4, never a falsely complete
+  // report).
+  int cli_json_exit = -1;
+  QByteArray cli_json;
+  run_cli(fixture_path(relative), "json", &cli_json_exit, &cli_json);
+  QCOMPARE(cli_json_exit, 4);
+  QCOMPARE(cli_json,
+           QByteArray(expected_json.bytes.data(),
+                      static_cast<int>(expected_json.bytes.size())));
+  int cli_csv_exit = -1;
+  QByteArray cli_csv;
+  run_cli(fixture_path(relative), "csv", &cli_csv_exit, &cli_csv);
+  QCOMPARE(cli_csv_exit, 4);
+  const auto expected_csv = pnga::statistics::serialize_statistics_csv(
+      reference.document, reference.snapshot);
+  QVERIFY(expected_csv.success);
+  QCOMPARE(cli_csv,
+           QByteArray(expected_csv.bytes.data(),
+                      static_cast<int>(expected_csv.bytes.size())));
   QJsonObject sections;
   exported_sections(exported, &sections);
   bool saw_not_ready = false;

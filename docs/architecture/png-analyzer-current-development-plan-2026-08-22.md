@@ -424,7 +424,9 @@ M5 UI Gate 通过后，按以下顺序推进：
   于 2026-09-06 实现并通过 WP-602H 收口 Gate：逐 section 状态、whole-document 流式
   Token 聚合、唯一确定性 JSON/CSV serializer、`pnga statistics` CLI、四页 Statistics
   Inspector、有界 occurrence 导航、QSaveFile 原子导出与惰性后台收集。APNG 与 Compare
-  字段仍被禁止进入 schema v1。
+  字段仍被禁止进入 schema v1。2026-09-07 质量复审发现三项缺陷（Overview 伪完整零值、
+  Block 前置扫描无实际预算与取消、Stored-EOB 物理锚点错误），H 重新打开；三项修复与
+  重新验收已于同日完成（见 re-entry 包的 quality-fix completion record），H 恢复 PASS。
 
 它们只依赖现有 trace/validation 数据，不依赖 Compare。
 
@@ -444,7 +446,8 @@ WP-5U6A～WP-5U6C、WP-600A～WP-600C、WP-603A～WP-603C、WP-604A～WP-604B、
 当前没有可在不新增架构边界的情况下直接实现的发布工作包；`WP-602A Statistics
 Engine` 的范围、接口、首版 Qt-free 实现和 immutable analysis 适配器已冻结并提交，
 `WP-602B Statistics UI & Export` 已由 WP-602B–H 重新批准、实现并通过 WP-602H Gate
-（2026-09-06，见 re-entry 包的 completion record），WP-603D 的 Ubuntu CI runtime
+（2026-09-06，见 re-entry 包的 completion record；2026-09-07 质量修复与重新验收后
+维持 PASS），WP-603D 的 Ubuntu CI runtime
 evidence 已通过，Linux performance threshold 也已接入并通过。Linux Debian 原生包
 安装/卸载 Gate 已在 CI run `32611030790` 通过并接入 Ubuntu CI；macOS/Windows
 原生 CLI 安装器 smoke 已在 CI run `32613347180` 通过，portable ZIP/TGZ 也已作为
