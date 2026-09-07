@@ -2,6 +2,7 @@
 # ADR-0003: this target must never link Qt.
 
 add_library(pnga_png_format
+  src/animation_index.cpp
   src/checksum.cpp
   src/chunk_detail.cpp
   src/chunk_index.cpp

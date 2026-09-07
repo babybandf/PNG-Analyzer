@@ -40,8 +40,15 @@ std::string ChunkNode::text() const {
 }
 
 ChunkIndex index_chunks(const pnga::io::IByteSource& source) {
+  return index_chunks(source, ChunkIndexLimits{}, {});
+}
+
+ChunkIndex index_chunks(const pnga::io::IByteSource& source,
+                        const ChunkIndexLimits& limits,
+                        const std::function<bool()>& cancelled) {
   ChunkIndex index;
   index.file_size = source.size();
+  std::uint64_t retained_bytes = 0;
 
   if (index.file_size < kPngSignature.size()) {
     index.issues.push_back(
@@ -59,7 +66,11 @@ ChunkIndex index_chunks(const pnga::io::IByteSource& source) {
 
   std::uint64_t pos = kPngSignature.size();
   while (true) {
-    if (pos + kHeaderSize > index.file_size) {
+    if (cancelled && cancelled()) {
+      index.issues.push_back({ChunkIssueKind::kCancelled, pos});
+      break;
+    }
+    if (kHeaderSize > index.file_size - pos) {
       // Leftover bytes too short for a length+type header.
       if (pos < index.file_size) {
         index.issues.push_back({ChunkIssueKind::kTruncatedHeader, pos});
@@ -84,10 +95,20 @@ ChunkIndex index_chunks(const pnga::io::IByteSource& source) {
     }
 
     const std::uint64_t crc_offset = data_offset + length;
-    if (crc_offset + kCrcSize > index.file_size) {
+    if (kCrcSize > index.file_size - crc_offset) {
       index.issues.push_back({ChunkIssueKind::kTruncatedCrc, crc_offset});
       break;
     }
+
+    if (index.chunks.size() >= limits.max_chunks ||
+        retained_bytes > limits.max_metadata_bytes -
+                              std::min(retained_bytes,
+                                       limits.max_metadata_bytes) ||
+        sizeof(ChunkNode) > limits.max_metadata_bytes - retained_bytes) {
+      index.issues.push_back({ChunkIssueKind::kResourceLimit, pos});
+      break;
+    }
+    retained_bytes += sizeof(ChunkNode);
 
     ChunkNode node;
     node.header_offset = pos;

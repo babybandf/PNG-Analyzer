@@ -9,6 +9,8 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -44,6 +46,8 @@ enum class ChunkIssueKind {
   kTruncatedData,       // declared length runs past the end of the source
   kTruncatedCrc,        // 4-byte CRC runs past the end of the source
   kTrailingBytesAfterIend,
+  kResourceLimit,
+  kCancelled,
 };
 
 struct ChunkIssue {
@@ -58,12 +62,22 @@ struct ChunkIndex {
   std::vector<ChunkIssue> issues;  // problems found while scanning
 };
 
+struct ChunkIndexLimits {
+  std::uint64_t max_chunks = std::numeric_limits<std::uint64_t>::max();
+  std::uint64_t max_metadata_bytes =
+      std::numeric_limits<std::uint64_t>::max();
+};
+
 // Scans `source` once, validates the PNG signature and builds a physical Chunk
 // envelope index (length, type, data span, CRC span) without copying any chunk
 // data. Uses checked arithmetic: a malformed or overflowing length keeps the
 // nodes parsed so far and reports an issue instead of reading past the source
 // or wrapping. Chunk bodies are not interpreted.
 ChunkIndex index_chunks(const pnga::io::IByteSource& source);
+
+ChunkIndex index_chunks(const pnga::io::IByteSource& source,
+                        const ChunkIndexLimits& limits,
+                        const std::function<bool()>& cancelled);
 
 }  // namespace pnga::png_format
 

@@ -17,6 +17,7 @@ using pnga::io::IByteSource;
 using pnga::io::MemoryByteSource;
 using pnga::png_format::ChunkIndex;
 using pnga::png_format::ChunkIssueKind;
+using pnga::png_format::ChunkIndexLimits;
 using pnga::png_format::ChunkNode;
 using pnga::png_format::index_chunks;
 
@@ -294,4 +295,30 @@ TEST_CASE("Chunk index is deterministic for identical input", "[png-format][chun
     REQUIRE(ia.chunks[i].crc_offset == ib.chunks[i].crc_offset);
     REQUIRE(ia.chunks[i].text() == ib.chunks[i].text());
   }
+}
+
+TEST_CASE("Bounded chunk index stops at its metadata limit",
+          "[png-format][apng][wp700]") {
+  auto data = png_bytes({chunk_bytes("IHDR", 13), chunk_bytes("IEND", 0)});
+  MemoryByteSource source(std::move(data));
+  ChunkIndexLimits limits;
+  limits.max_chunks = 1;
+  const auto index = index_chunks(source, limits, [] { return false; });
+
+  REQUIRE(index.chunks.size() == 1);
+  REQUIRE(has_issue(index, ChunkIssueKind::kResourceLimit));
+}
+
+TEST_CASE("Bounded chunk index stops before scanning after cancellation",
+          "[png-format][apng][wp700]") {
+  auto data = png_bytes({chunk_bytes("IHDR", 13), chunk_bytes("IEND", 0)});
+  MemoryByteSource source(std::move(data));
+  int checks = 0;
+  const auto index = index_chunks(source, ChunkIndexLimits{}, [&checks] {
+    return ++checks == 1;
+  });
+
+  REQUIRE(index.chunks.empty());
+  REQUIRE(has_issue(index, ChunkIssueKind::kCancelled));
+  REQUIRE(checks == 1);
 }
