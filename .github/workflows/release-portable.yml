@@ -35,13 +35,6 @@ jobs:
         with:
           python-version: "3.11"
 
-      # WP-607C: the corpus manifest validator runs at configure time and
-      # parses tests/corpus/manifest.yaml with PyYAML. Pinned to the same
-      # version the ci workflow installs.
-      - name: Provide PyYAML
-        shell: bash
-        run: python -m pip install PyYAML==6.0.2
-
       - name: Provide pkg-config (Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -87,6 +80,15 @@ jobs:
           version: "6.9.2"
           cache: true
           cache-key-prefix: "pnga-qt-release"
+
+      # WP-607C: the corpus manifest validator runs at configure time and
+      # parses tests/corpus/manifest.yaml with PyYAML. Pinned to the same
+      # version the ci workflow installs, and installed AFTER the Qt action:
+      # install-qt-action internally re-runs setup-python, which retargets
+      # Python3_ROOT_DIR/PATH away from the interpreter configured above.
+      - name: Provide PyYAML
+        shell: bash
+        run: python -m pip install PyYAML==6.0.2
 
       - name: Configure release
         shell: bash
