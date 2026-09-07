@@ -37,6 +37,7 @@ namespace {
 constexpr int kChunkPanelOrigin = 1;
 constexpr int kImagePanelOrigin = 2;
 constexpr int kHexPanelOrigin = 3;
+constexpr int kStatisticsPanelOrigin = 4;
 constexpr std::uint64_t kHeaderSpanLength = 8;
 constexpr std::uint64_t kCrcSpanLength = 4;
 
@@ -120,6 +121,10 @@ SelectionNavigationController::SelectionNavigationController(
       view_state_(shared_view_state != nullptr ? *shared_view_state
                                                : internal_view_state_),
       compression_store_(compression_store) {
+  if (w_.bus != nullptr) {
+    connect(w_.bus, &pnga::ui::qt::SelectionBus::selectionChanged, this,
+            &SelectionNavigationController::onSelectionChanged);
+  }
   default_pixel_status_ = QStringLiteral("No image");
   if (compression_store_ != nullptr) {
     // The controller is the single receiver of the store's navigation
@@ -229,6 +234,41 @@ void SelectionNavigationController::applyCompressionNavigation(
         }
       },
       target.logical_range);
+}
+
+void SelectionNavigationController::onSelectionChanged(
+    int origin, const pnga::trace_model::Selection& selection) {
+  if (origin != kStatisticsPanelOrigin || w_.hex == nullptr ||
+      selection.physical_spans.empty()) {
+    return;
+  }
+
+  std::vector<pnga::ui::qt::HexHighlightSpan> highlights;
+  highlights.reserve(selection.physical_spans.size());
+  std::optional<std::uint64_t> first_offset;
+  for (const auto& span : selection.physical_spans) {
+    if (span.offset > std::numeric_limits<std::uint64_t>::max() -
+                          span.length) {
+      continue;
+    }
+    if (!first_offset.has_value()) {
+      first_offset = span.offset;
+    }
+    if (span.length != 0) {
+      highlights.push_back(
+          {span.offset, span.length, QColor(0x42, 0xA5, 0xF5)});
+    }
+  }
+  if (!first_offset.has_value()) {
+    return;
+  }
+
+  // Statistics publishes physical file spans, including zero-width Stored
+  // EOB anchors. Refreshing the File source clears any previous panel
+  // highlight; navigateTo still records and reveals a zero-width anchor.
+  setHexSource(pnga::ui::qt::HexSource::kFile);
+  w_.hex->setHighlight(std::move(highlights));
+  w_.hex->navigateTo(*first_offset);
 }
 
 void SelectionNavigationController::setCompressionCurrent(

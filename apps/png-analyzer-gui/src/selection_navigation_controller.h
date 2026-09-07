@@ -97,6 +97,8 @@ class SelectionNavigationController final : public QObject {
 
  private:
   void applyChunkHexHighlight(const pnga::png_format::ChunkNode& node);
+  void onSelectionChanged(
+      int origin, const pnga::trace_model::Selection& selection);
   void updateHexSource();
   void updateNumericBaseButton();
   void setPixelStatus(int x, int y);

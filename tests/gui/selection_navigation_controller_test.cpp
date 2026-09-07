@@ -13,6 +13,7 @@
 #include <pnga/ui/qt/compression_selection_store.h>
 #include <pnga/ui/qt/hex_source_tab_bar.h>
 #include <pnga/ui/qt/hex_view.h>
+#include <pnga/ui/qt/selection_bus.h>
 
 #include <QtTest/QtTest>
 
@@ -67,6 +68,7 @@ class SelectionNavigationControllerTest : public QObject {
   void typedNavigationRoutesFileAndGates();
   void typedNavigationInflatedUsesInflatedSource();
   void compressionCurrentFlowsThroughSharedStore();
+  void statisticsSelectionRoutesZeroWidthPhysicalAnchorToHex();
   void chunkColumnsRefitOnDocumentReplaceAndPreserveWhileOpen();
 };
 
@@ -233,6 +235,30 @@ void SelectionNavigationControllerTest::compressionCurrentFlowsThroughSharedStor
   QCOMPARE(widgets.hex->currentLocation().value_or(99), std::uint64_t{0});
   QCOMPARE(widgets.hex_source_tabs->source(), pnga::ui::qt::HexSource::kFile);
   QCOMPARE(trace_requests, 0);
+}
+
+void SelectionNavigationControllerTest::
+    statisticsSelectionRoutesZeroWidthPhysicalAnchorToHex() {
+  QMainWindow window;
+  MainWindowWidgets widgets = buildMainWindowUi(window, nullptr);
+  SelectionNavigationController controller(
+      widgets, {[](const auto&) {}, [](std::uint64_t) {}});
+  auto source = make_png_source();
+  controller.setDocument(5, source, nullptr, nullptr);
+  controller.refreshHexSource();
+  widgets.bus->setDocumentGeneration(5);
+
+  QSignalSpy location_spy(widgets.hex, &pnga::ui::qt::HexView::locationChanged);
+  pnga::trace_model::Selection selection;
+  selection.stage = pnga::trace_model::Stage::kTrace;
+  selection.physical_spans = {pnga::trace_model::BitSpan{54, 0, 0, false}};
+
+  widgets.bus->publish(4, 5, selection);
+
+  QCOMPARE(location_spy.count(), 1);
+  QCOMPARE(widgets.hex_source_tabs->source(),
+           pnga::ui::qt::HexSource::kFile);
+  QCOMPARE(widgets.hex->currentLocation().value_or(99), std::uint64_t{54});
 }
 
 void SelectionNavigationControllerTest::
