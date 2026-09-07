@@ -1063,3 +1063,172 @@ TEST_CASE("Previous occurrence scans report a partial when the budget "
   REQUIRE(eob_partial.searched_tokens == 4096);
   REQUIRE(eob_partial.selection.empty());
 }
+
+// --- WP-602 quality fix: verified-prefix block indexes ----------------------
+
+namespace {
+
+// Truncates a successful index to a verified prefix the way a bounded scan
+// reports it: success=false, the first `kept` blocks and the exact stop
+// coordinates of the last verified boundary.
+pnga::deflate_index::BlockIndexResult prefix_of(
+    const pnga::deflate_index::BlockIndexResult& full, std::size_t kept) {
+  REQUIRE(full.success);
+  REQUIRE(kept >= 1);
+  REQUIRE(kept < full.blocks.size());
+  pnga::deflate_index::BlockIndexResult prefix;
+  prefix.success = false;
+  prefix.error = "block scan block budget exceeded";
+  prefix.blocks.assign(full.blocks.begin(),
+                       full.blocks.begin() + static_cast<std::ptrdiff_t>(kept));
+  prefix.zlib_header_bits = full.zlib_header_bits;
+  prefix.wrapper = full.wrapper;
+  prefix.stop_input_bit = prefix.blocks.back().input_bit_end;
+  prefix.stop_output_byte = prefix.blocks.back().output_end;
+  return prefix;
+}
+
+}  // namespace
+
+TEST_CASE("Token navigation over a verified prefix block index stays honest",
+          "[analysis-engine][wp602-quality]") {
+  QueryFixture fixture;
+  fixture.bytes = empty_middle_block_png();
+  fixture.source = std::make_shared<MemoryByteSource>(fixture.bytes);
+  fixture.chunks = index_chunks(*fixture.source);
+  fixture.stages = std::make_shared<const StageSet>(
+      pnga::analysis_engine::analyze_source(*fixture.source));
+  VirtualIDATStream stream(fixture.chunks);
+  IdatByteSource logical(stream, *fixture.source);
+  const auto full = index_blocks(logical, 1u << 22);
+  REQUIRE(full.success);
+  REQUIRE(full.blocks.size() == 3);
+  // The prefix holds blocks 0 and 1 (the empty middle block); block 2 with
+  // its literal and EOB is unindexed.
+  fixture.blocks = prefix_of(full, 2);
+  REQUIRE(fixture.blocks.stop_output_byte == 1);
+
+  // Matches inside the prefix stay exact and ready: block 0's literal spans
+  // deflate bits [3,11), i.e. logical bytes [2,4).
+  const auto first_literal = query_statistics_occurrence(
+      *fixture.source, fixture.chunks, fixture.stages.get(), &fixture.blocks,
+      make_request(StatisticsBucketDomain::kTokenKind, "literal"), nullptr);
+  REQUIRE(first_literal.status == OccurrenceStatus::kReady);
+  REQUIRE(first_literal.selection.logical->start == 2);
+
+  // The second literal lives in unindexed block 2: unknown, not not_found.
+  const auto second_literal = query_statistics_occurrence(
+      *fixture.source, fixture.chunks, fixture.stages.get(), &fixture.blocks,
+      make_request(StatisticsBucketDomain::kTokenKind, "literal",
+                   OccurrenceDirection::kNext, 0),
+      nullptr);
+  REQUIRE(second_literal.status == OccurrenceStatus::kPartial);
+  REQUIRE(second_literal.selection.empty());
+  REQUIRE(second_literal.error ==
+          "token navigation reached the verified block index prefix");
+
+  // The third EOB lives beyond the prefix: unknown, not not_found.
+  const auto third_eob = query_statistics_occurrence(
+      *fixture.source, fixture.chunks, fixture.stages.get(), &fixture.blocks,
+      make_request(StatisticsBucketDomain::kTokenKind, "eob",
+                   OccurrenceDirection::kNext, 1),
+      nullptr);
+  REQUIRE(third_eob.status == OccurrenceStatus::kPartial);
+
+  // A previous query whose cursor the scan covered is exact: block 0's
+  // literal at output 0 is the only literal candidate before output 1.
+  const auto previous_inside = query_statistics_occurrence(
+      *fixture.source, fixture.chunks, fixture.stages.get(), &fixture.blocks,
+      make_request(StatisticsBucketDomain::kTokenKind, "literal",
+                   OccurrenceDirection::kPrevious, 1),
+      nullptr);
+  REQUIRE(previous_inside.status == OccurrenceStatus::kReady);
+  REQUIRE(previous_inside.selection.logical->start == 2);
+
+  // A previous end-of-block query needs the cursor beyond the scanned
+  // prefix output (both prefix EOBs sit at output 1), so it stays partial
+  // even though prefix matches exist.
+  const auto previous_eob = query_statistics_occurrence(
+      *fixture.source, fixture.chunks, fixture.stages.get(), &fixture.blocks,
+      make_request(StatisticsBucketDomain::kTokenKind, "eob",
+                   OccurrenceDirection::kPrevious, 2),
+      nullptr);
+  REQUIRE(previous_eob.status == OccurrenceStatus::kPartial);
+}
+
+TEST_CASE("Block navigation over a verified prefix block index stays honest",
+          "[analysis-engine][wp602-quality]") {
+  QueryFixture fixture;
+  fixture.bytes = empty_middle_block_png();
+  fixture.source = std::make_shared<MemoryByteSource>(fixture.bytes);
+  fixture.chunks = index_chunks(*fixture.source);
+  fixture.stages = std::make_shared<const StageSet>(
+      pnga::analysis_engine::analyze_source(*fixture.source));
+  VirtualIDATStream stream(fixture.chunks);
+  IdatByteSource logical(stream, *fixture.source);
+  const auto full = index_blocks(logical, 1u << 22);
+  fixture.blocks = prefix_of(full, 2);
+
+  // The empty fixed block is inside the prefix: exact.
+  const auto fixed = query_statistics_occurrence(
+      *fixture.source, fixture.chunks, fixture.stages.get(), &fixture.blocks,
+      make_request(StatisticsBucketDomain::kBlockType, "fixed"), nullptr);
+  REQUIRE(fixed.status == OccurrenceStatus::kReady);
+
+  // The dynamic block lives beyond the prefix: unknown, not not_found.
+  const auto dynamic = query_statistics_occurrence(
+      *fixture.source, fixture.chunks, fixture.stages.get(), &fixture.blocks,
+      make_request(StatisticsBucketDomain::kBlockType, "dynamic"), nullptr);
+  REQUIRE(dynamic.status == OccurrenceStatus::kPartial);
+
+  // A previous query inside the prefix is exact: every block in this
+  // fixture is fixed, and the first one starts at logical byte 2.
+  const auto fixed_previous = query_statistics_occurrence(
+      *fixture.source, fixture.chunks, fixture.stages.get(), &fixture.blocks,
+      make_request(StatisticsBucketDomain::kBlockType, "fixed",
+                   OccurrenceDirection::kPrevious, 1),
+      nullptr);
+  REQUIRE(fixed_previous.status == OccurrenceStatus::kReady);
+  REQUIRE(fixed_previous.selection.logical->start == 2);
+}
+
+TEST_CASE("Filter navigation over a verified prefix block index stays honest",
+          "[analysis-engine][wp602-quality]") {
+  // Two 70,001-byte scanlines over three stored blocks; the prefix keeps
+  // only the first block (output [0, 65535)), so the second scanline maps
+  // beyond the verified output.
+  std::vector<std::byte> wide = wide_stored_png(70'000, 2);
+  QueryFixture fixture;
+  fixture.bytes = std::move(wide);
+  fixture.source = std::make_shared<MemoryByteSource>(fixture.bytes);
+  fixture.chunks = index_chunks(*fixture.source);
+  fixture.stages = std::make_shared<const StageSet>(
+      pnga::analysis_engine::analyze_source(*fixture.source));
+  REQUIRE(fixture.stages->scanlines.size() == 2);
+  VirtualIDATStream stream(fixture.chunks);
+  IdatByteSource logical(stream, *fixture.source);
+  const auto full = index_blocks(logical, 1u << 24);
+  REQUIRE(full.success);
+  REQUIRE(full.blocks.size() >= 3);
+  fixture.blocks = prefix_of(full, 1);
+
+  // Scanline 0 begins inside block 0's output: exact.
+  const auto first = query_statistics_occurrence(
+      *fixture.source, fixture.chunks, fixture.stages.get(), &fixture.blocks,
+      make_request(StatisticsBucketDomain::kFilterType, "0"), nullptr);
+  REQUIRE(first.status == OccurrenceStatus::kReady);
+  REQUIRE(first.selection.image.has_value());
+  REQUIRE(first.selection.image->row == 0);
+
+  // Scanline 1 begins at output 70,001, beyond block 0's verified output:
+  // partial, not error and not not_found.
+  const auto later = query_statistics_occurrence(
+      *fixture.source, fixture.chunks, fixture.stages.get(), &fixture.blocks,
+      make_request(StatisticsBucketDomain::kFilterType, "0",
+                   OccurrenceDirection::kNext,
+                   fixture.stages->scanlines[0].offset),
+      nullptr);
+  REQUIRE(later.status == OccurrenceStatus::kPartial);
+  REQUIRE(later.error == "filter navigation reached the verified block index "
+                         "prefix");
+}

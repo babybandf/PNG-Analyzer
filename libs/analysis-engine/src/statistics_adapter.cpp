@@ -167,10 +167,57 @@ pnga::statistics::StatisticsSnapshot collect_statistics(
   if (sources.blocks != nullptr && !cancelled_stop) {
     const auto& block_index = *sources.blocks;
     if (!block_index.success) {
-      accumulator.finish(StatisticsSectionId::kBlocks,
-                         SectionStatus::kInvalidInput, false,
-                         SectionScope::kNone,
-                         "cannot collect statistics from failed block index");
+      // A failed index still carries the blocks verified before the failure;
+      // the verified prefix stays aggregated and shown (frozen quality-fix
+      // semantics), with the section scope reflecting whether any block was
+      // verified.
+      std::size_t index = 0;
+      bool stopped = false;
+      for (const auto& block : block_index.blocks) {
+        if (cancelled(should_cancel, index++)) {
+          accumulator.finish(StatisticsSectionId::kBlocks,
+                             SectionStatus::kCancelled, false,
+                             SectionScope::kVerifiedPrefix,
+                             "statistics adaptation cancelled");
+          cancelled_stop = true;
+          stopped = true;
+          break;
+        }
+        if (block.input_bit_end < block.input_bit_begin ||
+            block.output_end < block.output_begin) {
+          accumulator.finish(StatisticsSectionId::kBlocks,
+                             SectionStatus::kInvalidInput, false,
+                             SectionScope::kVerifiedPrefix,
+                             "Deflate block range is inverted");
+          stopped = true;
+          break;
+        }
+        pnga::statistics::BlockKind kind;
+        switch (block.type) {
+          case pnga::deflate_index::BlockType::kStored:
+            kind = pnga::statistics::BlockKind::kStored;
+            break;
+          case pnga::deflate_index::BlockType::kFixed:
+            kind = pnga::statistics::BlockKind::kFixed;
+            break;
+          default:
+            kind = pnga::statistics::BlockKind::kDynamic;
+            break;
+        }
+        if (!accumulator.add(pnga::statistics::BlockSample{
+                kind, block.input_bit_end - block.input_bit_begin,
+                block.output_end - block.output_begin})) {
+          stopped = true;
+          break;
+        }
+      }
+      if (!stopped) {
+        accumulator.finish(StatisticsSectionId::kBlocks,
+                           SectionStatus::kInvalidInput, false,
+                           block_index.blocks.empty() ? SectionScope::kNone
+                                                      : SectionScope::kVerifiedPrefix,
+                           "cannot collect statistics from failed block index");
+      }
     } else if (block_index.blocks.size() > limits.max_samples) {
       accumulator.finish(StatisticsSectionId::kBlocks,
                          SectionStatus::kBudgetExceeded, false,

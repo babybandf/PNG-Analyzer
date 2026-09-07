@@ -418,3 +418,226 @@ TEST_CASE("WP-607C controlled cases index into the frozen block sequence",
     }
   }
 }
+
+// --- WP-602 quality fix: bounded, cancelable scans ---------------------------
+
+namespace {
+
+using pnga::deflate_index::BlockScanLimits;
+using pnga::deflate_index::BlockScanStop;
+using pnga::deflate_index::BoundedBlockIndexResult;
+using pnga::deflate_index::index_blocks_bounded;
+
+// Builds a zlib stream of `empty_blocks` empty stored blocks followed by one
+// final stored block carrying two raw bytes (a valid stream whose block count
+// is independent of its two-byte output).
+std::vector<std::byte> make_many_empty_stored_blocks(std::uint32_t empty_blocks) {
+  const std::array<std::byte, 2> raw = {std::byte{0}, std::byte{127}};
+  const std::uint32_t adler = static_cast<std::uint32_t>(adler32(
+      adler32(0L, Z_NULL, 0), reinterpret_cast<const Bytef*>(raw.data()),
+      static_cast<uInt>(raw.size())));
+  std::vector<std::byte> stream;
+  stream.push_back(B(0x78));
+  stream.push_back(B(0x01));
+  for (std::uint32_t i = 0; i < empty_blocks; ++i) {
+    // BFINAL=0, BTYPE=00, LEN=0, NLEN=0xFFFF.
+    stream.push_back(B(0x00));
+    stream.push_back(B(0x00));
+    stream.push_back(B(0x00));
+    stream.push_back(B(0xFF));
+    stream.push_back(B(0xFF));
+  }
+  stream.push_back(B(0x01));  // BFINAL=1, BTYPE=00
+  stream.push_back(B(0x02));  // LEN = 2
+  stream.push_back(B(0x00));
+  stream.push_back(B(0xFD));  // NLEN = ~2
+  stream.push_back(B(0xFF));
+  stream.insert(stream.end(), raw.begin(), raw.end());
+  for (const int shift : {24, 16, 8, 0}) {
+    stream.push_back(std::byte(static_cast<unsigned char>((adler >> shift) & 0xFFu)));
+  }
+  return stream;
+}
+
+// Counts reads and records the highest byte offset handed to the source, so
+// tests can verify the actual consumed input range instead of trusting the
+// declared limits.
+class CountingSource final : public IByteSource {
+ public:
+  CountingSource(const std::vector<std::byte>& bytes) : bytes_(bytes) {}
+
+  std::uint64_t size() const noexcept override { return bytes_.size(); }
+  bool read(std::uint64_t offset, std::byte* out,
+            std::size_t length) const noexcept override {
+    ++reads_;
+    const std::uint64_t end = offset + length;
+    if (end > max_read_end_) {
+      max_read_end_ = end;
+    }
+    if (cancel_after_ != 0 && reads_ >= cancel_after_) {
+      cancelled_ = true;
+    }
+    if (offset >= bytes_.size()) {
+      return length == 0;
+    }
+    const std::size_t available =
+        static_cast<std::size_t>(bytes_.size() - offset);
+    const std::size_t take = std::min(length, available);
+    std::copy(bytes_.begin() + static_cast<std::ptrdiff_t>(offset),
+              bytes_.begin() + static_cast<std::ptrdiff_t>(offset + take),
+              out);
+    return take == length;
+  }
+  std::optional<pnga::io::ByteView> view(std::uint64_t,
+                                         std::size_t) const noexcept override {
+    return std::nullopt;
+  }
+
+  std::uint64_t reads() const noexcept { return reads_; }
+  std::uint64_t max_read_end() const noexcept { return max_read_end_; }
+  void arm_cancel_after(std::uint64_t reads) { cancel_after_ = reads; }
+  bool cancel_armed() const noexcept { return cancelled_; }
+
+ private:
+  const std::vector<std::byte>& bytes_;
+  mutable std::uint64_t reads_ = 0;
+  mutable std::uint64_t max_read_end_ = 0;
+  std::uint64_t cancel_after_ = 0;
+  mutable bool cancelled_ = false;
+};
+
+}  // namespace
+
+TEST_CASE("Bounded scans complete valid streams like the frozen entry",
+          "[deflate-index][wp602-quality]") {
+  const auto raw = make_compressible(300 * 1024);
+  const auto compressed = zlib_compress(raw, 0, Z_DEFAULT_STRATEGY);
+  REQUIRE_FALSE(compressed.empty());
+  MemoryByteSource source(compressed);
+
+  BlockScanLimits limits;
+  limits.max_output_bytes = 1u << 20;
+  const BoundedBlockIndexResult bounded =
+      index_blocks_bounded(source, limits);
+  REQUIRE(bounded.stop == BlockScanStop::kComplete);
+  const BlockIndexResult frozen = index_blocks(source, 1u << 20);
+  REQUIRE(bounded.index.success == frozen.success);
+  REQUIRE(bounded.index.error == frozen.error);
+  REQUIRE(bounded.index.blocks.size() == frozen.blocks.size());
+  for (std::size_t i = 0; i < frozen.blocks.size(); ++i) {
+    REQUIRE(bounded.index.blocks[i].index == frozen.blocks[i].index);
+    REQUIRE(bounded.index.blocks[i].type == frozen.blocks[i].type);
+    REQUIRE(bounded.index.blocks[i].last == frozen.blocks[i].last);
+    REQUIRE(bounded.index.blocks[i].input_bit_begin ==
+            frozen.blocks[i].input_bit_begin);
+    REQUIRE(bounded.index.blocks[i].input_bit_end ==
+            frozen.blocks[i].input_bit_end);
+    REQUIRE(bounded.index.blocks[i].output_begin ==
+            frozen.blocks[i].output_begin);
+    REQUIRE(bounded.index.blocks[i].output_end == frozen.blocks[i].output_end);
+  }
+  REQUIRE(bounded.index.zlib_header_bits == frozen.zlib_header_bits);
+  REQUIRE(bounded.index.total_output_bytes == frozen.total_output_bytes);
+  REQUIRE(bounded.index.wrapper == frozen.wrapper);
+  REQUIRE(bounded.index.adler == frozen.adler);
+  REQUIRE(bounded.index.success);
+  REQUIRE_FALSE(bounded.index.stop_input_bit.has_value());
+  REQUIRE_FALSE(bounded.index.stop_output_byte.has_value());
+}
+
+TEST_CASE("Bounded scans stop at the block budget and keep the prefix",
+          "[deflate-index][wp602-quality]") {
+  // 200 empty stored blocks against a 64-block budget: the scan stops before
+  // appending block 64 and keeps a tiling verified prefix.
+  const auto stream = make_many_empty_stored_blocks(200);
+  MemoryByteSource source(stream);
+  CountingSource counting(stream);
+
+  BlockScanLimits limits;
+  limits.max_blocks = 64;
+  const BoundedBlockIndexResult result = index_blocks_bounded(counting, limits);
+  REQUIRE(result.stop == BlockScanStop::kBudgetExceeded);
+  REQUIRE_FALSE(result.index.success);
+  REQUIRE_FALSE(result.index.error.empty());
+  REQUIRE(result.index.blocks.size() <= limits.max_blocks);
+  REQUIRE(result.index.blocks.size() == 64);
+  REQUIRE(result.index.stop_input_bit.has_value());
+  REQUIRE(result.index.stop_output_byte.has_value());
+  // The prefix tiles [header, stop) with no gap: the stop boundary is the
+  // first unretained block's start.
+  REQUIRE(result.index.blocks.back().input_bit_end ==
+          *result.index.stop_input_bit);
+  REQUIRE(result.index.blocks.back().output_end ==
+          *result.index.stop_output_byte);
+  // The trimmed read range never passed the verified prefix by more than
+  // one fixed refill unit.
+  REQUIRE(counting.max_read_end() <= *result.index.stop_input_bit / 8 + (1u << 16));
+}
+
+TEST_CASE("Bounded stops distinguish cancelled from budget and input errors",
+          "[deflate-index][wp602-quality]") {
+  const auto stream = make_many_empty_stored_blocks(50);
+  MemoryByteSource source(stream);
+
+  SECTION("input budget exceeded") {
+    BlockScanLimits limits;
+    limits.max_input_bytes = stream.size() / 2;
+    const BoundedBlockIndexResult result = index_blocks_bounded(source, limits);
+    REQUIRE(result.stop == BlockScanStop::kBudgetExceeded);
+    REQUIRE_FALSE(result.index.success);
+    REQUIRE(result.index.error == "block scan input budget exceeded");
+    REQUIRE(result.index.stop_input_bit.has_value());
+  }
+  SECTION("input budget exactly the stream size completes") {
+    BlockScanLimits limits;
+    limits.max_input_bytes = stream.size();
+    const BoundedBlockIndexResult result = index_blocks_bounded(source, limits);
+    REQUIRE(result.stop == BlockScanStop::kComplete);
+    REQUIRE(result.index.success);
+  }
+  SECTION("output budget exceeded") {
+    BlockScanLimits limits;
+    limits.max_output_bytes = 1;
+    const BoundedBlockIndexResult result = index_blocks_bounded(source, limits);
+    REQUIRE(result.stop == BlockScanStop::kBudgetExceeded);
+    REQUIRE_FALSE(result.index.success);
+    REQUIRE(result.index.error == "inflate output cap exceeded");
+  }
+  SECTION("retained bytes budget stops before over-growing") {
+    BlockScanLimits limits;
+    limits.max_retained_bytes = 16 * sizeof(pnga::deflate_index::DeflateBlock);
+    const BoundedBlockIndexResult result = index_blocks_bounded(source, limits);
+    REQUIRE(result.stop == BlockScanStop::kBudgetExceeded);
+    REQUIRE_FALSE(result.index.success);
+    REQUIRE(result.index.blocks.size() <= 16);
+    // The real capacity — not just the size — stays within the budget.
+    REQUIRE(result.index.blocks.capacity() *
+                sizeof(pnga::deflate_index::DeflateBlock) <=
+            limits.max_retained_bytes);
+  }
+  SECTION("cancelled mid-scan stops within one fixed work unit") {
+    CountingSource counting(stream);
+    counting.arm_cancel_after(4);
+    BlockScanLimits limits;
+    const BoundedBlockIndexResult result =
+        index_blocks_bounded(counting, limits,
+                             [&counting] { return counting.cancel_armed(); });
+    REQUIRE(result.stop == BlockScanStop::kCancelled);
+    REQUIRE_FALSE(result.index.success);
+    REQUIRE(result.index.error == "block scan cancelled");
+    // After the cancellation armed, at most the current refill unit plus one
+    // boundary header read completed — never the rest of the stream.
+    REQUIRE(counting.reads() <= 4 + 2);
+    REQUIRE(counting.max_read_end() <= stream.size());
+  }
+  SECTION("invalid input keeps the typed invalid_input stop") {
+    std::vector<std::byte> corrupt(stream);
+    corrupt[2] = std::byte{0x06};  // BTYPE=11 (reserved)
+    MemoryByteSource corrupt_source(corrupt);
+    const BoundedBlockIndexResult result =
+        index_blocks_bounded(corrupt_source, BlockScanLimits{});
+    REQUIRE(result.stop == BlockScanStop::kInvalidInput);
+    REQUIRE_FALSE(result.index.success);
+    REQUIRE(result.index.error == "reserved deflate block type");
+  }
+}

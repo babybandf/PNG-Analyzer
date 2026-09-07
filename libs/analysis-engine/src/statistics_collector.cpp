@@ -337,7 +337,10 @@ StatisticsCollectionResult collect_document_statistics(
     }
   }
 
-  // 5. Blocks section: one index scan over the virtual IDAT stream.
+  // 5. Blocks section: one bounded, cancelable index scan over the virtual
+  // IDAT stream. The scan enforces the block, output and retained-memory
+  // budgets before the corresponding work happens and reports a typed stop
+  // reason; a verified block prefix is aggregated and shown for every stop.
   const std::uint64_t output_budget =
       output_budget_for(request.limits.max_samples);
   if (!cancelled_stop) {
@@ -354,7 +357,17 @@ StatisticsCollectionResult collect_document_statistics(
     } else {
       pnga::png_format::VirtualIDATStream stream(request.chunks);
       VirtualIdatByteSource logical(stream, *request.source);
-      const auto blocks = pnga::deflate_index::index_blocks(logical, output_budget);
+      pnga::deflate_index::BlockScanLimits scan_limits;
+      scan_limits.max_output_bytes = output_budget;
+      scan_limits.max_blocks = request.limits.max_samples;
+      // Half of the declared working memory bounds the retained block
+      // vector (reallocation peaks included); the remainder covers the
+      // token-phase histograms, the index I/O buffers and the zlib
+      // workspace, and the snapshot/progress copies.
+      scan_limits.max_retained_bytes = request.max_working_bytes / 2;
+      const auto bounded = pnga::deflate_index::index_blocks_bounded(
+          logical, scan_limits, [&cancelled] { return cancelled(); });
+      const auto& blocks = bounded.index;
       total = blocks.blocks.size();
       processed = blocks.blocks.size();
       if (cancelled()) {
@@ -362,7 +375,9 @@ StatisticsCollectionResult collect_document_statistics(
         // indexed blocks remain a verified prefix.
         accumulator.finish(StatisticsSectionId::kBlocks,
                            SectionStatus::kCancelled, false,
-                           SectionScope::kVerifiedPrefix, kCancelledMessage);
+                           blocks.blocks.empty() ? SectionScope::kNone
+                                                 : SectionScope::kVerifiedPrefix,
+                           kCancelledMessage);
         for (const StatisticsSectionId id :
              {StatisticsSectionId::kTokens, StatisticsSectionId::kLengths,
               StatisticsSectionId::kDistances}) {
@@ -370,75 +385,118 @@ StatisticsCollectionResult collect_document_statistics(
                              SectionScope::kNone, kCancelledMessage);
         }
         cancelled_stop = true;
-      } else if (!blocks.success) {
-        accumulator.finish(StatisticsSectionId::kBlocks,
-                           SectionStatus::kInvalidInput, false,
-                           SectionScope::kNone,
-                           "cannot collect statistics from failed block index");
-      } else if (blocks.blocks.size() > request.limits.max_samples) {
-        accumulator.finish(StatisticsSectionId::kBlocks,
-                           SectionStatus::kBudgetExceeded, false,
-                           SectionScope::kNone,
-                           "statistics sample budget exceeded");
       } else {
-        std::uint64_t index = 0;
-        bool stopped = false;
-        for (const auto& block : blocks.blocks) {
-          if (index % kCheckInterval == 0 && cancelled()) {
-            accumulator.finish(StatisticsSectionId::kBlocks,
-                               SectionStatus::kCancelled, false,
-                               SectionScope::kVerifiedPrefix,
-                               kCancelledMessage);
-            cancelled_stop = true;
-            stopped = true;
-            break;
-          }
-          if (block.input_bit_end < block.input_bit_begin ||
-              block.output_end < block.output_begin) {
-            accumulator.finish(StatisticsSectionId::kBlocks,
-                               SectionStatus::kInvalidInput, false,
-                               SectionScope::kVerifiedPrefix,
-                               "Deflate block range is inverted");
-            stopped = true;
-            break;
-          }
-          pnga::statistics::BlockKind kind;
-          switch (block.type) {
-            case pnga::deflate_index::BlockType::kStored:
-              kind = pnga::statistics::BlockKind::kStored;
+        // Aggregates the verified block prefix through the accumulator.
+        // Returns true when the aggregation itself stopped (cancelled or
+        // sealed by the accumulator).
+        const auto aggregate_prefix = [&]() {
+          std::uint64_t index = 0;
+          bool stopped = false;
+          for (const auto& block : blocks.blocks) {
+            if (index % kCheckInterval == 0 && cancelled()) {
+              accumulator.finish(StatisticsSectionId::kBlocks,
+                                 SectionStatus::kCancelled, false,
+                                 SectionScope::kVerifiedPrefix,
+                                 kCancelledMessage);
+              cancelled_stop = true;
+              stopped = true;
               break;
-            case pnga::deflate_index::BlockType::kFixed:
-              kind = pnga::statistics::BlockKind::kFixed;
-              break;
-            case pnga::deflate_index::BlockType::kDynamic:
-              kind = pnga::statistics::BlockKind::kDynamic;
-              break;
-            default:
+            }
+            if (block.input_bit_end < block.input_bit_begin ||
+                block.output_end < block.output_begin) {
               accumulator.finish(StatisticsSectionId::kBlocks,
                                  SectionStatus::kInvalidInput, false,
                                  SectionScope::kVerifiedPrefix,
-                                 "invalid Deflate block kind");
+                                 "Deflate block range is inverted");
               stopped = true;
               break;
+            }
+            pnga::statistics::BlockKind kind;
+            switch (block.type) {
+              case pnga::deflate_index::BlockType::kStored:
+                kind = pnga::statistics::BlockKind::kStored;
+                break;
+              case pnga::deflate_index::BlockType::kFixed:
+                kind = pnga::statistics::BlockKind::kFixed;
+                break;
+              case pnga::deflate_index::BlockType::kDynamic:
+                kind = pnga::statistics::BlockKind::kDynamic;
+                break;
+              default:
+                accumulator.finish(StatisticsSectionId::kBlocks,
+                                   SectionStatus::kInvalidInput, false,
+                                   SectionScope::kVerifiedPrefix,
+                                   "invalid Deflate block kind");
+                stopped = true;
+                break;
+            }
+            if (stopped) {
+              break;
+            }
+            if (!accumulator.add(pnga::statistics::BlockSample{
+                    kind, block.input_bit_end - block.input_bit_begin,
+                    block.output_end - block.output_begin})) {
+              stopped = true;  // sealed by the accumulator
+              break;
+            }
+            ++index;
           }
-          if (stopped) {
+          return stopped;
+        };
+
+        const bool have_prefix = !blocks.blocks.empty();
+        switch (bounded.stop) {
+          case pnga::deflate_index::BlockScanStop::kComplete: {
+            if (!aggregate_prefix()) {
+              accumulator.finish(StatisticsSectionId::kBlocks,
+                                 SectionStatus::kReady, true,
+                                 SectionScope::kWholeDocument, "");
+              blocks_ready = true;
+              inflated_bytes = blocks.total_output_bytes;
+              has_inflated = true;
+            }
             break;
           }
-          if (!accumulator.add(pnga::statistics::BlockSample{
-                  kind, block.input_bit_end - block.input_bit_begin,
-                  block.output_end - block.output_begin})) {
-            stopped = true;  // sealed by the accumulator
+          case pnga::deflate_index::BlockScanStop::kCancelled: {
+            if (!aggregate_prefix()) {
+              accumulator.finish(StatisticsSectionId::kBlocks,
+                                 SectionStatus::kCancelled, false,
+                                 have_prefix ? SectionScope::kVerifiedPrefix
+                                             : SectionScope::kNone,
+                                 kCancelledMessage);
+            }
+            for (const StatisticsSectionId id :
+                 {StatisticsSectionId::kTokens, StatisticsSectionId::kLengths,
+                  StatisticsSectionId::kDistances}) {
+              accumulator.finish(id, SectionStatus::kCancelled, false,
+                                 SectionScope::kNone, kCancelledMessage);
+            }
+            cancelled_stop = true;
             break;
           }
-          ++index;
-        }
-        if (!stopped) {
-          accumulator.finish(StatisticsSectionId::kBlocks,
-                             SectionStatus::kReady, true,
-                             SectionScope::kWholeDocument, "");
-          blocks_ready = true;
-          inflated_bytes = blocks.total_output_bytes;
-          has_inflated = true;
+          case pnga::deflate_index::BlockScanStop::kBudgetExceeded: {
+            // The scan stopped at a work limit; the verified prefix stays
+            // aggregated and the token scan still runs independently.
+            if (!aggregate_prefix()) {
+              accumulator.finish(StatisticsSectionId::kBlocks,
+                                 SectionStatus::kBudgetExceeded, false,
+                                 have_prefix ? SectionScope::kVerifiedPrefix
+                                             : SectionScope::kNone,
+                                 "statistics sample budget exceeded");
+            }
+            break;
+          }
+          case pnga::deflate_index::BlockScanStop::kInvalidInput: {
+            if (!aggregate_prefix()) {
+              accumulator.finish(StatisticsSectionId::kBlocks,
+                                 SectionStatus::kInvalidInput, false,
+                                 have_prefix ? SectionScope::kVerifiedPrefix
+                                             : SectionScope::kNone,
+                                 "cannot collect statistics from failed block "
+                                 "index");
+            }
+            break;
+          }
         }
       }
     }

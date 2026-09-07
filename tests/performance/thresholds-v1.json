@@ -38,6 +38,12 @@
         "view_projection_us": 250000,
         "serializer_us": 250000
       }
+    },
+    {
+      "id": "statistics-bounded-blocks",
+      "max_us": {
+        "whole_document_us": 5000000
+      }
     }
   ]
 }

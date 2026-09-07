@@ -12,6 +12,7 @@
 #include <pnga/io/byte_source.h>
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -21,6 +22,18 @@ namespace pnga::deflate_index {
 // Deflate block types (RFC 1951 §3.2.3). A reserved type (3) is a corrupt
 // stream; zlib rejects it during the scan, so it never reaches the index.
 enum class BlockType { kStored = 0, kFixed = 1, kDynamic = 2 };
+
+// Typed stop reason of a bounded block scan. The enumeration — never an
+// error-string match — is the dispatch contract for callers.
+enum class BlockScanStop {
+  kComplete,       // the whole stream was indexed successfully
+  kBudgetExceeded, // an input, output, block-count or retained-bytes limit
+                   // stopped the scan; the verified prefix is kept
+  kCancelled,      // the cancellation predicate stopped the scan; the
+                   // verified prefix is kept
+  kInvalidInput,   // the stream failed to decode (same failures as
+                   // index_blocks); the verified prefix is kept
+};
 
 const char* block_type_text(BlockType type) noexcept;
 
@@ -81,6 +94,39 @@ struct BlockIndexResult {
 // read via read() only — `view()` is never used.
 BlockIndexResult index_blocks(const pnga::io::IByteSource& source,
                               std::uint64_t max_output_bytes);
+
+// Independent work limits of a bounded block scan. A zero value disables
+// that individual limit; callers that need a hard bound must set every
+// field they care about. `max_retained_bytes` constrains the real block
+// vector capacity including reallocation peaks (the old and the growing
+// buffer coexist during a move), not just the stored size.
+struct BlockScanLimits {
+  std::uint64_t max_input_bytes = 0;    // compressed bytes consumed
+  std::uint64_t max_output_bytes = 0;   // inflated bytes produced
+  std::uint64_t max_blocks = 0;         // retained block count
+  std::uint64_t max_retained_bytes = 0; // retained block capacity, peaks included
+};
+
+// Result of a bounded scan: the verified block prefix plus the typed stop
+// reason. `index.success` is true only for a complete scan (kComplete);
+// every early stop keeps the blocks verified so far and assigns
+// index.stop_input_bit / index.stop_output_byte to the latest verified
+// boundary (or 0 when no block was verified).
+struct BoundedBlockIndexResult {
+  BlockIndexResult index;
+  BlockScanStop stop = BlockScanStop::kInvalidInput;
+};
+
+// Bounded, cancelable variant of index_blocks with the identical decode
+// behavior. Checks every limit before the corresponding work happens:
+// input reads are trimmed to max_input_bytes, the block vector growth is
+// planned against max_retained_bytes (peak = old + new capacity) and
+// max_blocks, and `cancelled` is polled at input refills, inside the
+// inflate loop and at block boundaries. An early stop never fakes
+// success: the prefix stays verified and the stop reason is typed.
+BoundedBlockIndexResult index_blocks_bounded(
+    const pnga::io::IByteSource& source, const BlockScanLimits& limits,
+    const std::function<bool()>& cancelled = {});
 
 // Index of the block containing inflated byte `output_offset`, or std::nullopt
 // when the offset is out of range.

@@ -37,6 +37,13 @@ constexpr std::uint64_t kMaxWorkingBytes = 64ull << 20;
 // capability; occurrence navigation never exceeds it.
 constexpr std::uint64_t kOccurrenceIndexOutputBytes = 1ull << 26;
 
+// Retained-block bounds of the occurrence pre-scan: the frozen statistics
+// sample budget for the block count, and half of the declared 64 MiB
+// working memory for the retained block vector (reallocation peaks
+// included). The pre-scan's only unbounded allocation stays capped.
+constexpr std::uint64_t kOccurrenceIndexMaxBlocks = 1ull << 20;
+constexpr std::uint64_t kOccurrenceIndexRetainedBytes = 32ull << 20;
+
 // A section carries exportable evidence when it is neither unavailable,
 // cancelled nor an error — the shared "usable" semantics of the CLI.
 bool section_usable(const pnga::statistics::SectionState& state) noexcept {
@@ -112,10 +119,26 @@ void StatisticsOccurrenceWorker::run() {
       request_.domain !=
       pnga::analysis_engine::StatisticsBucketDomain::kChunkType;
   if (needs_blocks) {
+    // Bounded, cancelable pre-scan. The index consumes at most the same
+    // 8 MiB input window the query replay is allowed to search, so the
+    // total read work per request stays at one index pass plus one replay
+    // over that window — there is no retry loop and no full-file scan
+    // before the query's bounded token counting starts. A verified prefix
+    // (typed stop on a limit or cancellation) is consumed honestly by the
+    // query; answers that would need unindexed blocks stay Partial.
     const pnga::png_format::VirtualIDATStream stream(chunks_);
     VirtualIdatByteSource logical(stream, *source_);
-    block_index = pnga::deflate_index::index_blocks(
-        logical, kOccurrenceIndexOutputBytes);
+    pnga::deflate_index::BlockScanLimits limits;
+    limits.max_input_bytes = request_.max_input_bytes;
+    limits.max_output_bytes = kOccurrenceIndexOutputBytes;
+    limits.max_blocks = kOccurrenceIndexMaxBlocks;
+    limits.max_retained_bytes = kOccurrenceIndexRetainedBytes;
+    block_index = pnga::deflate_index::index_blocks_bounded(
+                      logical, limits,
+                      [cancellation = cancellation_] {
+                        return cancellation->cancelled();
+                      })
+                      .index;
   }
   pnga::analysis_engine::StatisticsOccurrenceResult result =
       pnga::analysis_engine::query_statistics_occurrence(
@@ -171,9 +194,10 @@ StatisticsController::~StatisticsController() {
   // DocumentSession precedent (document_session.cpp:139-151): destroying a
   // still-running QThread is fatal. The controller is destroyed before the
   // session, so it joins its own occurrence workers here. The scan is
-  // bounded (4,096 tokens / 8 MiB input / 64 MiB index budget), so after the
-  // cooperative cancel every join terminates promptly. Superseded workers
-  // stay children until their deleteLater runs, so all of them are joined.
+  // bounded (4,096 tokens / 8 MiB input / bounded retained blocks), so
+  // after the cooperative cancel every join terminates promptly.
+  // Superseded workers stay children until their deleteLater runs, so all
+  // of them are joined.
   if (occurrence_worker_ != nullptr) {
     occurrence_worker_->cancel();
   }

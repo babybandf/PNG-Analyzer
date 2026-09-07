@@ -34,6 +34,7 @@
 #include <pnga/statistics/serialization.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -43,6 +44,14 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+#include <zlib.h>
+
+#if defined(__APPLE__)
+#include <mach/mach.h>
+#else
+#include <sys/resource.h>
+#endif
 
 #include "controlled_fixture.h"
 #include "test_png_helpers.h"
@@ -605,10 +614,284 @@ struct StatisticsScenario {
   }
 };
 
+// WP-602 quality fix: bounded block scan stress scenario. The input is a
+// valid PNG whose zlib stream holds 1,500,000 empty stored blocks plus one
+// final two-byte block — the frozen quality-audit pressure structure. The
+// collector must stop with a verified block prefix, honest budget statuses
+// and bounded working memory (retained block capacity, reallocation peaks
+// included) instead of indexing the whole stream. A second, instrumented
+// run arms the cancellation after a fixed number of reads inside the block
+// scan and verifies the scan stops within the current fixed work unit —
+// measured by read counting, never by wall-clock slack.
+class CountingCancelSource final : public pnga::io::IByteSource {
+ public:
+  explicit CountingCancelSource(const std::vector<std::byte>& bytes)
+      : bytes_(bytes) {}
+
+  std::uint64_t size() const noexcept override { return bytes_.size(); }
+  bool read(std::uint64_t offset, std::byte* out,
+            std::size_t length) const noexcept override {
+    ++reads_;
+    const std::uint64_t end = offset + length;
+    if (end > max_read_end_) {
+      max_read_end_ = end;
+    }
+    if (cancel_after_ != 0 && reads_ >= cancel_after_) {
+      cancelled_ = true;
+      if (token_ != nullptr) {
+        token_->request_cancel();
+      }
+    }
+    if (offset >= bytes_.size()) {
+      return length == 0;
+    }
+    const std::size_t available =
+        static_cast<std::size_t>(bytes_.size() - offset);
+    const std::size_t take = std::min(length, available);
+    std::copy(bytes_.begin() + static_cast<std::ptrdiff_t>(offset),
+              bytes_.begin() + static_cast<std::ptrdiff_t>(offset + take),
+              out);
+    return take == length;
+  }
+  std::optional<pnga::io::ByteView> view(std::uint64_t,
+                                         std::size_t) const noexcept override {
+    return std::nullopt;
+  }
+
+  std::uint64_t reads() const noexcept { return reads_; }
+  std::uint64_t max_read_end() const noexcept { return max_read_end_; }
+  void arm_cancel_after(std::uint64_t reads,
+                        pnga::analysis_engine::CancellationToken* token) {
+    cancel_after_ = reads;
+    token_ = token;
+  }
+  bool cancel_armed() const noexcept { return cancelled_; }
+
+ private:
+  const std::vector<std::byte>& bytes_;
+  mutable std::uint64_t reads_ = 0;
+  mutable std::uint64_t max_read_end_ = 0;
+  std::uint64_t cancel_after_ = 0;
+  pnga::analysis_engine::CancellationToken* token_ = nullptr;
+  mutable bool cancelled_ = false;
+};
+
+struct BoundedBlocksScenario {
+  // The quality-audit pressure geometry: 1.5M empty stored blocks, one
+  // final block, two inflated bytes.
+  static constexpr std::uint32_t kEmptyBlocks = 1'500'000;
+  // The collector's fingerprint phase reads the 7.5 MB stress file in
+  // 64 KiB windows; arming the cancellation a fixed number of reads later
+  // lands inside the block scan deterministically.
+  static constexpr std::uint64_t kCancelTriggerReads = 130;
+  // After the cancellation armed, at most the current refill unit plus one
+  // block-header read may complete.
+  static constexpr std::uint64_t kCancelSlackReads = 2;
+
+  std::vector<std::byte> png_bytes;
+  ChunkIndex chunks;
+  pnga::analysis_engine::StatisticsCollectionResult result;
+  std::uint64_t whole_document_us = 0;
+  std::uint64_t verified_block_count = 0;
+  std::uint64_t retained_capacity_bytes = 0;
+  std::uint64_t read_bytes = 0;
+  std::uint64_t cancel_trigger_reads = 0;
+  std::uint64_t cancel_total_reads = 0;
+  std::uint64_t cancel_read_end = 0;
+  std::uint64_t process_rss_peak_kib = 0;
+  std::uint64_t checksum = 0;
+
+  BoundedBlocksScenario() {
+    // Build the stress PNG: zlib stream 0x7801, per empty block
+    // 00 00 00 FF FF (BFINAL=0, BTYPE=00, LEN=0, NLEN), the final block
+    // 01 02 00 FD FF + two raw bytes, big-endian Adler-32, wrapped as a
+    // 1x1 gray8 PNG.
+    const std::array<std::byte, 2> raw = {std::byte{0}, std::byte{127}};
+    const std::uint32_t adler =
+        static_cast<std::uint32_t>(adler32(
+            adler32(0L, Z_NULL, 0),
+            reinterpret_cast<const Bytef*>(raw.data()),
+            static_cast<uInt>(raw.size())));
+    std::vector<std::byte> idat;
+    idat.reserve(2 + std::size_t{kEmptyBlocks} * 5 + 5 + raw.size() + 4);
+    idat.push_back(std::byte{0x78});
+    idat.push_back(std::byte{0x01});
+    for (std::uint32_t i = 0; i < kEmptyBlocks; ++i) {
+      idat.push_back(std::byte{0x00});
+      idat.push_back(std::byte{0x00});
+      idat.push_back(std::byte{0x00});
+      idat.push_back(std::byte{0xFF});
+      idat.push_back(std::byte{0xFF});
+    }
+    idat.push_back(std::byte{0x01});
+    idat.push_back(std::byte{0x02});
+    idat.push_back(std::byte{0x00});
+    idat.push_back(std::byte{0xFD});
+    idat.push_back(std::byte{0xFF});
+    idat.insert(idat.end(), raw.begin(), raw.end());
+    for (const int shift : {24, 16, 8, 0}) {
+      idat.push_back(
+          std::byte(static_cast<unsigned char>((adler >> shift) & 0xFFu)));
+    }
+    // Wrap the stream as a 1x1 gray8 PNG (IHDR, IDAT, IEND) with computed
+    // CRCs, mirroring the quality-audit generator.
+    const auto push_chunk = [&](const char* type,
+                                const std::vector<std::byte>& data) {
+      const std::uint32_t len = static_cast<std::uint32_t>(data.size());
+      for (const int shift : {24, 16, 8, 0}) {
+        png_bytes.push_back(
+            std::byte(static_cast<unsigned char>((len >> shift) & 0xFFu)));
+      }
+      uLong crc = crc32(0L, Z_NULL, 0);
+      crc = crc32(crc, reinterpret_cast<const Bytef*>(type), 4);
+      for (int i = 0; i < 4; ++i) {
+        png_bytes.push_back(std::byte(static_cast<unsigned char>(type[i])));
+      }
+      if (!data.empty()) {
+        crc = crc32(crc, reinterpret_cast<const Bytef*>(data.data()),
+                    static_cast<uInt>(data.size()));
+        png_bytes.insert(png_bytes.end(), data.begin(), data.end());
+      }
+      for (const int shift : {24, 16, 8, 0}) {
+        png_bytes.push_back(
+            std::byte(static_cast<unsigned char>((crc >> shift) & 0xFFu)));
+      }
+    };
+    png_bytes.insert(png_bytes.end(),
+                     pnga::png_format::kPngSignature.begin(),
+                     pnga::png_format::kPngSignature.end());
+    std::vector<std::byte> ihdr(13, std::byte{0});
+    ihdr[7] = std::byte{1};  // 1x1
+    ihdr[8] = std::byte{8};  // gray8
+    push_chunk("IHDR", ihdr);
+    push_chunk("IDAT", idat);
+    push_chunk("IEND", {});
+
+    source_ = std::make_shared<MemoryByteSource>(png_bytes);
+    chunks = pnga::png_format::index_chunks(*source_);
+
+    pnga::analysis_engine::StatisticsCollectionRequest request;
+    request.generation = 2;
+    request.source = source_;
+    request.chunks = chunks;
+    request.stages = std::make_shared<const pnga::analysis_engine::StageSet>(
+        pnga::analysis_engine::analyze_source(*source_));
+    request.limits = pnga::statistics::StatisticsLimits{};
+
+    const auto whole = timed([&] {
+      result = pnga::analysis_engine::collect_document_statistics(
+          request, nullptr, {});
+    });
+    whole_document_us = whole.micros;
+
+    // Honest budget outcome: the block scan stops with a verified prefix
+    // (never a falsely complete section) and the totals pair stays absent.
+    const auto& snapshot = result.snapshot;
+    require(snapshot.blocks.state.status ==
+                    pnga::statistics::SectionStatus::kBudgetExceeded &&
+                !snapshot.blocks.state.complete,
+            "bounded blocks: the block section must stay honestly "
+            "budget_exceeded");
+    require(!snapshot.overview.state.complete &&
+                !snapshot.overview.data.has_compression_totals,
+            "bounded blocks: the overview must not report totals");
+    verified_block_count = snapshot.blocks.data.count;
+    require(verified_block_count > 0,
+            "bounded blocks: no verified block prefix was retained");
+    require(verified_block_count <= 1ull << 20,
+            "bounded blocks: the verified prefix exceeds the sample budget");
+
+    // Auditable work-memory evidence: the real block vector capacity —
+    // peaks included — stays within the collector's half-cap share.
+    pnga::png_format::VirtualIDATStream stream(chunks);
+    VirtualIdatSource logical(stream, *source_);
+    pnga::deflate_index::BlockScanLimits limits;
+    // Same budgets the collector derives: the frozen output cap for the
+    // sample budget and half of the declared 64 MiB for retained blocks.
+    constexpr std::uint64_t kMaxSamples = 1ull << 20;
+    constexpr std::uint64_t kMaxMatchBytes = 258;
+    limits.max_output_bytes = kMaxSamples * kMaxMatchBytes;
+    limits.max_blocks = kMaxSamples;
+    limits.max_retained_bytes = 32ull << 20;
+    const auto bounded =
+        pnga::deflate_index::index_blocks_bounded(logical, limits);
+    require(bounded.stop == pnga::deflate_index::BlockScanStop::kBudgetExceeded,
+            "bounded blocks: the direct bounded scan did not stop at its "
+            "budget");
+    retained_capacity_bytes =
+        bounded.index.blocks.capacity() *
+        sizeof(pnga::deflate_index::DeflateBlock);
+    require(retained_capacity_bytes <= limits.max_retained_bytes,
+            "bounded blocks: the retained block capacity exceeds its "
+            "budget");
+    require(bounded.index.blocks.size() == verified_block_count,
+            "bounded blocks: the collector prefix differs from the direct "
+            "bounded scan");
+
+    // Actual read range of the whole collection.
+    CountingCancelSource counting(png_bytes);
+    CountingCancelSource cancel_counting(png_bytes);
+    {
+      pnga::analysis_engine::StatisticsCollectionRequest counted = request;
+      counted.source = std::shared_ptr<const pnga::io::IByteSource>(
+          std::shared_ptr<const pnga::io::IByteSource>(), &counting);
+      const auto counted_result =
+          pnga::analysis_engine::collect_document_statistics(counted, nullptr,
+                                                             {});
+      require(counted_result.snapshot.blocks.state.status ==
+                  pnga::statistics::SectionStatus::kBudgetExceeded,
+              "bounded blocks: the counted run changed the outcome");
+      read_bytes = counting.max_read_end();
+      require(read_bytes <= png_bytes.size(),
+              "bounded blocks: the collection read past the file end");
+    }
+    {
+      // Cancellation lands inside the block scan after a deterministic
+      // number of reads and stops within one fixed work unit.
+      pnga::analysis_engine::CancellationToken token;
+      cancel_counting.arm_cancel_after(kCancelTriggerReads, &token);
+      pnga::analysis_engine::StatisticsCollectionRequest cancelled_request =
+          request;
+      cancelled_request.source = std::shared_ptr<const pnga::io::IByteSource>(
+          std::shared_ptr<const pnga::io::IByteSource>(), &cancel_counting);
+      const auto cancelled_result =
+          pnga::analysis_engine::collect_document_statistics(
+              cancelled_request, &token, {});
+      cancel_total_reads = cancel_counting.reads();
+      cancel_read_end = cancel_counting.max_read_end();
+      require(cancelled_result.snapshot.overview.state.status ==
+                  pnga::statistics::SectionStatus::kCancelled,
+              "bounded blocks: the cancelled run did not report the "
+              "frozen cancelled overview");
+      require(cancel_total_reads <=
+                  kCancelTriggerReads + kCancelSlackReads,
+              "bounded blocks: the scan kept reading after cancellation");
+      require(cancel_read_end <= png_bytes.size(),
+              "bounded blocks: the cancelled run read past the file end");
+    }
+    cancel_trigger_reads = kCancelTriggerReads;
+
+    // Auxiliary evidence only: the process peak RSS (not a GUI-wide hard
+    // threshold — the declared 64 MiB cap governs the job's own working
+    // memory). Recorded in KiB.
+    struct rusage usage{};
+    getrusage(RUSAGE_SELF, &usage);
+#if defined(__APPLE__)
+    process_rss_peak_kib = static_cast<std::uint64_t>(usage.ru_maxrss) / 1024;
+#else
+    process_rss_peak_kib = static_cast<std::uint64_t>(usage.ru_maxrss);
+#endif
+    checksum = verified_block_count + retained_capacity_bytes + read_bytes;
+  }
+
+  std::shared_ptr<MemoryByteSource> source_;
+};
+
 void emit_record(const LargeScenario& large,
                  const ProvenanceScenario& provenance,
                  const CompressionInspectorMetrics& inspector,
-                 const StatisticsScenario& statistics) {
+                 const StatisticsScenario& statistics,
+                 const BoundedBlocksScenario& bounded_blocks) {
   constexpr const char* kCorpusRevision = PNGA_WP607C_CORPUS_REVISION;
   require(std::strlen(kCorpusRevision) == 64,
           "performance corpus revision must be 64 hex characters");
@@ -661,7 +944,22 @@ void emit_record(const LargeScenario& large,
             << ",\"view_projection_us\":"
             << statistics.view_projection_us
             << ",\"serializer_us\":" << statistics.serializer_us
-            << ",\"checksum\":" << statistics.checksum << "}],"
+            << ",\"checksum\":" << statistics.checksum << "},"
+                "{\"id\":\"statistics-bounded-blocks\",\"png_bytes\":"
+             << bounded_blocks.png_bytes.size()
+             << ",\"whole_document_us\":" << bounded_blocks.whole_document_us
+             << ",\"verified_block_count\":"
+             << bounded_blocks.verified_block_count
+             << ",\"retained_capacity_bytes\":"
+             << bounded_blocks.retained_capacity_bytes
+             << ",\"read_bytes\":" << bounded_blocks.read_bytes
+             << ",\"cancel_trigger_reads\":"
+             << bounded_blocks.cancel_trigger_reads
+             << ",\"cancel_total_reads\":"
+             << bounded_blocks.cancel_total_reads
+             << ",\"process_rss_peak_kib\":"
+             << bounded_blocks.process_rss_peak_kib
+             << ",\"checksum\":" << bounded_blocks.checksum << "}],"
                 "\"ui_scenario\":\"gui_trace_inspector_performance_tests\"}\n";
 }
 
@@ -674,7 +972,8 @@ int main() {
     const CompressionInspectorMetrics inspector =
         run_compression_inspector_scenario();
     const StatisticsScenario statistics;
-    emit_record(large, provenance, inspector, statistics);
+    const BoundedBlocksScenario bounded_blocks;
+    emit_record(large, provenance, inspector, statistics, bounded_blocks);
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "performance runner: FAIL: " << error.what() << '\n';

@@ -77,3 +77,39 @@ Screenshot capture is deliberately not measured; visual evidence belongs to
 the GUI product gate. The GUI-side response gate is the existing
 `gui_trace_inspector_performance_tests` CTest entry. The wrapper records it as
 `passed` when Qt is configured, or `not-configured` on a Qt-free build.
+
+## statistics-bounded-blocks scenario (WP-602 quality fix)
+
+Stress scenario over the frozen quality-audit structure: a valid 1x1 gray8
+PNG whose zlib stream holds 1,500,000 empty stored blocks plus one final
+two-byte block (two inflated bytes, ~7.5 MB compressed). The collector must
+stop with a verified block prefix and honest statuses instead of retaining
+the whole index:
+
+- `whole_document_us` — the complete collection duration; the only
+  thresholded metric.
+- `verified_block_count` — the retained verified block prefix (runner
+  enforced: positive and within the 2^20 sample budget); the block and
+  overview sections stay `budget_exceeded`/incomplete with the totals pair
+  absent, and the value equals a direct `index_blocks_bounded` run with the
+  collector's budgets.
+- `retained_capacity_bytes` — the real block vector capacity (allocation
+  peaks included) of that direct bounded scan, runner enforced to stay
+  within the 32 MiB half-cap share of the declared 64 MiB working memory.
+- `read_bytes` — the highest byte offset the collection actually read via a
+  counting byte source (runner enforced: within the file size). The
+  pre-scan and the token replay are separate passes over the same window;
+  the record shows their total read work, not a per-phase split.
+- `cancel_trigger_reads` / `cancel_total_reads` — a second instrumented run
+  arms the cancellation after 130 reads (deterministically inside the block
+  scan: ~115 fingerprint windows precede it) and the scan must stop within
+  two additional reads (one refill unit plus one block-header read), no
+  wall-clock slack involved. The cancelled run must report the frozen
+  cancelled overview with no totals.
+- `process_rss_peak_kib` — auxiliary process peak RSS in KiB (platform
+  getrusage units normalized); recorded only, never thresholded — the
+  declared 64 MiB cap governs the job's own working memory, not the whole
+  process. Known coverage note: the CLI composition pre-builds a full
+  StageSet (`analyze_source`) before the collector runs; that preprocessing
+  allocation is outside the declared collector working memory and is
+  deliberately not claimed as covered.

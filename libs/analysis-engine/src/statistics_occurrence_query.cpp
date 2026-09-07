@@ -233,11 +233,28 @@ StatisticsOccurrenceResult run_block_occurrence(
   DirectOccurrence resolved;
   if (!resolve_direct(request.direction, request.after_output_offset,
                       occurrences, &resolved)) {
+    // A verified prefix that holds no occurrence is not evidence of
+    // absence: past the prefix the answer is unknown, not not_found.
+    if (!blocks.success) {
+      result.status = OccurrenceStatus::kPartial;
+      result.error = "block navigation reached the verified block index "
+                     "prefix";
+      return result;
+    }
     result.status = OccurrenceStatus::kNotFound;
     return result;
   }
   const pnga::deflate_index::DeflateBlock& block =
       blocks.blocks[resolved.index];
+  // A previous answer over a partial prefix is only the true nearest
+  // occurrence when the cursor lies inside the verified prefix.
+  if (!blocks.success && request.direction == OccurrenceDirection::kPrevious &&
+      request.after_output_offset.has_value() &&
+      *request.after_output_offset > block.output_end) {
+    result.status = OccurrenceStatus::kPartial;
+    result.error = "block navigation reached the verified block index prefix";
+    return result;
+  }
   Selection& selection = result.selection;
   selection.stage = Stage::kTrace;
   std::string error;
@@ -257,9 +274,9 @@ StatisticsOccurrenceResult run_filter_occurrence(
       request.key[0] > '4') {
     return make_error(generation, "filter type key must be 0 to 4");
   }
-  if (!blocks.success) {
+  if (blocks.blocks.empty()) {
     return make_error(generation,
-                      "filter navigation requires a successful block index");
+                      "filter navigation requires a usable block index");
   }
   const unsigned wanted = static_cast<unsigned>(request.key[0] - '0');
   std::vector<DirectOccurrence> occurrences;
@@ -288,6 +305,16 @@ StatisticsOccurrenceResult run_filter_occurrence(
   const std::optional<std::size_t> block_index =
       pnga::deflate_index::block_for_output(blocks, scanline.offset);
   if (!block_index.has_value()) {
+    if (!blocks.success) {
+      // The scanline's block lies beyond the verified index prefix: the
+      // provenance is unknown, not inconsistent.
+      StatisticsOccurrenceResult partial;
+      partial.generation = generation;
+      partial.status = OccurrenceStatus::kPartial;
+      partial.error =
+          "filter navigation reached the verified block index prefix";
+      return partial;
+    }
     return make_error(generation,
                       "scanline is outside the indexed inflated output");
   }
@@ -379,9 +406,9 @@ StatisticsOccurrenceResult run_token_occurrence(
       return make_error(generation, "domain is not a token domain");
   }
 
-  if (!blocks.success) {
+  if (blocks.blocks.empty()) {
     return make_error(generation,
-                      "token navigation requires a successful block index");
+                      "token navigation requires a usable block index");
   }
 
   StatisticsOccurrenceResult result;
@@ -410,6 +437,11 @@ StatisticsOccurrenceResult run_token_occurrence(
   bool anchor_known = false;
   std::uint64_t anchor_bit = 0;
   bool overflow = false;
+  // Set when the scan consumes the last indexed block's end-of-block while
+  // the index is a verified prefix: every later fact belongs to a block the
+  // index never verified and cannot be anchored, so the scan stops instead
+  // of misattributing it.
+  bool prefix_exhausted = false;
 
   const auto compute_anchor = [&](const pnga::deflate_index::DeflateBlock&
                                       block) {
@@ -479,6 +511,9 @@ StatisticsOccurrenceResult run_token_occurrence(
   options.max_input_bytes = request.max_input_bytes;
   options.should_cancel = cancelled;
   options.observer = [&](const pnga::deflate_trace::TokenFact& fact) {
+    if (prefix_exhausted) {
+      return false;  // beyond the verified prefix nothing can be anchored
+    }
     std::uint64_t deflate_begin = 0;
     std::uint64_t deflate_end = 0;
     bool exact = false;
@@ -561,6 +596,13 @@ StatisticsOccurrenceResult run_token_occurrence(
         compute_anchor(blocks.blocks[block_ordinal]);
       } else {
         width_in_block = total_width;
+        if (!blocks.success) {
+          // The index is a verified prefix: the next fact belongs to a
+          // block the index never verified. Stop the scan instead of
+          // misattributing it.
+          prefix_exhausted = true;
+          return false;
+        }
       }
     } else {
       width_in_block = total_width;
@@ -594,6 +636,28 @@ StatisticsOccurrenceResult run_token_occurrence(
   if (overflow) {
     return make_error(generation, "occurrence token accounting overflow");
   }
+  // Honesty over a verified-prefix index: the searched prefix's end is the
+  // last verified block's output end.
+  const bool index_complete = blocks.success;
+  const std::uint64_t prefix_end_output = blocks.blocks.back().output_end;
+  if (!index_complete && !best.found) {
+    // The verified prefix held no occurrence. A previous query whose cursor
+    // the scan already covered is conclusive; for every other direction the
+    // unindexed remainder may still hold occurrences, so the answer is
+    // unknown — never a whole-stream not_found.
+    const bool covered_cursor =
+        request.direction == OccurrenceDirection::kPrevious &&
+        request.after_output_offset.has_value() &&
+        *request.after_output_offset <= scan.output_bytes;
+    if (!covered_cursor) {
+      result.status = OccurrenceStatus::kPartial;
+      result.error =
+          "token navigation reached the verified block index prefix";
+      return result;
+    }
+    result.status = OccurrenceStatus::kNotFound;
+    return result;
+  }
   if (best.found && request.direction == OccurrenceDirection::kPrevious &&
       request.after_output_offset.has_value() &&
       scan.status == pnga::deflate_trace::TokenScanStatus::kBudgetExceeded &&
@@ -604,6 +668,18 @@ StatisticsOccurrenceResult run_token_occurrence(
     result.status = OccurrenceStatus::kPartial;
     result.error = "occurrence scan reached the occurrence budget before "
                    "the cursor";
+    return result;
+  }
+  if (best.found && !index_complete &&
+      request.direction == OccurrenceDirection::kPrevious &&
+      request.after_output_offset.has_value() &&
+      *request.after_output_offset > prefix_end_output) {
+    // The cursor lies beyond the verified prefix: the nearest previous
+    // occurrence may live in the unindexed region, so even a found match
+    // is not provably the nearest one.
+    result.status = OccurrenceStatus::kPartial;
+    result.error =
+        "token navigation reached the verified block index prefix";
     return result;
   }
   if (best.found) {

@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <vector>
 
@@ -20,6 +21,9 @@ namespace {
 
 constexpr std::size_t kInputChunk = 1 << 16;
 constexpr std::size_t kScratchSize = 1 << 16;
+// First planned block capacity; growth doubles from here under the retained
+// bytes budget, so small streams need a single allocation.
+constexpr std::size_t kInitialBlockCapacity = 16;
 
 const char* type_text(BlockType type) noexcept {
   switch (type) {
@@ -119,25 +123,43 @@ bool read_bits(const pnga::io::IByteSource& source, std::uint64_t bit_pos,
   return true;
 }
 
-}  // namespace
+// Multiplies a block count by the record size with an overflow check.
+bool checked_block_bytes(std::uint64_t blocks, std::uint64_t* output) noexcept {
+  const std::uint64_t size = sizeof(DeflateBlock);
+  if (blocks > std::numeric_limits<std::uint64_t>::max() / size) {
+    return false;
+  }
+  *output = blocks * size;
+  return true;
+}
 
-const char* block_type_text(BlockType type) noexcept { return type_text(type); }
+// The shared single-pass scan behind index_blocks and index_blocks_bounded.
+// One sequential inflate(Z_BLOCK) pass records block boundaries; the bounded
+// entry adds checked limits (trimmed input reads, planned block-vector
+// growth with peak accounting) and cooperative cancellation. Both entries
+// share this implementation — there is no second Inflate algorithm.
+BoundedBlockIndexResult scan_blocks(const pnga::io::IByteSource& source,
+                                    const BlockScanLimits& limits,
+                                    const std::function<bool()>& cancelled) {
+  BoundedBlockIndexResult out;
+  out.stop = BlockScanStop::kInvalidInput;
+  BlockIndexResult& result = out.index;
 
-BlockIndexResult index_blocks(const pnga::io::IByteSource& source,
-                              std::uint64_t max_output_bytes) {
-  BlockIndexResult out;
-
-  out.wrapper = read_wrapper(source);
-  if (out.wrapper.header_valid && out.wrapper.preset_dictionary) {
+  result.wrapper = read_wrapper(source);
+  if (result.wrapper.header_valid && result.wrapper.preset_dictionary) {
     // FDICT: the DEFLATE payload starts after 2 header + 4 DICTID bytes,
     // independent of whether a dictionary is available to decode it.
-    out.zlib_header_bits = 48;
+    result.zlib_header_bits = 48;
   }
+
+  const auto cancelled_now = [&cancelled]() -> bool {
+    return static_cast<bool>(cancelled) && cancelled();
+  };
 
   z_stream strm{};
   if (inflateInit(&strm) != Z_OK) {
-    out.error = "inflateInit failed";
-    assign_stop(out, false, 0, 0);
+    result.error = "inflateInit failed";
+    assign_stop(result, false, 0, 0);
     return out;
   }
 
@@ -154,27 +176,99 @@ BlockIndexResult index_blocks(const pnga::io::IByteSource& source,
   std::uint32_t actual_adler = adler32(0L, Z_NULL, 0);
   bool deflate_complete = false;  // a BFINAL block was fully verified
 
-  // Refills zlib's input from the logical stream. Returns false on a read
-  // failure or when no more input is available.
-  auto refill = [&]() -> bool {
+  // Stops the scan for a cooperative cancellation. The verified prefix and
+  // the latest verified boundary stay assigned.
+  const auto stop_cancelled = [&]() {
+    result.error = "block scan cancelled";
+    assign_stop(result, have_prev, prev_bit, prev_output);
+    out.stop = BlockScanStop::kCancelled;
+  };
+  // Stops the scan for an exhausted work limit.
+  const auto stop_budget = [&](const char* message) {
+    result.error = message;
+    assign_stop(result, have_prev, prev_bit, prev_output);
+    out.stop = BlockScanStop::kBudgetExceeded;
+  };
+
+  // Appends one verified block under the count and retained-bytes budgets.
+  // Capacity growth is planned: the old and the growing buffer coexist
+  // during the move, so the peak (old + new capacity) must fit the budget
+  // before the reservation happens. Returns false when a limit stopped the
+  // scan (the stop reason and coordinates are already assigned).
+  const auto append_block = [&](const DeflateBlock& block) -> bool {
+    if (limits.max_blocks != 0 &&
+        result.blocks.size() >= limits.max_blocks) {
+      stop_budget("block scan block budget exceeded");
+      return false;
+    }
+    if (result.blocks.size() == result.blocks.capacity()) {
+      const std::uint64_t old_capacity = result.blocks.capacity();
+      const std::uint64_t new_capacity =
+          old_capacity == 0 ? kInitialBlockCapacity : old_capacity * 2;
+      if (limits.max_retained_bytes != 0) {
+        std::uint64_t peak_bytes = 0;
+        if (!checked_block_bytes(old_capacity + new_capacity, &peak_bytes) ||
+            peak_bytes > limits.max_retained_bytes) {
+          stop_budget("block scan retained bytes budget exceeded");
+          return false;
+        }
+      }
+      result.blocks.reserve(static_cast<std::size_t>(new_capacity));
+      // An allocator may hand out more than requested; re-check so the
+      // recorded reality never exceeds the budget.
+      if (limits.max_retained_bytes != 0) {
+        std::uint64_t actual_bytes = 0;
+        if (!checked_block_bytes(result.blocks.capacity(), &actual_bytes) ||
+            actual_bytes > limits.max_retained_bytes) {
+          stop_budget("block scan retained bytes budget exceeded");
+          return false;
+        }
+      }
+    }
+    result.blocks.push_back(block);
+    return true;
+  };
+
+  // Refills zlib's input from the logical stream. kStopped reports a
+  // budget stop, a cancellation or a read failure (the stop reason and
+  // coordinates are already assigned); kEof reports a genuine end of
+  // input.
+  enum class RefillResult { kOk, kEof, kStopped };
+  const auto refill = [&]() -> RefillResult {
     if (strm.avail_in != 0) {
-      return true;
+      return RefillResult::kOk;
+    }
+    if (cancelled_now()) {
+      stop_cancelled();
+      return RefillResult::kStopped;
     }
     if (input_eof) {
-      return false;
+      return RefillResult::kEof;
     }
-    const std::uint64_t remaining =
+    std::uint64_t remaining =
         source.size() > logical_offset ? source.size() - logical_offset : 0;
+    if (limits.max_input_bytes != 0) {
+      // Trim the read length to the input budget before touching the
+      // source; consuming past the limit is never allowed.
+      remaining = std::min(remaining, logical_offset >= limits.max_input_bytes
+                                          ? 0
+                                          : limits.max_input_bytes -
+                                                logical_offset);
+    }
     if (remaining == 0) {
+      if (logical_offset < source.size() && limits.max_input_bytes != 0) {
+        stop_budget("block scan input budget exceeded");
+        return RefillResult::kStopped;
+      }
       input_eof = true;
-      return false;
+      return RefillResult::kEof;
     }
     const std::size_t want = static_cast<std::size_t>(
         std::min<std::uint64_t>(remaining, in_buf.size()));
     if (!source.read(logical_offset, in_buf.data(), want)) {
-      out.error = "reading the logical stream failed";
-      assign_stop(out, have_prev, prev_bit, prev_output);
-      return false;
+      result.error = "reading the logical stream failed";
+      assign_stop(result, have_prev, prev_bit, prev_output);
+      return RefillResult::kStopped;
     }
     logical_offset += want;
     if (logical_offset >= source.size()) {
@@ -182,12 +276,22 @@ BlockIndexResult index_blocks(const pnga::io::IByteSource& source,
     }
     strm.next_in = reinterpret_cast<Bytef*>(in_buf.data());
     strm.avail_in = static_cast<uInt>(want);
-    return true;
+    return RefillResult::kOk;
   };
 
   bool done = false;
   while (!done) {
-    if (!refill()) {
+    if (cancelled_now()) {
+      stop_cancelled();
+      inflateEnd(&strm);
+      return out;
+    }
+    const RefillResult refilled = refill();
+    if (refilled == RefillResult::kStopped) {
+      inflateEnd(&strm);
+      return out;
+    }
+    if (refilled == RefillResult::kEof) {
       break;  // input exhausted before Z_STREAM_END (truncated or read error)
     }
     strm.next_out = reinterpret_cast<Bytef*>(scratch.data());
@@ -200,9 +304,8 @@ BlockIndexResult index_blocks(const pnga::io::IByteSource& source,
                              reinterpret_cast<const Bytef*>(scratch.data()),
                              static_cast<uInt>(produced));
     }
-    if (output_total > max_output_bytes) {
-      out.error = "inflate output cap exceeded";
-      assign_stop(out, have_prev, prev_bit, prev_output);
+    if (limits.max_output_bytes != 0 && output_total > limits.max_output_bytes) {
+      stop_budget("inflate output cap exceeded");
       inflateEnd(&strm);
       return out;
     }
@@ -222,7 +325,7 @@ BlockIndexResult index_blocks(const pnga::io::IByteSource& source,
 
       if (!saw_first) {
         // The zlib header boundary, just before block 0.
-        out.zlib_header_bits = boundary_bit;
+        result.zlib_header_bits = boundary_bit;
         prev_bit = boundary_bit;
         prev_output = output_total;
         have_prev = true;
@@ -232,7 +335,7 @@ BlockIndexResult index_blocks(const pnga::io::IByteSource& source,
         // output [prev_output, output_total).
         if (have_prev) {
           DeflateBlock block;
-          block.index = out.blocks.size();
+          block.index = result.blocks.size();
           block.input_bit_begin = prev_bit;
           block.input_bit_end = boundary_bit;
           block.output_begin = prev_output;
@@ -240,22 +343,25 @@ BlockIndexResult index_blocks(const pnga::io::IByteSource& source,
           std::uint16_t header = 0;
           if (!read_bits(source, prev_bit, 3, header) ||
               prev_bit + 3 > source.size() * 8) {
-            out.error = "block header out of range";
-            assign_stop(out, have_prev, prev_bit, prev_output);
+            result.error = "block header out of range";
+            assign_stop(result, have_prev, prev_bit, prev_output);
             inflateEnd(&strm);
             return out;
           }
           block.last = (header & 0x1) != 0;
           const std::uint8_t type_bits = static_cast<std::uint8_t>((header >> 1) & 0x3);
           if (type_bits == 3) {
-            out.error = "reserved deflate block type";
-            assign_stop(out, have_prev, prev_bit, prev_output);
+            result.error = "reserved deflate block type";
+            assign_stop(result, have_prev, prev_bit, prev_output);
             inflateEnd(&strm);
             return out;
           }
           block.type = static_cast<BlockType>(type_bits);
           deflate_complete = block.last;
-          out.blocks.push_back(block);
+          if (!append_block(block)) {
+            inflateEnd(&strm);
+            return out;
+          }
         }
         prev_bit = boundary_bit;
         prev_output = output_total;
@@ -263,17 +369,17 @@ BlockIndexResult index_blocks(const pnga::io::IByteSource& source,
       }
 
       if (ret == Z_STREAM_END) {
-        out.total_output_bytes = output_total;
-        out.adler.actual = actual_adler;
+        result.total_output_bytes = output_total;
+        result.adler.actual = actual_adler;
         std::uint32_t expected = 0;
         const std::uint64_t total_in =
             static_cast<std::uint64_t>(strm.total_in);
         if (total_in >= 4 &&
             read_expected_adler(source, total_in - 4, expected)) {
-          out.adler.expected = expected;
-          out.adler.status = expected == actual_adler
-                                 ? Adler32Status::kMatch
-                                 : Adler32Status::kMismatch;
+          result.adler.expected = expected;
+          result.adler.status = expected == actual_adler
+                                  ? Adler32Status::kMatch
+                                  : Adler32Status::kMismatch;
         }
         done = true;
       }
@@ -287,16 +393,16 @@ BlockIndexResult index_blocks(const pnga::io::IByteSource& source,
         if (invalid_block_type) {
           // zlib rejected the 3-bit block header itself; decoding stopped
           // right after those three bits.
-          out.error = "reserved deflate block type";
-          out.stop_input_bit =
+          result.error = "reserved deflate block type";
+          result.stop_input_bit =
               have_prev && prev_bit <=
                                std::numeric_limits<std::uint64_t>::max() - 3
                   ? prev_bit + 3
                   : std::numeric_limits<std::uint64_t>::max();
-          out.stop_output_byte = have_prev ? prev_output : 0;
+          result.stop_output_byte = have_prev ? prev_output : 0;
         } else {
-          out.error = "inflate data error (corrupt stream or bad Adler-32)";
-          assign_stop(out, have_prev, prev_bit, prev_output);
+          result.error = "inflate data error (corrupt stream or bad Adler-32)";
+          assign_stop(result, have_prev, prev_bit, prev_output);
           if (deflate_complete) {
             // Only the trailing Adler-32 remains after the BFINAL block, so
             // this data error is the checksum comparison failing.
@@ -305,21 +411,21 @@ BlockIndexResult index_blocks(const pnga::io::IByteSource& source,
                 static_cast<std::uint64_t>(strm.total_in);
             if (total_in >= 4 &&
                 read_expected_adler(source, total_in - 4, expected)) {
-              out.adler.status = Adler32Status::kMismatch;
-              out.adler.expected = expected;
-              out.adler.actual = actual_adler;
+              result.adler.status = Adler32Status::kMismatch;
+              result.adler.expected = expected;
+              result.adler.actual = actual_adler;
             }
           }
         }
       } else if (ret == Z_NEED_DICT) {
-        out.error = "inflate needs a preset dictionary";
-        assign_stop(out, have_prev, prev_bit, prev_output);
+        result.error = "inflate needs a preset dictionary";
+        assign_stop(result, have_prev, prev_bit, prev_output);
       } else if (ret == Z_BUF_ERROR) {
-        out.error = "inflate stalled without progress";
-        assign_stop(out, have_prev, prev_bit, prev_output);
+        result.error = "inflate stalled without progress";
+        assign_stop(result, have_prev, prev_bit, prev_output);
       } else {
-        out.error = "inflate failed";
-        assign_stop(out, have_prev, prev_bit, prev_output);
+        result.error = "inflate failed";
+        assign_stop(result, have_prev, prev_bit, prev_output);
       }
       inflateEnd(&strm);
       return out;
@@ -328,14 +434,34 @@ BlockIndexResult index_blocks(const pnga::io::IByteSource& source,
   inflateEnd(&strm);
 
   if (!done) {
-    if (input_eof && out.error.empty()) {
-      out.error = "truncated zlib stream (no end marker)";
+    if (input_eof && result.error.empty()) {
+      result.error = "truncated zlib stream (no end marker)";
     }
-    assign_stop(out, have_prev, prev_bit, prev_output);
+    assign_stop(result, have_prev, prev_bit, prev_output);
     return out;
   }
-  out.success = true;
+  result.success = true;
+  out.stop = BlockScanStop::kComplete;
   return out;
+}
+
+}  // namespace
+
+const char* block_type_text(BlockType type) noexcept { return type_text(type); }
+
+BlockIndexResult index_blocks(const pnga::io::IByteSource& source,
+                              std::uint64_t max_output_bytes) {
+  BlockScanLimits limits;
+  limits.max_output_bytes = max_output_bytes;
+  // The frozen entry keeps its original semantics: only the output cap is
+  // enforced, no cancellation, identical error messages.
+  return scan_blocks(source, limits, {}).index;
+}
+
+BoundedBlockIndexResult index_blocks_bounded(
+    const pnga::io::IByteSource& source, const BlockScanLimits& limits,
+    const std::function<bool()>& cancelled) {
+  return scan_blocks(source, limits, cancelled);
 }
 
 std::optional<std::size_t> block_for_output(const BlockIndexResult& index,
