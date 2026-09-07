@@ -35,6 +35,13 @@ jobs:
         with:
           python-version: "3.11"
 
+      # WP-607C: the corpus manifest validator runs at configure time and
+      # parses tests/corpus/manifest.yaml with PyYAML. Pinned to the same
+      # version the ci workflow installs.
+      - name: Provide PyYAML
+        shell: bash
+        run: python -m pip install PyYAML==6.0.2
+
       - name: Provide pkg-config (Linux)
         if: runner.os == 'Linux'
         shell: bash
