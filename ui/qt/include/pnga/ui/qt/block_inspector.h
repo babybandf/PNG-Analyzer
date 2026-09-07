@@ -16,6 +16,7 @@
 #include <QObject>
 #include <QString>
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -81,6 +82,9 @@ class BlockInspector final : public CompressionInspectorPage {
   void updateButtons();
   void updateDetails();
   void updateResponsiveColumns();
+  void refitColumns();
+  void adjustColumnsToViewport();
+  void scheduleColumnsToViewport();
   void scrollToCurrentRow();
 
   pnga::analysis_engine::BlockInspectorView view_;
@@ -93,6 +97,7 @@ class BlockInspector final : public CompressionInspectorPage {
   QPushButton* hex_button_ = nullptr;
   QPushButton* inflated_button_ = nullptr;
   QPushButton* open_trace_button_ = nullptr;
+  std::array<int, BlockInspectorModel::ColumnCount> content_widths_{};
   bool splitter_sized_ = false;
   mutable std::uint64_t serial_base_ = 0;
   mutable std::uint64_t serial_counter_ = 0;

@@ -140,8 +140,7 @@ BlockInspector::BlockInspector(QWidget* parent)
                                QHeaderView::Interactive);
   header->setSectionResizeMode(BlockInspectorModel::Scanlines,
                                QHeaderView::Interactive);
-  table_->resizeColumnsToContents();
-  table_->setColumnWidth(BlockInspectorModel::Current, 28);
+  refitColumns();
 
   // The shell builds a provisional QTableWidget; the product page replaces
   // it with the model-backed view. The shell itself is outside this work
@@ -220,8 +219,7 @@ void BlockInspector::setFastIndex(
   updateButtons();
   updateResponsiveColumns();
   if (generation_changed) {
-    table_->resizeColumnsToContents();
-    table_->setColumnWidth(BlockInspectorModel::Current, 28);
+    refitColumns();
   }
   if (isVisible()) {
     scrollToCurrentRow();
@@ -440,6 +438,77 @@ void BlockInspector::updateResponsiveColumns() {
                           page_width < kShowScanlinesWidth);
   table_->setColumnHidden(BlockInspectorModel::Events,
                           page_width < kShowEventsWidth);
+  adjustColumnsToViewport();
+  scheduleColumnsToViewport();
+}
+
+void BlockInspector::refitColumns() {
+  const bool events_hidden =
+      table_->isColumnHidden(BlockInspectorModel::Events);
+  const bool scanlines_hidden =
+      table_->isColumnHidden(BlockInspectorModel::Scanlines);
+  // Measure every content column even when the responsive matrix currently
+  // hides it; it may become visible after the Inspector is widened.
+  table_->setColumnHidden(BlockInspectorModel::Events, false);
+  table_->setColumnHidden(BlockInspectorModel::Scanlines, false);
+  table_->resizeColumnsToContents();
+  for (int column = 0; column < BlockInspectorModel::ColumnCount; ++column) {
+    content_widths_[static_cast<std::size_t>(column)] =
+        table_->columnWidth(column);
+  }
+  content_widths_[BlockInspectorModel::Current] = 28;
+  table_->setColumnWidth(BlockInspectorModel::Current, 28);
+  table_->setColumnHidden(BlockInspectorModel::Events, events_hidden);
+  table_->setColumnHidden(BlockInspectorModel::Scanlines, scanlines_hidden);
+  adjustColumnsToViewport();
+  scheduleColumnsToViewport();
+}
+
+void BlockInspector::adjustColumnsToViewport() {
+  if (table_ == nullptr || table_->viewport()->width() <= 0) {
+    return;
+  }
+
+  auto* header = table_->horizontalHeader();
+  int total_width = 0;
+  int adjustable_count = 0;
+  for (int column = 0; column < BlockInspectorModel::ColumnCount; ++column) {
+    if (header->isSectionHidden(column)) {
+      continue;
+    }
+    if (column != BlockInspectorModel::Current) {
+      const int minimum_width =
+          content_widths_[static_cast<std::size_t>(column)];
+      if (minimum_width > 0 && table_->columnWidth(column) < minimum_width) {
+        table_->setColumnWidth(column, minimum_width);
+      }
+      ++adjustable_count;
+    }
+    total_width += header->sectionSize(column);
+  }
+
+  const int extra_width = table_->viewport()->width() - total_width;
+  if (extra_width <= 0 || adjustable_count == 0) {
+    return;
+  }
+
+  int remaining = extra_width;
+  int remaining_columns = adjustable_count;
+  for (int column = 0; column < BlockInspectorModel::ColumnCount; ++column) {
+    if (header->isSectionHidden(column) ||
+        column == BlockInspectorModel::Current) {
+      continue;
+    }
+    const int added = remaining / remaining_columns;
+    table_->setColumnWidth(column, table_->columnWidth(column) + added);
+    remaining -= added;
+    --remaining_columns;
+  }
+}
+
+void BlockInspector::scheduleColumnsToViewport() {
+  QMetaObject::invokeMethod(
+      this, [this] { adjustColumnsToViewport(); }, Qt::QueuedConnection);
 }
 
 void BlockInspector::scrollToCurrentRow() {

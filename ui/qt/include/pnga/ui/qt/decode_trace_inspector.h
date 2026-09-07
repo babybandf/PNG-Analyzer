@@ -18,6 +18,7 @@
 #include <QObject>
 #include <QString>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -25,6 +26,7 @@
 
 class QLabel;
 class QPushButton;
+class QResizeEvent;
 class QShowEvent;
 class QTableView;
 
@@ -66,6 +68,7 @@ class DecodeTraceInspector final : public CompressionInspectorPage {
   void onSelectionChanged();
 
  protected:
+  void resizeEvent(QResizeEvent* event) override;
   void showEvent(QShowEvent* event) override;
 
  private:
@@ -83,6 +86,9 @@ class DecodeTraceInspector final : public CompressionInspectorPage {
   void updateScopeHeading();
   void updateButtons();
   void updateDetails();
+  void refitColumns();
+  void adjustColumnsToViewport();
+  void scheduleColumnsToViewport();
 
   pnga::analysis_engine::DecodeTraceInspectorView view_;
   DecodeTraceModel* model_ = nullptr;
@@ -92,6 +98,7 @@ class DecodeTraceInspector final : public CompressionInspectorPage {
   QLabel* scope_heading_ = nullptr;
   QPushButton* hex_button_ = nullptr;
   QPushButton* inflated_button_ = nullptr;
+  std::array<int, DecodeTraceModel::ColumnCount> content_widths_{};
   bool splitter_sized_ = false;
   mutable std::uint64_t serial_base_ = 0;
   mutable std::uint64_t serial_counter_ = 0;

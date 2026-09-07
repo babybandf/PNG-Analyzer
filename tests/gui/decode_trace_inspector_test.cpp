@@ -24,6 +24,7 @@
 #include <QPushButton>
 #include <QRect>
 #include <QSignalSpy>
+#include <QScrollBar>
 #include <QTableView>
 #include <QTableWidget>
 
@@ -167,6 +168,8 @@ class DecodeTraceInspectorTest : public QObject {
   void keyboardNavigationMovesRowSelection();
   void sameGenerationRepublishPreservesManualWidths();
   void generationChangeRefitsColumns();
+  void inspectorResizeExpandsClippedContentColumns();
+  void republishAtWideWidthUsesTheWholeViewport();
 };
 
 void DecodeTraceInspectorTest::initTestCase() {
@@ -698,6 +701,67 @@ void DecodeTraceInspectorTest::generationChangeRefitsColumns() {
   QVERIFY(reference_table != nullptr);
   QCOMPARE(table->columnWidth(pnga::ui::qt::DecodeTraceModel::Step),
            reference_table->columnWidth(pnga::ui::qt::DecodeTraceModel::Step));
+}
+
+void DecodeTraceInspectorTest::inspectorResizeExpandsClippedContentColumns() {
+  pnga::ui::qt::DecodeTraceInspector widget;
+  widget.setView(ready_view());
+  widget.resize(320, 600);
+  widget.show();
+  QCoreApplication::processEvents();
+
+  auto* table = traceTable(widget);
+  QVERIFY(table != nullptr);
+  const auto event_column = pnga::ui::qt::DecodeTraceModel::Event;
+
+  pnga::ui::qt::DecodeTraceInspector reference;
+  reference.setView(ready_view());
+  reference.show();
+  QCoreApplication::processEvents();
+  auto* reference_table = traceTable(reference);
+  QVERIFY(reference_table != nullptr);
+  const int content_width = reference_table->columnWidth(event_column);
+
+  table->setColumnWidth(event_column, 40);
+  widget.resize(700, 600);
+  QCoreApplication::processEvents();
+
+  // A column clipped while the Inspector was narrow must recover its bounded
+  // content width when the available viewport grows.
+  QVERIFY2(table->columnWidth(event_column) >= content_width,
+           qPrintable(QStringLiteral("Event column stayed at %1; expected at least %2")
+                          .arg(table->columnWidth(event_column))
+                          .arg(content_width)));
+  QVERIFY(table->horizontalHeader()->length() >= table->viewport()->width());
+  QCOMPARE(table->columnWidth(pnga::ui::qt::DecodeTraceModel::Current), 28);
+
+  // Shrinking the Inspector keeps the table bounded and lets its native
+  // horizontal scrollbar carry the overflow.
+  widget.resize(320, 600);
+  QCoreApplication::processEvents();
+  QVERIFY(table->horizontalScrollBarPolicy() == Qt::ScrollBarAsNeeded);
+  QTRY_VERIFY(table->horizontalScrollBar()->maximum() > 0);
+}
+
+void DecodeTraceInspectorTest::republishAtWideWidthUsesTheWholeViewport() {
+  pnga::ui::qt::DecodeTraceInspector widget;
+  widget.resize(700, 600);
+  widget.setView(ready_view());
+  widget.show();
+  QCoreApplication::processEvents();
+
+  auto* table = traceTable(widget);
+  QVERIFY(table != nullptr);
+  QVERIFY2(table->horizontalHeader()->length() >= table->viewport()->width(),
+           qPrintable(QStringLiteral(
+               "Initial publish left %1 px unused in a %2 px viewport")
+                          .arg(table->viewport()->width() -
+                               table->horizontalHeader()->length())
+                          .arg(table->viewport()->width())));
+
+  widget.setView(ready_view());
+  QCoreApplication::processEvents();
+  QVERIFY(table->horizontalHeader()->length() >= table->viewport()->width());
 }
 
 QTEST_MAIN(DecodeTraceInspectorTest)

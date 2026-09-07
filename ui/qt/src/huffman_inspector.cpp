@@ -21,6 +21,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QResizeEvent>
 #include <QShowEvent>
 #include <QSplitter>
 #include <QTableView>
@@ -136,7 +137,7 @@ HuffmanInspector::HuffmanInspector(QWidget* parent)
   // Meaning and every other content column support drag and native double-click
   // fitting. Same-document publications preserve the user's widths.
   header->setSectionResizeMode(QHeaderView::Interactive);
-  table_->resizeColumnsToContents();
+  refitColumns();
 
   // The shell builds a provisional QTableWidget; the product page replaces
   // it with the model-backed view. The shell itself is outside this work
@@ -236,10 +237,17 @@ void HuffmanInspector::setView(
   syncActiveTable();
   updateButtons();
   updateDetails();
+  scheduleColumnsToViewport();
 }
 
 void HuffmanInspector::setExternalStatus(const QString& /*text*/) {
   // WP-5U12: the shared Compression context owns the trace status.
+}
+
+void HuffmanInspector::resizeEvent(QResizeEvent* event) {
+  CompressionInspectorPage::resizeEvent(event);
+  adjustColumnsToViewport();
+  scheduleColumnsToViewport();
 }
 
 void HuffmanInspector::clear() {
@@ -497,7 +505,7 @@ void HuffmanInspector::syncActiveTable() {
   const int kind = kind_buttons_->checkedId();
   if (view_.generation != last_refit_generation_ ||
       kind != last_refit_kind_) {
-    table_->resizeColumnsToContents();
+    refitColumns();
     last_refit_generation_ = view_.generation;
     last_refit_kind_ = kind;
   }
@@ -510,6 +518,60 @@ void HuffmanInspector::syncActiveTable() {
   heading_->setText(QStringLiteral("Block #%1 · %2 Huffman")
                         .arg(static_cast<qulonglong>((*table)->block_index))
                         .arg(mode_heading((*table)->mode)));
+}
+
+void HuffmanInspector::refitColumns() {
+  table_->resizeColumnsToContents();
+  for (int column = 0; column < HuffmanInspectorModel::ColumnCount; ++column) {
+    content_widths_[static_cast<std::size_t>(column)] =
+        table_->columnWidth(column);
+  }
+  adjustColumnsToViewport();
+  scheduleColumnsToViewport();
+}
+
+void HuffmanInspector::adjustColumnsToViewport() {
+  if (table_ == nullptr || table_->viewport()->width() <= 0) {
+    return;
+  }
+
+  auto* header = table_->horizontalHeader();
+  int total_width = 0;
+  int adjustable_count = 0;
+  for (int column = 0; column < HuffmanInspectorModel::ColumnCount; ++column) {
+    if (header->isSectionHidden(column)) {
+      continue;
+    }
+    const int minimum_width =
+        content_widths_[static_cast<std::size_t>(column)];
+    if (minimum_width > 0 && table_->columnWidth(column) < minimum_width) {
+      table_->setColumnWidth(column, minimum_width);
+    }
+    ++adjustable_count;
+    total_width += header->sectionSize(column);
+  }
+
+  const int extra_width = table_->viewport()->width() - total_width;
+  if (extra_width <= 0 || adjustable_count == 0) {
+    return;
+  }
+
+  int remaining = extra_width;
+  int remaining_columns = adjustable_count;
+  for (int column = 0; column < HuffmanInspectorModel::ColumnCount; ++column) {
+    if (header->isSectionHidden(column)) {
+      continue;
+    }
+    const int added = remaining / remaining_columns;
+    table_->setColumnWidth(column, table_->columnWidth(column) + added);
+    remaining -= added;
+    --remaining_columns;
+  }
+}
+
+void HuffmanInspector::scheduleColumnsToViewport() {
+  QMetaObject::invokeMethod(
+      this, [this] { adjustColumnsToViewport(); }, Qt::QueuedConnection);
 }
 
 void HuffmanInspector::syncSelectionFromState() {

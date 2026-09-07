@@ -17,6 +17,7 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QPushButton>
+#include <QResizeEvent>
 #include <QShowEvent>
 #include <QSplitter>
 #include <QTableView>
@@ -140,8 +141,7 @@ DecodeTraceInspector::DecodeTraceInspector(QWidget* parent)
   // Event must remain adjustable even when the Inspector is narrow.
   header->setSectionResizeMode(QHeaderView::Interactive);
   header->setSectionResizeMode(DecodeTraceModel::Current, QHeaderView::Fixed);
-  table_->resizeColumnsToContents();
-  table_->setColumnWidth(DecodeTraceModel::Current, 28);
+  refitColumns();
 
   // The shell builds a provisional QTableWidget; the product page replaces
   // it with the model-backed view. The shell itself is outside this work
@@ -237,6 +237,12 @@ void DecodeTraceInspector::showEvent(QShowEvent* event) {
   }
 }
 
+void DecodeTraceInspector::resizeEvent(QResizeEvent* event) {
+  CompressionInspectorPage::resizeEvent(event);
+  adjustColumnsToViewport();
+  scheduleColumnsToViewport();
+}
+
 void DecodeTraceInspector::setView(
     const pnga::analysis_engine::DecodeTraceInspectorView& view) {
   // Per-document refit policy: the page publishes on every pixel click
@@ -250,8 +256,9 @@ void DecodeTraceInspector::setView(
       std::make_shared<const pnga::analysis_engine::DecodeTraceInspectorView>(
           view));
   if (generation_changed) {
-    table_->resizeColumnsToContents();
-    table_->setColumnWidth(DecodeTraceModel::Current, 28);
+    refitColumns();
+  } else {
+    scheduleColumnsToViewport();
   }
   updateScopeHeading();
   updateButtons();
@@ -268,6 +275,65 @@ void DecodeTraceInspector::setView(
     table_->doItemsLayout();
     table_->scrollTo(model_->index(*row, 0));
   }
+}
+
+void DecodeTraceInspector::refitColumns() {
+  table_->resizeColumnsToContents();
+  for (int column = 0; column < DecodeTraceModel::ColumnCount; ++column) {
+    content_widths_[static_cast<std::size_t>(column)] =
+        table_->columnWidth(column);
+  }
+  content_widths_[DecodeTraceModel::Current] = 28;
+  table_->setColumnWidth(DecodeTraceModel::Current, 28);
+  adjustColumnsToViewport();
+  scheduleColumnsToViewport();
+}
+
+void DecodeTraceInspector::adjustColumnsToViewport() {
+  if (table_ == nullptr || table_->viewport()->width() <= 0) {
+    return;
+  }
+
+  auto* header = table_->horizontalHeader();
+  int total_width = 0;
+  int adjustable_count = 0;
+  for (int column = 0; column < DecodeTraceModel::ColumnCount; ++column) {
+    if (header->isSectionHidden(column)) {
+      continue;
+    }
+    if (column != DecodeTraceModel::Current) {
+      const int minimum_width =
+          content_widths_[static_cast<std::size_t>(column)];
+      if (minimum_width > 0 && table_->columnWidth(column) < minimum_width) {
+        table_->setColumnWidth(column, minimum_width);
+      }
+      ++adjustable_count;
+    }
+    total_width += header->sectionSize(column);
+  }
+
+  const int extra_width = table_->viewport()->width() - total_width;
+  if (extra_width <= 0 || adjustable_count == 0) {
+    return;
+  }
+
+  int remaining = extra_width;
+  int remaining_columns = adjustable_count;
+  for (int column = 0; column < DecodeTraceModel::ColumnCount; ++column) {
+    if (header->isSectionHidden(column) ||
+        column == DecodeTraceModel::Current) {
+      continue;
+    }
+    const int added = remaining / remaining_columns;
+    table_->setColumnWidth(column, table_->columnWidth(column) + added);
+    remaining -= added;
+    --remaining_columns;
+  }
+}
+
+void DecodeTraceInspector::scheduleColumnsToViewport() {
+  QMetaObject::invokeMethod(
+      this, [this] { adjustColumnsToViewport(); }, Qt::QueuedConnection);
 }
 
 void DecodeTraceInspector::setExternalStatus(const QString& /*text*/) {

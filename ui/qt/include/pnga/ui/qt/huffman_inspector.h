@@ -16,6 +16,7 @@
 #include <QObject>
 #include <QString>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -24,6 +25,7 @@
 class QButtonGroup;
 class QLabel;
 class QPushButton;
+class QResizeEvent;
 class QShowEvent;
 class QTableView;
 class QWidget;
@@ -67,6 +69,7 @@ class HuffmanInspector final : public CompressionInspectorPage {
   void openOccurrence();
 
  protected:
+  void resizeEvent(QResizeEvent* event) override;
   void showEvent(QShowEvent* event) override;
 
  private:
@@ -86,6 +89,9 @@ class HuffmanInspector final : public CompressionInspectorPage {
   void syncSelectionFromState();
   void updateButtons();
   void updateDetails();
+  void refitColumns();
+  void adjustColumnsToViewport();
+  void scheduleColumnsToViewport();
 
   pnga::analysis_engine::HuffmanInspectorView view_;
   HuffmanInspectorModel* model_ = nullptr;
@@ -96,6 +102,7 @@ class HuffmanInspector final : public CompressionInspectorPage {
   QWidget* selector_ = nullptr;
   QButtonGroup* kind_buttons_ = nullptr;
   QPushButton* open_occurrence_button_ = nullptr;
+  std::array<int, HuffmanInspectorModel::ColumnCount> content_widths_{};
   bool hide_zero_bit_entries_ = true;
   bool applying_state_ = false;
   bool splitter_sized_ = false;

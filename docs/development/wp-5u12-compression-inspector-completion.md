@@ -114,6 +114,9 @@ Current remains fixed at 28 px; all content columns use content-derived initial
 widths and allow mouse dragging. Overflow scrolls inside the table. Same-document
 publication and selection preserve widths; opening another document refits;
 Huffman table-kind changes retain the existing explicit refit policy.
+When the table viewport grows beyond the content-derived minimum total, visible
+content columns share the spare width; when it becomes narrower, their minimum
+widths are retained and the table scrolls horizontally.
 Double-clicking a content-column boundary fits that column using Qt's bounded
 content measurement. No interaction submits analysis work.
 
