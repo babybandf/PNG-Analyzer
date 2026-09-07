@@ -204,6 +204,8 @@ add_pnga_gui_app_test(pnga_gui_document_session_tests
 
 add_pnga_gui_app_test(pnga_gui_statistics_controller_tests
   statistics_controller_test.cpp gui_statistics_controller_tests)
+set_tests_properties(gui_statistics_controller_tests PROPERTIES
+  ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 
 add_pnga_gui_app_test(pnga_gui_selection_navigation_controller_tests
   selection_navigation_controller_test.cpp

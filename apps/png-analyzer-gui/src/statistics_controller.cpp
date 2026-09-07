@@ -354,8 +354,9 @@ void StatisticsController::exportStatistics(int format) {
   // Mid-collection export: the latest progress result carries the verified
   // prefix and its own document identity; the snapshot's statuses label it
   // partial honestly (R13). With nothing collected yet, explain the refusal.
-  const pnga::analysis_engine::StatisticsCollectionResult* exportable =
-      result_ != nullptr ? result_.get() : last_progress_.get();
+  // The dialog runs a nested event loop: progress can replace the controller's
+  // snapshot while it is open. Keep ownership of the selected export.
+  const auto exportable = result_ != nullptr ? result_ : last_progress_;
   const bool partial_export = exportable != nullptr && result_ == nullptr;
   if (exportable == nullptr) {
     w_.statistics_inspector->setProgress(QStringLiteral(
@@ -370,12 +371,21 @@ void StatisticsController::exportStatistics(int format) {
   const QString path = save_path_ ? save_path_() : [&]() {
     const bool json = format == static_cast<int>(
                                   pnga::ui::qt::StatisticsExportFormat::kJson);
-    return QFileDialog::getSaveFileName(
-        nullptr, QStringLiteral("Export statistics"),
-        QStringLiteral("statistics.%1").arg(json ? QStringLiteral("json")
-                                                 : QStringLiteral("csv")),
-        QStringLiteral("Statistics (%1)")
-            .arg(json ? QStringLiteral("*.json") : QStringLiteral("*.csv")));
+    // Match File -> Open: development app bundles can fail to present the
+    // native macOS panel. Set the Qt dialog option before other properties.
+    QFileDialog dialog(w_.statistics_inspector);
+    dialog.setOption(QFileDialog::DontUseNativeDialog, true);
+    dialog.setWindowTitle(QStringLiteral("Export statistics"));
+    dialog.setAcceptMode(QFileDialog::AcceptSave);
+    dialog.setFileMode(QFileDialog::AnyFile);
+    const QString suffix = json ? QStringLiteral("json") : QStringLiteral("csv");
+    dialog.setDefaultSuffix(suffix);
+    dialog.setNameFilter(QStringLiteral("Statistics (*.%1)").arg(suffix));
+    dialog.selectFile(QStringLiteral("statistics.%1").arg(suffix));
+    if (dialog.exec() != QDialog::Accepted || dialog.selectedFiles().isEmpty()) {
+      return QString();
+    }
+    return dialog.selectedFiles().front();
   }();
   if (path.isEmpty()) {
     return;

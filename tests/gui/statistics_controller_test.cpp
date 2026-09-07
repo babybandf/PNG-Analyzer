@@ -25,6 +25,8 @@
 #include <QtTest/QtTest>
 
 #include <QFile>
+#include <QFileDialog>
+#include <QApplication>
 #include <QLabel>
 #include <QPushButton>
 #include <QSignalSpy>
@@ -32,6 +34,7 @@
 #include <QTabWidget>
 #include <QTemporaryDir>
 #include <QTemporaryFile>
+#include <QTimer>
 
 #include <cstdint>
 #include <filesystem>
@@ -132,6 +135,7 @@ class StatisticsControllerTest : public QObject {
   void refreshStartsNewGenerationScopedRequest();
   void cancelRetainsVerifiedRows();
   void exportMatchesSharedSerializer();
+  void saveDialogUsesStatisticsInspectorAsParent();
   void partialExportRemainsEnabledAndLabeled();
   void exportFailureLeavesTargetUntouched();
   void exportGateFailureGivesFeedback();
@@ -297,6 +301,46 @@ void StatisticsControllerTest::exportMatchesSharedSerializer() {
   QVERIFY(progressLabel(widgets)->text().contains(QStringLiteral("Exported")));
   QVERIFY(!progressLabel(widgets)->text().contains(
       QStringLiteral("partial"), Qt::CaseInsensitive));
+}
+
+void StatisticsControllerTest::saveDialogUsesStatisticsInspectorAsParent() {
+  QTemporaryFile png;
+  QVERIFY(writeFixture(png));
+
+  QMainWindow window;
+  MainWindowWidgets widgets = buildMainWindowUi(window, nullptr);
+  DocumentSession session(&window);
+  StatisticsController controller(widgets, session, &window);
+  QSignalSpy finished(&session, &DocumentSession::statisticsFinished);
+  QVERIFY(finished.isValid());
+
+  QVERIFY(session.replace(png.fileName()));
+  session.startPrimaryWorkers();
+  widgets.inspector_tabs->setCurrentWidget(widgets.statistics_inspector);
+  QTRY_VERIFY_WITH_TIMEOUT(finished.count() == 1, 10000);
+
+  bool dialog_seen = false;
+  bool qt_save_dialog = false;
+  QWidget* observed_parent = nullptr;
+  QTimer::singleShot(0, [&] {
+    for (QWidget* widget : QApplication::topLevelWidgets()) {
+      auto* dialog = qobject_cast<QFileDialog*>(widget);
+      if (dialog == nullptr || !dialog->isVisible()) {
+        continue;
+      }
+      dialog_seen = true;
+      qt_save_dialog = dialog->testOption(QFileDialog::DontUseNativeDialog) &&
+                       dialog->acceptMode() == QFileDialog::AcceptSave;
+      observed_parent = dialog->parentWidget();
+      dialog->reject();
+      break;
+    }
+  });
+
+  inspectorButton(widgets, "statisticsExportJson")->click();
+  QVERIFY2(dialog_seen, "export click did not open a visible save dialog");
+  QVERIFY(qt_save_dialog);
+  QCOMPARE(observed_parent, widgets.statistics_inspector);
 }
 
 void StatisticsControllerTest::partialExportRemainsEnabledAndLabeled() {
