@@ -308,7 +308,9 @@ TEST_CASE("Collector publishes section progress in frozen order",
   const auto fixture = make_fixture(make_controlled_fixture(
       ControlledCaseId::kTraceFixedNonoverlap).png_bytes);
   auto request = make_request(fixture);
-  request.monotonic_millis = FakeClock(100).callable();
+  // The clock object must outlive the collection: callable() captures `this`.
+  FakeClock clock(100);
+  request.monotonic_millis = clock.callable();
 
   std::vector<SId> order;
   std::vector<StatisticsSnapshot> published;
@@ -372,8 +374,10 @@ TEST_CASE("Progress is throttled through the injected monotonic clock",
       ControlledCaseId::kTraceFixedNonoverlap).png_bytes);
   auto request = make_request(fixture);
   // 1 ms logical steps: only the unconditional first publish fits inside the
-  // 100 ms throttle window for this small document.
-  request.monotonic_millis = FakeClock(1).callable();
+  // 100 ms throttle window for this small document. The clock object must
+  // outlive the collection: callable() captures `this`.
+  FakeClock clock(1);
+  request.monotonic_millis = clock.callable();
 
   std::size_t callbacks = 0;
   collect_document_statistics(request, nullptr,
@@ -572,7 +576,8 @@ TEST_CASE("Cancellation marks the matching section and dependents",
     const auto fixture = make_fixture(make_controlled_fixture(
         ControlledCaseId::kTraceFixedNonoverlap).png_bytes);
     auto request = make_request(fixture);
-    request.monotonic_millis = FakeClock(100).callable();
+    FakeClock clock(100);
+    request.monotonic_millis = clock.callable();
     CancellationToken token;
     const auto result = collect_document_statistics(
         request, &token,
@@ -607,7 +612,8 @@ TEST_CASE("Cancellation marks the matching section and dependents",
         make_fixture(make_level0_stored_png(128, 128, &filtered));
     REQUIRE(filtered.size() == 128u * 129u);
     auto request = make_request(fixture);
-    request.monotonic_millis = FakeClock(100).callable();
+    FakeClock clock(100);
+    request.monotonic_millis = clock.callable();
     CancellationToken token;
     const auto result = collect_document_statistics(
         request, &token,

@@ -106,8 +106,9 @@ the whole index:
   two additional reads (one refill unit plus one block-header read), no
   wall-clock slack involved. The cancelled run must report the frozen
   cancelled overview with no totals.
-- `process_rss_peak_kib` — auxiliary process peak RSS in KiB (platform
-  getrusage units normalized); recorded only, never thresholded — the
+- `process_rss_peak_kib` — auxiliary process peak RSS in KiB (platform units
+  normalized: getrusage `ru_maxrss`, or `GetProcessMemoryInfo` peak working
+  set on Windows); recorded only, never thresholded — the
   declared 64 MiB cap governs the job's own working memory, not the whole
   process. Known coverage note: the CLI composition pre-builds a full
   StageSet (`analyze_source`) before the collector runs; that preprocessing

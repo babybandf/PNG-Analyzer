@@ -49,6 +49,15 @@
 
 #if defined(__APPLE__)
 #include <mach/mach.h>
+#elif defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <psapi.h>
 #else
 #include <sys/resource.h>
 #endif
@@ -874,11 +883,21 @@ struct BoundedBlocksScenario {
     // Auxiliary evidence only: the process peak RSS (not a GUI-wide hard
     // threshold — the declared 64 MiB cap governs the job's own working
     // memory). Recorded in KiB.
+#if defined(__APPLE__)
     struct rusage usage{};
     getrusage(RUSAGE_SELF, &usage);
-#if defined(__APPLE__)
     process_rss_peak_kib = static_cast<std::uint64_t>(usage.ru_maxrss) / 1024;
+#elif defined(_WIN32)
+    PROCESS_MEMORY_COUNTERS counters{};
+    counters.cb = sizeof(counters);
+    if (GetProcessMemoryInfo(GetCurrentProcess(), &counters,
+                             sizeof(counters))) {
+      process_rss_peak_kib =
+          static_cast<std::uint64_t>(counters.PeakWorkingSetSize) / 1024;
+    }
 #else
+    struct rusage usage{};
+    getrusage(RUSAGE_SELF, &usage);
     process_rss_peak_kib = static_cast<std::uint64_t>(usage.ru_maxrss);
 #endif
     checksum = verified_block_count + retained_capacity_bytes + read_bytes;

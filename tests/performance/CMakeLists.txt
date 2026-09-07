@@ -21,6 +21,12 @@ target_compile_definitions(pnga_performance_runner PRIVATE
   PNGA_WP607C_CORPUS_REVISION="${PNGA_WP607C_CORPUS_REVISION}"
 )
 
+# Peak-RSS evidence uses GetProcessMemoryInfo; psapi.lib is required when the
+# platform headers map it to the legacy psapi.dll entry point (PSAPI_VERSION 1).
+if(WIN32)
+  target_link_libraries(pnga_performance_runner PRIVATE psapi)
+endif()
+
 add_test(NAME performance_corpus_runner COMMAND pnga_performance_runner)
 set_tests_properties(performance_corpus_runner PROPERTIES
   LABELS "performance;corpus"
