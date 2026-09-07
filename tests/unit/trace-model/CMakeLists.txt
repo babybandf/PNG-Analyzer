@@ -4,6 +4,7 @@ add_executable(pnga_trace_model_tests
   offset_range_test.cpp
   compression_navigation_test.cpp
   selection_test.cpp
+  stage_artifact_test.cpp
 )
 target_link_libraries(pnga_trace_model_tests PRIVATE
   pnga::trace_model

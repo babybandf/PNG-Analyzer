@@ -16,6 +16,9 @@ using pnga::analysis_engine::StoreError;
 using pnga::analysis_engine::StoreResult;
 using pnga::trace_model::ArtifactFormat;
 using pnga::trace_model::ArtifactKey;
+using pnga::trace_model::ImageIdentity;
+using pnga::trace_model::AnimationFrame;
+using pnga::trace_model::StaticImage;
 using pnga::trace_model::Stage;
 using pnga::trace_model::StageArtifact;
 
@@ -25,8 +28,14 @@ std::vector<std::byte> bytes_of(std::size_t n, unsigned char fill = 0x11) {
   return std::vector<std::byte>(n, static_cast<std::byte>(fill));
 }
 
-ArtifactKey key(Stage stage, std::uint64_t row = 0) {
-  return ArtifactKey{stage, row, row + 1};
+ArtifactKey key(Stage stage, std::uint64_t row = 0,
+                ImageIdentity identity = StaticImage{}) {
+  ArtifactKey out;
+  out.identity = identity;
+  out.stage = stage;
+  out.row_begin = row;
+  out.row_end = row + 1;
+  return out;
 }
 
 }  // namespace
@@ -46,6 +55,26 @@ TEST_CASE("Artifacts fit under the budget and are retrievable",
           pnga::trace_model::ArtifactBacking::kOwned);
   REQUIRE(r.artifact->bytes().has_value());
   REQUIRE(r.artifact->bytes()->size() == 40);
+}
+
+TEST_CASE("Artifacts for static and animation images do not collide",
+          "[analysis-engine][wp699]") {
+  ArtifactStore store(100);
+  const auto static_key = key(Stage::kDelivered, 0, StaticImage{});
+  const auto frame_key = key(Stage::kDelivered, 0, AnimationFrame{0});
+
+  REQUIRE(store.put(static_key,
+                    StageArtifact::owned_bytes(Stage::kDelivered,
+                                               bytes_of(20))) ==
+          StoreError::kOk);
+  REQUIRE(store.put(frame_key,
+                    StageArtifact::owned_bytes(Stage::kDelivered,
+                                               bytes_of(20))) ==
+          StoreError::kOk);
+
+  REQUIRE(store.entry_count() == 2);
+  REQUIRE(store.contains(static_key));
+  REQUIRE(store.contains(frame_key));
 }
 
 TEST_CASE("Over-budget insertion evicts least-recently-used entries",

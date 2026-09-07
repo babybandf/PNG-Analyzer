@@ -38,6 +38,21 @@ const char* artifact_backing_text(ArtifactBacking backing) noexcept {
 }
 
 bool ArtifactKey::operator<(const ArtifactKey& other) const noexcept {
+  const auto identity_kind = [](const ImageIdentity& identity) noexcept {
+    return std::holds_alternative<StaticImage>(identity) ? 0 : 1;
+  };
+  const int this_kind = identity_kind(identity);
+  const int other_kind = identity_kind(other.identity);
+  if (this_kind != other_kind) {
+    return this_kind < other_kind;
+  }
+  if (this_kind == 1) {
+    const auto this_frame = std::get<AnimationFrame>(identity).index;
+    const auto other_frame = std::get<AnimationFrame>(other.identity).index;
+    if (this_frame != other_frame) {
+      return this_frame < other_frame;
+    }
+  }
   if (stage != other.stage) {
     return static_cast<int>(stage) < static_cast<int>(other.stage);
   }

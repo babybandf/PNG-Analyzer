@@ -442,7 +442,7 @@ TEST_CASE("Trace query serialization is deterministic and complete",
   REQUIRE(first == second);
   REQUIRE(first.starts_with("trace-query-v1\nstatus:partial\n"));
   REQUIRE(first.find("generation:11\n") != std::string::npos);
-  REQUIRE(first.find("selection:node:17;stage:trace\n") !=
+  REQUIRE(first.find("selection:version:2;node:17;stage:trace\n") !=
           std::string::npos);
   REQUIRE(first.find("blocks:") != std::string::npos);
   REQUIRE(first.find("tokens:") != std::string::npos);

@@ -43,6 +43,7 @@ struct ArtifactExtent {
 
 // Identity of an artifact within one document generation.
 struct ArtifactKey {
+  ImageIdentity identity = StaticImage{};
   Stage stage = Stage::kUnknown;
   std::uint64_t row_begin = 0;
   std::uint64_t row_end = 0;  // exclusive
