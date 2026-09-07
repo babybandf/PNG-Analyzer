@@ -295,10 +295,31 @@ pnga::statistics::StatisticsSnapshot collect_statistics(
     }
   }
 
-  if (!cancelled_stop && (has_compressed || has_inflated)) {
+  // The compression totals are a pair: both values must be fully verified
+  // before the overview reports them (frozen pair semantics — a half-known
+  // pair never becomes a ready zero). Without both, the overview mirrors
+  // the blocking phase's terminal state or stays unavailable.
+  if (has_compressed && has_inflated) {
     accumulator.set_compression_totals(compressed_bytes, inflated_bytes);
     accumulator.finish(StatisticsSectionId::kOverview, SectionStatus::kReady,
                        true, SectionScope::kWholeDocument);
+  } else if (!cancelled_stop) {
+    const auto& snapshot = accumulator.snapshot();
+    if (snapshot.chunks.state.status != SectionStatus::kReady) {
+      accumulator.finish(StatisticsSectionId::kOverview,
+                         snapshot.chunks.state.status, false,
+                         SectionScope::kNone, snapshot.chunks.state.error);
+    } else if (sources.blocks != nullptr &&
+               snapshot.blocks.state.status != SectionStatus::kReady) {
+      accumulator.finish(StatisticsSectionId::kOverview,
+                         snapshot.blocks.state.status, false,
+                         SectionScope::kNone, snapshot.blocks.state.error);
+    } else if (sources.tokens != nullptr &&
+               snapshot.tokens.state.status != SectionStatus::kReady) {
+      accumulator.finish(StatisticsSectionId::kOverview,
+                         snapshot.tokens.state.status, false,
+                         SectionScope::kNone, snapshot.tokens.state.error);
+    }
   }
 
   return accumulator.snapshot();

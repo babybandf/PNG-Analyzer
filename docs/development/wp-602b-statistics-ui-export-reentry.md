@@ -1,6 +1,29 @@
 # WP-602B–H — Statistics UI, CLI and Deterministic Export Re-entry
 
-Status: **PASS — completed and closed** (2026-09-06, WP-602H gate evidence below)
+Status: **RE-OPENED — quality review failed; re-acceptance in progress** (2026-09-07).
+The 2026-09-06 PASS record below is retained as history; the quality review
+`docs/development/wp-602b-h-quality-review-2026-09-07.md` found three defects
+(fake-complete Overview totals, unbounded Block pre-scan, wrong Stored-EOB
+physical anchor) that block re-closure. The fix plan is
+`docs/superpowers/plans/2026-09-07-wp-602-statistics-quality-fixes.md`.
+
+## Quality-fix scope supplement (2026-09-07)
+
+The original B–H allowed paths did not include `libs/deflate-index/**`. This
+re-opening authorizes a narrow supplement to that path only:
+
+- a new bounded, cancelable index entry point alongside the existing
+  `index_blocks(source, max_output_bytes)`, which stays callable with its
+  original error semantics;
+- the bounded entry reports typed stop reasons (`complete`,
+  `budget_exceeded`, `cancelled`, `invalid_input`), honors independent
+  input-byte, output-byte, block-count and retained-byte limits, and keeps
+  the verified Block prefix plus stop coordinates on an early stop;
+- no decode-algorithm change, no second Inflate implementation, no new
+  dependency, no ownership or dependency-direction change.
+
+Beyond this supplement, any further `libs/deflate-index` change requires its
+own ruling.
 
 Binding review:
 `docs/development/wp-602b-h-written-package-review.md`.

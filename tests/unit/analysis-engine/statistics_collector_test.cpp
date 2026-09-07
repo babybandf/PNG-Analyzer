@@ -235,6 +235,70 @@ std::vector<std::byte> make_level0_stored_png(
   return bytes;
 }
 
+// Deterministic zlib stream of `block_count` empty stored blocks followed by
+// one final stored block carrying the two raw bytes {0,127}: the WP-602
+// quality-audit structure (appendix A) rebuilt as an in-repository fixture.
+// All blocks are valid; the inflated size is exactly two bytes.
+std::vector<std::byte> make_empty_stored_blocks_png(std::uint32_t block_count) {
+  const std::array<std::byte, 2> raw = {std::byte{0}, std::byte{127}};
+  const std::uint32_t adler = static_cast<std::uint32_t>(adler32(
+      adler32(0L, Z_NULL, 0), reinterpret_cast<const Bytef*>(raw.data()),
+      static_cast<uInt>(raw.size())));
+  std::vector<std::byte> stream;
+  stream.reserve(2 + static_cast<std::size_t>(block_count) * 5 + 5 +
+                 raw.size() + 4);
+  stream.push_back(std::byte{0x78});
+  stream.push_back(std::byte{0x01});
+  const std::array<std::byte, 5> empty_block = {
+      std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+      std::byte{0xFF}, std::byte{0xFF}};
+  for (std::uint32_t i = 0; i < block_count; ++i) {
+    stream.insert(stream.end(), empty_block.begin(), empty_block.end());
+  }
+  // Final block: BFINAL=1, BTYPE=00, LEN=2 (little-endian), NLEN=~2.
+  stream.push_back(std::byte{0x01});
+  stream.push_back(std::byte{0x02});
+  stream.push_back(std::byte{0x00});
+  stream.push_back(std::byte{0xFD});
+  stream.push_back(std::byte{0xFF});
+  stream.insert(stream.end(), raw.begin(), raw.end());
+  for (const int shift : {24, 16, 8, 0}) {
+    stream.push_back(static_cast<std::byte>((adler >> shift) & 0xFFu));
+  }
+
+  std::vector<std::byte> bytes(pnga::png_format::kPngSignature.begin(),
+                               pnga::png_format::kPngSignature.end());
+  const auto push = [&bytes](const char* type,
+                             const std::vector<std::byte>& data) {
+    const std::uint32_t len = static_cast<std::uint32_t>(data.size());
+    for (const int shift : {24, 16, 8, 0}) {
+      bytes.push_back(static_cast<std::byte>((len >> shift) & 0xFFu));
+    }
+    uLong crc = crc32(0, Z_NULL, 0);
+    crc = crc32(crc, reinterpret_cast<const Bytef*>(type), 4);
+    for (int i = 0; i < 4; ++i) {
+      bytes.push_back(static_cast<std::byte>(type[i]));
+    }
+    crc = crc32(crc, reinterpret_cast<const Bytef*>(data.data()),
+                static_cast<uInt>(data.size()));
+    bytes.insert(bytes.end(), data.begin(), data.end());
+    for (const int shift : {24, 16, 8, 0}) {
+      bytes.push_back(static_cast<std::byte>((crc >> shift) & 0xFFu));
+    }
+  };
+  std::vector<std::byte> ihdr(13, std::byte{0});
+  ihdr[0] = std::byte{0};  // 1x1 gray8
+  ihdr[4] = std::byte{0};
+  ihdr[5] = std::byte{0};
+  ihdr[6] = std::byte{0};
+  ihdr[7] = std::byte{1};
+  ihdr[8] = std::byte{8};
+  push("IHDR", ihdr);
+  push("IDAT", stream);
+  push("IEND", {});
+  return bytes;
+}
+
 }  // namespace
 
 TEST_CASE("Collector publishes section progress in frozen order",
@@ -525,10 +589,10 @@ TEST_CASE("Cancellation marks the matching section and dependents",
     REQUIRE(result.snapshot.lengths.state.status == SectionStatus::kCancelled);
     REQUIRE(result.snapshot.distances.state.status ==
             SectionStatus::kCancelled);
-    // The verified chunk evidence keeps the overview partial.
-    REQUIRE(result.snapshot.overview.state.status == SectionStatus::kPartial);
-    REQUIRE(result.snapshot.overview.state.scope ==
-            SectionScope::kVerifiedPrefix);
+    // The totals pair was never verified, so the cancellation maps to the
+    // frozen cancelled state with no scope (never a partial pair).
+    REQUIRE(result.snapshot.overview.state.status == SectionStatus::kCancelled);
+    REQUIRE(result.snapshot.overview.state.scope == SectionScope::kNone);
     REQUIRE_FALSE(result.snapshot.overview.data.has_compression_totals);
     // The fingerprint completed before the cancellation.
     REQUIRE(result.document.file_size == fixture.bytes.size());
@@ -697,4 +761,51 @@ TEST_CASE("Collector aggregates a stored stream exactly like hand-built input",
   REQUIRE(result.snapshot.tokens.data.output_bytes == filtered.size());
   REQUIRE(result.snapshot.lengths.data.buckets.empty());
   REQUIRE(result.snapshot.distances.data.buckets.empty());
+}
+
+TEST_CASE("Malformed streams keep unknown overview totals unfinished",
+          "[analysis-engine][wp602-quality]") {
+  // A decoder-level truncated token fails the block index and the token
+  // scan. The compressed size is verified chunk evidence, but the inflated
+  // size never completes, so the overview pair stays unknown: no complete
+  // flag, no totals flag and never a ready zero value (frozen pair
+  // semantics; the blocking phase's stop reason is kept).
+  const auto fixture = make_fixture(make_controlled_fixture(
+      pnga_test::wp607c::ControlledCaseId::kErrorTruncatedToken).png_bytes);
+  const auto request = make_request(fixture);
+  const auto result = collect_document_statistics(request, nullptr, {});
+  REQUIRE(result.snapshot.blocks.state.status == SectionStatus::kInvalidInput);
+  REQUIRE(result.snapshot.tokens.state.status == SectionStatus::kInvalidInput);
+  REQUIRE_FALSE(result.snapshot.overview.state.complete);
+  REQUIRE_FALSE(result.snapshot.overview.data.has_compression_totals);
+  REQUIRE(result.snapshot.overview.state.status != SectionStatus::kReady);
+  REQUIRE(result.snapshot.overview.state.status ==
+          SectionStatus::kInvalidInput);
+  REQUIRE(result.snapshot.overview.state.scope == SectionScope::kNone);
+  REQUIRE_FALSE(result.snapshot.overview.state.error.empty());
+}
+
+TEST_CASE("Budget-limited empty block streams never fake complete totals",
+          "[analysis-engine][wp602-quality]") {
+  // 65 valid stored blocks (64 empty + one final 2-byte block) and 66 EOB
+  // tokens exceed the 32-sample budget on every streaming path. The
+  // compressed size is real chunk evidence, but the inflated size is never
+  // verified, so the overview pair stays unknown and the section reports
+  // the honest budget_exceeded stop reason instead of a complete zero.
+  const auto fixture = make_fixture(make_empty_stored_blocks_png(64));
+  auto request = make_request(fixture);
+  request.limits.max_samples = 32;
+  const auto result = collect_document_statistics(request, nullptr, {});
+  REQUIRE(result.snapshot.chunks.state.status == SectionStatus::kReady);
+  REQUIRE(result.snapshot.blocks.state.status ==
+          SectionStatus::kBudgetExceeded);
+  REQUIRE(result.snapshot.tokens.state.status ==
+          SectionStatus::kBudgetExceeded);
+  REQUIRE_FALSE(result.snapshot.overview.state.complete);
+  REQUIRE_FALSE(result.snapshot.overview.data.has_compression_totals);
+  REQUIRE(result.snapshot.overview.state.status != SectionStatus::kReady);
+  REQUIRE(result.snapshot.overview.state.status ==
+          SectionStatus::kBudgetExceeded);
+  REQUIRE(result.snapshot.overview.state.scope == SectionScope::kNone);
+  REQUIRE_FALSE(result.snapshot.overview.state.error.empty());
 }

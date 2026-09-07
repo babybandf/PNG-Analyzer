@@ -88,9 +88,10 @@ TEST_CASE("Missing sources stay unavailable and sources own their sections",
           pnga::statistics::SectionScope::kWholeDocument);
   REQUIRE(snapshot.chunks.data.count == 1);
   REQUIRE(snapshot.overview.state.status ==
-          pnga::statistics::SectionStatus::kReady);
-  REQUIRE(snapshot.overview.data.compressed_bytes == 9);
-  REQUIRE(snapshot.overview.data.has_compression_totals);
+          pnga::statistics::SectionStatus::kUnavailable);
+  // Frozen pair semantics: the inflated size has no source, so the pair
+  // stays unknown and the overview never reports a half-verified pair.
+  REQUIRE_FALSE(snapshot.overview.data.has_compression_totals);
   REQUIRE(snapshot.filters.state.status ==
           pnga::statistics::SectionStatus::kUnavailable);
   REQUIRE(snapshot.blocks.state.status ==
@@ -104,7 +105,7 @@ TEST_CASE("Missing sources stay unavailable and sources own their sections",
   REQUIRE_FALSE(snapshot.complete());
 }
 
-TEST_CASE("Empty but present sources are ready with zero totals",
+TEST_CASE("Empty but present sources are ready with honest overview pair",
           "[analysis-engine][wp602b]") {
   pnga::analysis_engine::StageSet stages;
   stages.success = true;
@@ -127,10 +128,12 @@ TEST_CASE("Empty but present sources are ready with zero totals",
           pnga::statistics::SectionStatus::kReady);
   REQUIRE(snapshot.distances.state.status ==
           pnga::statistics::SectionStatus::kReady);
+  // The inflated size is verified as zero, but the compressed size has no
+  // source at all: the pair is jointly unknown and the overview stays
+  // unavailable instead of reporting a half-verified pair.
   REQUIRE(snapshot.overview.state.status ==
-          pnga::statistics::SectionStatus::kReady);
-  REQUIRE(snapshot.overview.data.has_compression_totals);
-  REQUIRE(snapshot.overview.data.inflated_bytes == 0);
+          pnga::statistics::SectionStatus::kUnavailable);
+  REQUIRE_FALSE(snapshot.overview.data.has_compression_totals);
 }
 
 TEST_CASE("Section failures stay confined to their owned sections",

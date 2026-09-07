@@ -541,19 +541,19 @@ StatisticsCollectionResult collect_document_statistics(
     }
   }
 
-  // 7. Overview: ready only from fully verified totals, never upgraded from
-  // partial evidence; a mid-collection cancellation keeps the overview
-  // partial with the verified prefix instead.
+  // 7. Overview: the compression totals are a pair — both values must come
+  // from fully verified scans before the section reports them. An unknown
+  // or half-verified pair stays absent (never a ready zero value), and the
+  // section carries the blocking phase's honest stop reason instead.
   if (cancelled_stop) {
     if (chunks_ready && (blocks_ready || has_inflated)) {
       accumulator.set_compression_totals(compressed_bytes, inflated_bytes);
       accumulator.finish(StatisticsSectionId::kOverview, SectionStatus::kReady,
                          true, SectionScope::kWholeDocument, "");
-    } else if (chunks_ready || has_compressed) {
-      accumulator.finish(StatisticsSectionId::kOverview,
-                         SectionStatus::kPartial, false,
-                         SectionScope::kVerifiedPrefix, kCancelledMessage);
     } else {
+      // Cancellation before both totals were verified: the pair is unknown,
+      // so the overview reports the cancellation with no scope rather than
+      // a partial pair.
       accumulator.finish(StatisticsSectionId::kOverview,
                          SectionStatus::kCancelled, false,
                          SectionScope::kNone, kCancelledMessage);
@@ -565,10 +565,25 @@ StatisticsCollectionResult collect_document_statistics(
       accumulator.finish(id, SectionStatus::kCancelled, false,
                          SectionScope::kNone, kCancelledMessage);
     }
-  } else if (has_compressed || has_inflated) {
+  } else if (has_compressed && has_inflated) {
     accumulator.set_compression_totals(compressed_bytes, inflated_bytes);
     accumulator.finish(StatisticsSectionId::kOverview, SectionStatus::kReady,
                        true, SectionScope::kWholeDocument, "");
+  } else {
+    // Totals unknown without cancellation: mirror the blocking phase's
+    // terminal state — chunks own the compressed size, blocks the inflated
+    // size. Without any compression evidence at all the overview stays
+    // unavailable.
+    const auto& snapshot = accumulator.snapshot();
+    if (snapshot.chunks.state.status != SectionStatus::kReady) {
+      accumulator.finish(StatisticsSectionId::kOverview,
+                         snapshot.chunks.state.status, false,
+                         SectionScope::kNone, snapshot.chunks.state.error);
+    } else if (snapshot.blocks.state.status != SectionStatus::kReady) {
+      accumulator.finish(StatisticsSectionId::kOverview,
+                         snapshot.blocks.state.status, false,
+                         SectionScope::kNone, snapshot.blocks.state.error);
+    }
   }
 
   // Final throttled publication: the last progress snapshot a consumer sees

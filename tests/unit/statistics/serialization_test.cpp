@@ -437,3 +437,63 @@ TEST_CASE("Serializers accept accumulated snapshots",
   assert_report_bytes(json.bytes);
   assert_report_bytes(csv.bytes);
 }
+
+TEST_CASE("Unknown compression totals serialize as absent values",
+          "[statistics][wp602-quality]") {
+  const auto document = valid_identity();
+  const auto make_unknown_totals = [](SectionStatus status) {
+    auto snapshot = ready_snapshot();
+    snapshot.overview.state.status = status;
+    snapshot.overview.state.complete = false;
+    snapshot.overview.state.scope = SectionScope::kNone;
+    snapshot.overview.state.error = "statistics sample budget exceeded";
+    snapshot.overview.data.compressed_bytes = 0;
+    snapshot.overview.data.inflated_bytes = 0;
+    snapshot.overview.data.has_compression_totals = false;
+    return snapshot;
+  };
+
+  for (const SectionStatus status :
+       {SectionStatus::kPartial, SectionStatus::kInvalidInput,
+        SectionStatus::kBudgetExceeded}) {
+    const auto snapshot = make_unknown_totals(status);
+    CAPTURE(std::to_string(static_cast<int>(status)));
+    const auto json =
+        pnga::statistics::serialize_statistics_json(document, snapshot);
+    const auto csv =
+        pnga::statistics::serialize_statistics_csv(document, snapshot);
+    REQUIRE(json.success);
+    REQUIRE(csv.success);
+    assert_report_bytes(json.bytes);
+    assert_report_bytes(csv.bytes);
+    // The totals pair is jointly unavailable: JSON null, CSV empty — never
+    // a zero value.
+    REQUIRE(json.bytes.find("\"compressed_bytes\": null") != std::string::npos);
+    REQUIRE(json.bytes.find("\"inflated_bytes\": null") != std::string::npos);
+    REQUIRE(csv.bytes.find("1,overview,compressed_bytes,,,bytes\n") !=
+            std::string::npos);
+    REQUIRE(csv.bytes.find("1,overview,inflated_bytes,,,bytes\n") !=
+            std::string::npos);
+  }
+}
+
+TEST_CASE("Verified zero totals keep their numeric zero output",
+          "[statistics][wp602-quality]") {
+  const auto document = valid_identity();
+  auto snapshot = ready_snapshot();
+  REQUIRE(snapshot.overview.data.has_compression_totals);
+  snapshot.overview.data.compressed_bytes = 0;
+  snapshot.overview.data.inflated_bytes = 0;
+  const auto json =
+      pnga::statistics::serialize_statistics_json(document, snapshot);
+  const auto csv =
+      pnga::statistics::serialize_statistics_csv(document, snapshot);
+  REQUIRE(json.success);
+  REQUIRE(csv.success);
+  REQUIRE(json.bytes.find("\"compressed_bytes\": 0") != std::string::npos);
+  REQUIRE(json.bytes.find("\"inflated_bytes\": 0") != std::string::npos);
+  REQUIRE(csv.bytes.find("1,overview,compressed_bytes,,0,bytes\n") !=
+          std::string::npos);
+  REQUIRE(csv.bytes.find("1,overview,inflated_bytes,,0,bytes\n") !=
+          std::string::npos);
+}

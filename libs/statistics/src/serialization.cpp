@@ -327,13 +327,19 @@ SerializationResult serialize_statistics_json(const DocumentIdentity& document,
   const auto bool_text = [](bool value) { return value ? "true" : "false"; };
 
   {
-    const bool available =
+    const bool section_available =
         begin_json_section(out, "    ", "overview", snapshot.overview.state);
+    // The compression totals are a pair with one availability flag: both
+    // values serialize only when the section carries evidence AND the
+    // totals were fully verified. A half-verified pair stays null/empty,
+    // never a zero value.
+    const bool totals_available =
+        section_available && snapshot.overview.data.has_compression_totals;
     out += "      \"compressed_bytes\": ";
-    out += numeric(snapshot.overview.data.compressed_bytes, available);
+    out += numeric(snapshot.overview.data.compressed_bytes, totals_available);
     out += ",\n";
     out += "      \"inflated_bytes\": ";
-    out += numeric(snapshot.overview.data.inflated_bytes, available);
+    out += numeric(snapshot.overview.data.inflated_bytes, totals_available);
     out += ",\n";
     out += "      \"has_compression_totals\": ";
     out += bool_text(snapshot.overview.data.has_compression_totals);
@@ -557,12 +563,18 @@ SerializationResult serialize_statistics_csv(const DocumentIdentity& document,
   };
 
   {
-    const bool available =
+    const bool section_available =
         section_header("overview", snapshot.overview.state);
+    // Same pair semantics as the JSON side: both numeric rows carry values
+    // only when the totals were fully verified.
+    const bool totals_available =
+        section_available && snapshot.overview.data.has_compression_totals;
     numeric_row("overview", "compressed_bytes", "",
-                snapshot.overview.data.compressed_bytes, available, "bytes");
+                snapshot.overview.data.compressed_bytes, totals_available,
+                "bytes");
     numeric_row("overview", "inflated_bytes", "",
-                snapshot.overview.data.inflated_bytes, available, "bytes");
+                snapshot.overview.data.inflated_bytes, totals_available,
+                "bytes");
     row("overview", "has_compression_totals", "",
         snapshot.overview.data.has_compression_totals ? "true" : "false", "");
   }
