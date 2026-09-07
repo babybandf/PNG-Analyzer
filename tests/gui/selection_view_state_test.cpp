@@ -10,6 +10,20 @@ using pnga::ui::qt::HexSource;
 using pnga::ui::qt::NumericBase;
 using pnga::ui::qt::SelectionViewState;
 
+namespace {
+
+ImageCoordinate coordinate(std::uint64_t pass, std::uint64_t row,
+                           std::uint64_t x, std::uint64_t y) {
+  ImageCoordinate value;
+  value.pass = pass;
+  value.row = row;
+  value.x = x;
+  value.y = y;
+  return value;
+}
+
+}  // namespace
+
 class SelectionViewStateTest : public QObject {
   Q_OBJECT
  private slots:
@@ -21,8 +35,8 @@ class SelectionViewStateTest : public QObject {
 
 void SelectionViewStateTest::hoverAndLockAreIndependent() {
   SelectionViewState state;
-  QVERIFY(state.set_hover(ImageCoordinate{0, 0, 2, 3, 4}));
-  QVERIFY(state.set_locked(ImageCoordinate{0, 0, 2, 3, 4}));
+  QVERIFY(state.set_hover(coordinate(0, 2, 3, 4)));
+  QVERIFY(state.set_locked(coordinate(0, 2, 3, 4)));
   QVERIFY(state.hover.has_value());
   QVERIFY(state.locked.has_value());
 
@@ -41,12 +55,12 @@ void SelectionViewStateTest::preferencesStayInViewState() {
 
 void SelectionViewStateTest::generationChangeClearsCoordinates() {
   SelectionViewState state;
-  QVERIFY(state.set_hover(ImageCoordinate{0, 0, 0, 1, 1}));
-  QVERIFY(state.set_locked(ImageCoordinate{0, 0, 0, 1, 1}));
+  QVERIFY(state.set_hover(coordinate(0, 0, 1, 1)));
+  QVERIFY(state.set_locked(coordinate(0, 0, 1, 1)));
   state.set_document_generation(4);
   QVERIFY(!state.hover.has_value());
   QVERIFY(!state.locked.has_value());
-  QVERIFY(state.set_locked(ImageCoordinate{0, 0, 0, 2, 2}));
+  QVERIFY(state.set_locked(coordinate(0, 0, 2, 2)));
   state.set_document_generation(4);  // same generation preserves state
   QVERIFY(state.locked.has_value());
   state.set_document_generation(5);
@@ -55,7 +69,7 @@ void SelectionViewStateTest::generationChangeClearsCoordinates() {
 
 void SelectionViewStateTest::invalidPresentationCoordinateIsRejected() {
   SelectionViewState state;
-  ImageCoordinate invalid{0, 8, 0, 0, 0};
+  ImageCoordinate invalid = coordinate(8, 0, 0, 0);
   QVERIFY(!state.set_hover(invalid));
   QVERIFY(!state.set_locked(invalid));
   QVERIFY(!state.hover.has_value());

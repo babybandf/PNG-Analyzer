@@ -41,6 +41,14 @@ constexpr int kStatisticsPanelOrigin = 4;
 constexpr std::uint64_t kHeaderSpanLength = 8;
 constexpr std::uint64_t kCrcSpanLength = 4;
 
+pnga::trace_model::ImageCoordinate static_coordinate(std::uint64_t x,
+                                                      std::uint64_t y) {
+  pnga::trace_model::ImageCoordinate coordinate;
+  coordinate.x = x;
+  coordinate.y = y;
+  return coordinate;
+}
+
 }  // namespace
 
 std::optional<std::uint64_t> filtered_output_offset_for_pixel(
@@ -412,8 +420,8 @@ void SelectionNavigationController::onPixelSelected(int x, int y) {
     }
   }
   pnga::trace_model::Selection sel;
-  sel.image = pnga::trace_model::ImageCoordinate{
-      0, 0, 0, static_cast<std::uint64_t>(x), static_cast<std::uint64_t>(y)};
+  sel.image = static_coordinate(static_cast<std::uint64_t>(x),
+                                static_cast<std::uint64_t>(y));
   sel.stage = pnga::trace_model::Stage::kDelivered;
   view_state_.set_locked(*sel.image);
   w_.image_view->setLockedPixel(QPoint(x, y));
@@ -425,17 +433,16 @@ void SelectionNavigationController::onPixelSelected(int x, int y) {
                                     static_cast<std::uint64_t>(y));
   w_.bus->publishMerged(kImagePanelOrigin, generation_, sel);
   if (callbacks_.request_trace) {
-    callbacks_.request_trace(
-        pnga::trace_model::ImageCoordinate{0, 0, 0,
-                                           static_cast<std::uint64_t>(x),
-                                           static_cast<std::uint64_t>(y)});
+    callbacks_.request_trace(static_coordinate(static_cast<std::uint64_t>(x),
+                                               static_cast<std::uint64_t>(y)));
   }
   setPixelStatus(x, y);
 }
 
 void SelectionNavigationController::onPixelHovered(int x, int y) {
-  const pnga::trace_model::ImageCoordinate coordinate{
-      0, 0, 0, static_cast<std::uint64_t>(x), static_cast<std::uint64_t>(y)};
+  const pnga::trace_model::ImageCoordinate coordinate =
+      static_coordinate(static_cast<std::uint64_t>(x),
+                        static_cast<std::uint64_t>(y));
   view_state_.set_hover(coordinate);
   setPixelStatus(x, y);
 }
@@ -446,9 +453,9 @@ void SelectionNavigationController::onPixelHoverLeft() {
 }
 
 void SelectionNavigationController::publishLockedCoordinate() {
-  const pnga::trace_model::ImageCoordinate coordinate{
-      0, 0, 0, static_cast<std::uint64_t>(w_.x_spin->value()),
-      static_cast<std::uint64_t>(w_.y_spin->value())};
+  const pnga::trace_model::ImageCoordinate coordinate = static_coordinate(
+      static_cast<std::uint64_t>(w_.x_spin->value()),
+      static_cast<std::uint64_t>(w_.y_spin->value()));
   if (!view_state_.set_locked(coordinate)) {
     return;
   }

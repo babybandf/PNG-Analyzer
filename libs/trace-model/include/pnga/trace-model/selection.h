@@ -11,6 +11,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 namespace pnga::trace_model {
@@ -47,17 +48,31 @@ struct PackedSampleCoordinate {
   bool operator==(const PackedSampleCoordinate&) const = default;
 };
 
-// Image coordinates. frame is for APNG; pass is the Adam7 pass (0 for
-// non-interlaced, 1..7 for Adam7). x/y are image-global coordinates and row is
-// the pass-local scanline row. A query may accept zero pass/row as an
-// unresolved legacy hint and returns a canonical pass/row in its result. A
-// missing channel means the whole pixel is selected. sample_byte is the byte
-// within an 8/16-bit sample (0 = first byte);
+// Image identity is separate from image-local coordinates. StaticImage is the
+// default identity; AnimationFrame indices are stable within one APNG.
+struct StaticImage {
+  bool operator==(const StaticImage&) const = default;
+};
+
+struct AnimationFrame {
+  std::uint32_t index = 0;
+
+  bool operator==(const AnimationFrame&) const = default;
+};
+
+using ImageIdentity = std::variant<StaticImage, AnimationFrame>;
+
+// Image coordinates. pass is the Adam7 pass (0 for non-interlaced, 1..7 for
+// Adam7). x/y are image-global coordinates and row is the pass-local scanline
+// row. A query may accept zero pass/row as an unresolved legacy hint and
+// returns a canonical pass/row in its result. A missing channel means the
+// whole pixel is selected. sample_byte is the byte within an 8/16-bit sample
+// (0 = first byte);
 // packed_sample is mutually exclusive with sample_byte and identifies a
 // sub-byte sample. These optional fields make whole-pixel selection distinct
 // from channel 0.
 struct ImageCoordinate {
-  std::uint64_t frame = 0;
+  ImageIdentity identity = StaticImage{};
   std::uint64_t pass = 0;
   std::uint64_t row = 0;
   std::uint64_t x = 0;
@@ -79,6 +94,10 @@ enum class Stage {
   kUnfiltered, // after reverse filtering
   kNative,     // native packed samples / palette index
   kDelivered,  // final display-ready pixels
+  kFrameOutput, // decoded pixels inside an APNG frame rectangle
+  kPreBlend,    // canvas before blending the current frame
+  kPostBlend,   // canvas after blending the current frame
+  kPostDispose, // canvas after applying the current frame disposal
   kTrace,      // deflate token trace
   kUnknown,
 };

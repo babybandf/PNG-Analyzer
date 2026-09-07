@@ -25,3 +25,12 @@ Stable IDs identify objects within a document generation. GUI panels publish and
   has PNG-legal length 1, 2 or 4; it is mutually exclusive with `sample-byte`.
 - Equality, merge, serialization and stale-generation behavior require focused tests.
 - The model is more explicit than view-specific structures, but it is the foundation for compare and first-difference workflows.
+
+## Approved APNG clarification (WP-699, 2026-09-08)
+
+`ImageCoordinate` carries an `ImageIdentity` variant: `StaticImage` is the
+default identity and `AnimationFrame{index}` identifies an APNG frame. The
+identity is part of equality, merge, serialization and cache keys; coordinates
+remain global `x/y` values with frame-local interpretation handled by the
+analysis engine. APNG canvas stages use explicit `frame_output`, `pre_blend`,
+`post_blend` and `post_dispose` stage names.

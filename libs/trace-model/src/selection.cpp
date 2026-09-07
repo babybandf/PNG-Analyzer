@@ -1,6 +1,6 @@
 // WP-200 Selection model implementation: equality, merge and deterministic
 // serialization. The serialization format is a compact token stream, e.g.
-//   node:3;physical:8,4;logical:0,100;image:0,1,2,3,4;channel:0;stage:filtered
+//   version:2;node:3;identity:static;image:0,1,2,3;stage:filtered
 // Every value is decimal; parsing is strict (no locale, no order dependence).
 
 #include "pnga/trace-model/selection.h"
@@ -17,11 +17,6 @@
 namespace pnga::trace_model {
 
 namespace {
-
-const char* kStageNames[] = {
-    "file", "chunk", "filtered", "unfiltered", "native", "delivered",
-    "trace", "unknown",
-};
 
 std::optional<std::uint64_t> parse_u64(std::string_view token) {
   if (token.empty()) {
@@ -87,20 +82,64 @@ bool ImageCoordinate::valid() const noexcept {
 }
 
 const char* stage_text(Stage stage) noexcept {
-  const std::size_t i = static_cast<std::size_t>(stage);
-  return i < sizeof(kStageNames) / sizeof(kStageNames[0]) ? kStageNames[i]
-                                                          : "unknown";
+  switch (stage) {
+    case Stage::kFile:
+      return "file";
+    case Stage::kChunk:
+      return "chunk";
+    case Stage::kFiltered:
+      return "filtered";
+    case Stage::kUnfiltered:
+      return "unfiltered";
+    case Stage::kNative:
+      return "native";
+    case Stage::kDelivered:
+      return "delivered";
+    case Stage::kFrameOutput:
+      return "frame_output";
+    case Stage::kPreBlend:
+      return "pre_blend";
+    case Stage::kPostBlend:
+      return "post_blend";
+    case Stage::kPostDispose:
+      return "post_dispose";
+    case Stage::kTrace:
+      return "trace";
+    case Stage::kUnknown:
+      return "unknown";
+  }
+  return "unknown";
 }
 
 bool stage_from_text(std::string_view text, Stage& out) noexcept {
-  for (std::size_t i = 0; i < sizeof(kStageNames) / sizeof(kStageNames[0]);
-       ++i) {
-    if (text == kStageNames[i]) {
-      out = static_cast<Stage>(i);
-      return true;
-    }
+  if (text == "file") {
+    out = Stage::kFile;
+  } else if (text == "chunk") {
+    out = Stage::kChunk;
+  } else if (text == "filtered") {
+    out = Stage::kFiltered;
+  } else if (text == "unfiltered") {
+    out = Stage::kUnfiltered;
+  } else if (text == "native") {
+    out = Stage::kNative;
+  } else if (text == "delivered") {
+    out = Stage::kDelivered;
+  } else if (text == "frame_output") {
+    out = Stage::kFrameOutput;
+  } else if (text == "pre_blend") {
+    out = Stage::kPreBlend;
+  } else if (text == "post_blend") {
+    out = Stage::kPostBlend;
+  } else if (text == "post_dispose") {
+    out = Stage::kPostDispose;
+  } else if (text == "trace") {
+    out = Stage::kTrace;
+  } else if (text == "unknown") {
+    out = Stage::kUnknown;
+  } else {
+    return false;
   }
-  return false;
+  return true;
 }
 
 bool Selection::empty() const noexcept {
@@ -133,6 +172,10 @@ Selection Selection::merged_with(const Selection& other) const noexcept {
 }
 
 std::string serialize(const Selection& selection) {
+  if (selection.empty()) {
+    return {};
+  }
+
   std::ostringstream out;
   bool first = true;
   const auto emit = [&](const std::string& token) {
@@ -143,6 +186,7 @@ std::string serialize(const Selection& selection) {
     first = false;
   };
 
+  emit("version:2");
   if (selection.node.has_value()) {
     emit("node:" + std::to_string(*selection.node));
   }
@@ -161,8 +205,14 @@ std::string serialize(const Selection& selection) {
   }
   if (selection.image.has_value()) {
     const auto& c = *selection.image;
-    emit("image:" + std::to_string(c.frame) + "," + std::to_string(c.pass) +
-         "," + std::to_string(c.row) + "," + std::to_string(c.x) + "," +
+    if (std::holds_alternative<StaticImage>(c.identity)) {
+      emit("identity:static");
+    } else {
+      emit("identity:animation," +
+           std::to_string(std::get<AnimationFrame>(c.identity).index));
+    }
+    emit("image:" + std::to_string(c.pass) + "," +
+         std::to_string(c.row) + "," + std::to_string(c.x) + "," +
          std::to_string(c.y));
     if (c.channel.has_value()) {
       emit("channel:" + std::to_string(*c.channel));
@@ -187,7 +237,14 @@ std::optional<Selection> deserialize(std::string_view text) {
   if (text.empty()) {
     return out;
   }
+
+  bool version_seen = false;
+  std::uint64_t version = 0;
+  bool identity_seen = false;
+  std::optional<ImageIdentity> parsed_identity;
   bool image_seen = false;
+  bool new_image_seen = false;
+  bool legacy_image_seen = false;
   bool channel_seen = false;
   bool sample_byte_seen = false;
   bool packed_sample_seen = false;
@@ -203,7 +260,39 @@ std::optional<Selection> deserialize(std::string_view text) {
     const std::string_view value = token.substr(colon + 1);
     const auto nums = split(value, ',');
 
-    if (key == "node") {
+    if (key == "version") {
+      if (version_seen || nums.size() != 1) {
+        return std::nullopt;
+      }
+      const auto parsed = parse_u64(nums[0]);
+      if (!parsed.has_value() || *parsed != 2) {
+        return std::nullopt;
+      }
+      version = *parsed;
+      version_seen = true;
+    } else if (key == "identity") {
+      if (identity_seen) {
+        return std::nullopt;
+      }
+      if (value == "static") {
+        parsed_identity = StaticImage{};
+      } else if (nums.size() == 2 && nums[0] == "animation") {
+        const auto frame = parse_u64(nums[1]);
+        if (!frame || *frame > UINT32_MAX) {
+          return std::nullopt;
+        }
+        parsed_identity = AnimationFrame{static_cast<std::uint32_t>(*frame)};
+      } else {
+        return std::nullopt;
+      }
+      identity_seen = true;
+      if (image_seen) {
+        if (legacy_image_seen || !new_image_seen) {
+          return std::nullopt;
+        }
+        out.image->identity = *parsed_identity;
+      }
+    } else if (key == "node") {
       if (nums.size() != 1) {
         return std::nullopt;
       }
@@ -244,23 +333,39 @@ std::optional<Selection> deserialize(std::string_view text) {
       }
       out.logical = StreamSpan{*start, *len};
     } else if (key == "image") {
-      if (image_seen || (nums.size() != 5 && nums.size() != 6)) {
+      if (image_seen || (nums.size() != 4 && nums.size() != 5 &&
+                         nums.size() != 6)) {
         return std::nullopt;
       }
       ImageCoordinate c;
-      auto frame = parse_u64(nums[0]);
-      auto pass = parse_u64(nums[1]);
-      auto row = parse_u64(nums[2]);
-      auto x = parse_u64(nums[3]);
-      auto y = parse_u64(nums[4]);
-      if (!frame || !pass || !row || !x || !y) {
+      const bool is_new_image = nums.size() == 4;
+      const std::size_t coordinate_offset = is_new_image ? 0 : 1;
+      if (!is_new_image && version_seen) {
         return std::nullopt;
       }
-      c.frame = *frame;
+      auto pass = parse_u64(nums[coordinate_offset]);
+      auto row = parse_u64(nums[coordinate_offset + 1]);
+      auto x = parse_u64(nums[coordinate_offset + 2]);
+      auto y = parse_u64(nums[coordinate_offset + 3]);
+      if (!pass || !row || !x || !y) {
+        return std::nullopt;
+      }
       c.pass = *pass;
       c.row = *row;
       c.x = *x;
       c.y = *y;
+      if (is_new_image) {
+        new_image_seen = true;
+        if (parsed_identity.has_value()) {
+          c.identity = *parsed_identity;
+        }
+      } else {
+        auto frame = parse_u64(nums[0]);
+        if (!frame || *frame != 0) {
+          return std::nullopt;
+        }
+        legacy_image_seen = true;
+      }
       if (nums.size() == 6) {
         if (channel_seen) {
           return std::nullopt;
@@ -344,6 +449,16 @@ std::optional<Selection> deserialize(std::string_view text) {
   }
   if ((channel_seen || sample_byte_seen || packed_sample_seen) &&
       !image_seen) {
+    return std::nullopt;
+  }
+  if (identity_seen && !image_seen) {
+    return std::nullopt;
+  }
+  if (new_image_seen &&
+      (!version_seen || version != 2 || !identity_seen)) {
+    return std::nullopt;
+  }
+  if (legacy_image_seen && (version_seen || identity_seen)) {
     return std::nullopt;
   }
   // Keep parsing independent of document dimensions (so legacy large pass

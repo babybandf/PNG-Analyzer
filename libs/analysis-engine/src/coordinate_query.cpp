@@ -104,7 +104,8 @@ CoordinateSummary query_coordinate(
     out.error = "image coordinate has invalid sample addressing";
     return out;
   }
-  if (selection.image->frame != 0) {
+  if (!std::holds_alternative<pnga::trace_model::StaticImage>(
+          selection.image->identity)) {
     out.status = CoordinateQueryStatus::kNotApplicable;
     out.error = "frame is not available for static PNG analysis";
     return out;

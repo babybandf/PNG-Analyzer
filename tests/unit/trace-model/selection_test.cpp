@@ -7,8 +7,12 @@
 
 #include <optional>
 #include <string>
+#include <utility>
+#include <variant>
 
 using pnga::trace_model::BitSpan;
+using pnga::trace_model::AnimationFrame;
+using pnga::trace_model::StaticImage;
 using pnga::trace_model::deserialize;
 using pnga::trace_model::ImageCoordinate;
 using pnga::trace_model::PackedSampleCoordinate;
@@ -19,6 +23,35 @@ using pnga::trace_model::Stage;
 using pnga::trace_model::stage_from_text;
 using pnga::trace_model::stage_text;
 using pnga::trace_model::StreamSpan;
+
+namespace {
+
+ImageCoordinate static_coordinate(std::uint64_t pass, std::uint64_t row,
+                                  std::uint64_t x, std::uint64_t y,
+                                  std::optional<std::uint64_t> channel =
+                                      std::nullopt) {
+  ImageCoordinate coordinate;
+  coordinate.identity = StaticImage{};
+  coordinate.pass = pass;
+  coordinate.row = row;
+  coordinate.x = x;
+  coordinate.y = y;
+  coordinate.channel = channel;
+  return coordinate;
+}
+
+ImageCoordinate animation_coordinate(std::uint32_t frame, std::uint64_t pass,
+                                     std::uint64_t row, std::uint64_t x,
+                                     std::uint64_t y,
+                                     std::optional<std::uint64_t> channel =
+                                         std::nullopt) {
+  ImageCoordinate coordinate =
+      static_coordinate(pass, row, x, y, std::move(channel));
+  coordinate.identity = AnimationFrame{frame};
+  return coordinate;
+}
+
+}  // namespace
 
 TEST_CASE("An empty selection serializes to an empty string and stays empty",
           "[trace-model][wp200]") {
@@ -38,7 +71,7 @@ TEST_CASE("Selections with every dimension round-trip through serialization",
   s.node = 7;
   s.physical_spans = {BitSpan{8, 13}, BitSpan{29, 4}, BitSpan{64, 2, 3, true}};
   s.logical = StreamSpan{0, 100};
-  s.image = ImageCoordinate{0, 1, 2, 3, 4, 0};
+  s.image = static_coordinate(1, 2, 3, 4, 0);
   s.stage = Stage::kFiltered;
 
   const std::string text = serialize(s);
@@ -50,7 +83,7 @@ TEST_CASE("Selections with every dimension round-trip through serialization",
 TEST_CASE("Whole-pixel coordinates remain distinct from channel zero",
           "[trace-model][wp5u1]") {
   Selection pixel;
-  pixel.image = ImageCoordinate{0, 0, 4, 3, 2};
+  pixel.image = static_coordinate(0, 4, 3, 2);
   REQUIRE(pixel.image->channel == std::nullopt);
 
   Selection channel = pixel;
@@ -68,14 +101,14 @@ TEST_CASE("Whole-pixel coordinates remain distinct from channel zero",
 TEST_CASE("Sample byte and packed sample coordinates round-trip",
           "[trace-model][wp5u1]") {
   Selection sixteen;
-  sixteen.image = ImageCoordinate{0, 0, 0, 1, 1, 2};
+  sixteen.image = static_coordinate(0, 0, 1, 1, 2);
   sixteen.image->sample_byte = 1;
   auto parsed = deserialize(serialize(sixteen));
   REQUIRE(parsed.has_value());
   REQUIRE(*parsed == sixteen);
 
   Selection packed;
-  packed.image = ImageCoordinate{0, 1, 2, 8, 8, 0};
+  packed.image = static_coordinate(1, 2, 8, 8, 0);
   packed.image->packed_sample = PackedSampleCoordinate{2, 2};
   parsed = deserialize(serialize(packed));
   REQUIRE(parsed.has_value());
@@ -84,17 +117,17 @@ TEST_CASE("Sample byte and packed sample coordinates round-trip",
 
 TEST_CASE("Image coordinate validation rejects ambiguous sample addresses",
           "[trace-model][wp5u1]") {
-  ImageCoordinate bad_pass{0, 8, 0, 0, 0};
+  ImageCoordinate bad_pass = static_coordinate(8, 0, 0, 0);
   REQUIRE_FALSE(bad_pass.valid());
 
-  ImageCoordinate bad_packed{0, 0, 0, 0, 0, 0};
+  ImageCoordinate bad_packed = static_coordinate(0, 0, 0, 0, 0);
   bad_packed.packed_sample = PackedSampleCoordinate{7, 2};
   REQUIRE_FALSE(bad_packed.valid());
 
   bad_packed.packed_sample = PackedSampleCoordinate{0, 3};
   REQUIRE_FALSE(bad_packed.valid());
 
-  ImageCoordinate conflicting{0, 0, 0, 0, 0, 0};
+  ImageCoordinate conflicting = static_coordinate(0, 0, 0, 0, 0);
   conflicting.sample_byte = 0;
   conflicting.packed_sample = PackedSampleCoordinate{0, 1};
   REQUIRE_FALSE(conflicting.valid());
@@ -121,10 +154,7 @@ TEST_CASE("Multiple physical spans are preserved", "[trace-model][wp200]") {
 TEST_CASE("Large and invalid-looking coordinates round-trip deterministically",
           "[trace-model][wp200]") {
   Selection s;
-  s.image = ImageCoordinate{
-      (std::uint64_t{1} << 48) + 5,  // very large frame number
-      0xFFFFFFFFFFFFFFFFu,           // huge pass value
-      0, 0, 0, 7};
+  s.image = animation_coordinate(5, 0xFFFFFFFFFFFFFFFFu, 0, 0, 0, 7);
   const auto parsed = deserialize(serialize(s));
   REQUIRE(parsed.has_value());
   REQUIRE(parsed->image.has_value());
@@ -174,7 +204,7 @@ TEST_CASE("Merging disjoint dimensions combines them without losing data",
 
   Selection b;
   b.physical_spans = {BitSpan{16, 8}};
-  b.image = ImageCoordinate{0, 0, 5, 2, 3, 0};
+  b.image = static_coordinate(0, 5, 2, 3, 0);
 
   const Selection merged = a.merged_with(b);
   REQUIRE(merged.node == a.node);
@@ -212,12 +242,66 @@ TEST_CASE("Stage text mapping is stable and reversible", "[trace-model][wp200]")
   REQUIRE(std::string(stage_text(Stage::kChunk)) == "chunk");
   REQUIRE(std::string(stage_text(Stage::kFiltered)) == "filtered");
   REQUIRE(std::string(stage_text(Stage::kDelivered)) == "delivered");
+  REQUIRE(std::string(stage_text(Stage::kFrameOutput)) == "frame_output");
+  REQUIRE(std::string(stage_text(Stage::kPreBlend)) == "pre_blend");
+  REQUIRE(std::string(stage_text(Stage::kPostBlend)) == "post_blend");
+  REQUIRE(std::string(stage_text(Stage::kPostDispose)) == "post_dispose");
   REQUIRE(std::string(stage_text(Stage::kUnknown)) == "unknown");
 
   Stage s = Stage::kUnknown;
   REQUIRE(stage_from_text("native", s));
   REQUIRE(s == Stage::kNative);
+  REQUIRE(stage_from_text("post_dispose", s));
+  REQUIRE(s == Stage::kPostDispose);
   REQUIRE_FALSE(stage_from_text("bogus", s));
+}
+
+TEST_CASE("Image identity distinguishes static images from animation frame zero",
+          "[trace-model][wp699]") {
+  ImageCoordinate a;
+  ImageCoordinate b;
+  b.identity = AnimationFrame{0};
+  REQUIRE(a != b);
+
+  Selection s;
+  s.image = b;
+  const auto parsed = deserialize(serialize(s));
+  REQUIRE(parsed.has_value());
+  REQUIRE(*parsed == s);
+  REQUIRE(s.merged_with(s) == s);
+
+  const auto legacy =
+      deserialize("image:0,0,0,3,4;stage:filtered");
+  REQUIRE(legacy.has_value());
+  REQUIRE(legacy->image.has_value());
+  REQUIRE(std::holds_alternative<StaticImage>(legacy->image->identity));
+}
+
+TEST_CASE("Version two image serialization names identity explicitly",
+          "[trace-model][wp699]") {
+  Selection static_selection;
+  static_selection.image = static_coordinate(1, 2, 3, 4);
+  REQUIRE(serialize(static_selection) ==
+          "version:2;identity:static;image:1,2,3,4");
+
+  Selection animation_selection;
+  animation_selection.image = animation_coordinate(17, 1, 2, 3, 4);
+  REQUIRE(serialize(animation_selection) ==
+          "version:2;identity:animation,17;image:1,2,3,4");
+}
+
+TEST_CASE("Image identity parsing rejects ambiguous or unsupported records",
+          "[trace-model][wp699]") {
+  REQUIRE_FALSE(deserialize("version:1;identity:static;image:0,0,0,0")
+                    .has_value());
+  REQUIRE_FALSE(deserialize("version:2;image:0,0,0,0").has_value());
+  REQUIRE_FALSE(deserialize("version:2;identity:static;identity:static;"
+                            "image:0,0,0,0")
+                    .has_value());
+  REQUIRE_FALSE(deserialize("version:2;identity:animation,4294967296;"
+                            "image:0,0,0,0")
+                    .has_value());
+  REQUIRE_FALSE(deserialize("image:1,0,0,0,0").has_value());
 }
 
 TEST_CASE("Malformed serialized input returns nullopt", "[trace-model][wp200]") {

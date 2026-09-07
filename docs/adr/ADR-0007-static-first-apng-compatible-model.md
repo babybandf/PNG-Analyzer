@@ -19,3 +19,11 @@ APNG parsing, frame decode and canvas composition are deferred to dedicated post
 - Public models avoid an incompatible frame-dimension retrofit.
 - Some frame-related fields may remain empty for all v1 artifacts.
 - APNG support still requires explicit validation and composition stages; compatibility in the model does not imply feature support.
+
+## Approved APNG model clarification (WP-699, 2026-09-08)
+
+The APNG-compatible model distinguishes the static image from animation frame
+zero. `StaticImage` is the default `ImageIdentity`; animation uses a bounded
+`AnimationFrame` index. This identity is introduced before APNG decoding so
+static fallback results and animation frame results cannot share selections or
+artifacts accidentally.

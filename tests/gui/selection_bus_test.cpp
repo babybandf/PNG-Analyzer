@@ -28,7 +28,11 @@ Selection chunk_sel(std::uint64_t row) {
 
 Selection pixel_sel(std::uint64_t x, std::uint64_t y) {
   Selection s;
-  s.image = ImageCoordinate{0, 0, 0, x, y, 0};
+  ImageCoordinate coordinate;
+  coordinate.x = x;
+  coordinate.y = y;
+  coordinate.channel = 0;
+  s.image = coordinate;
   s.stage = pnga::trace_model::Stage::kDelivered;
   return s;
 }

@@ -27,6 +27,19 @@ using pnga::trace_model::Stage;
 
 namespace {
 
+ImageCoordinate static_coordinate(std::uint64_t pass, std::uint64_t row,
+                                  std::uint64_t x, std::uint64_t y,
+                                  std::optional<std::uint64_t> channel =
+                                      std::nullopt) {
+  ImageCoordinate coordinate;
+  coordinate.pass = pass;
+  coordinate.row = row;
+  coordinate.x = x;
+  coordinate.y = y;
+  coordinate.channel = channel;
+  return coordinate;
+}
+
 StageSet stages_of(const EncodedPng& encoded) {
   MemoryByteSource source(encoded.png_bytes);
   const auto index = index_chunks(source);
@@ -44,7 +57,7 @@ TEST_CASE("Coordinate query resolves whole pixel and channel selection",
   REQUIRE(stages.success);
 
   Selection pixel;
-  pixel.image = ImageCoordinate{0, 0, 2, 3, 2};
+  pixel.image = static_coordinate(0, 2, 3, 2);
   pixel.stage = Stage::kFiltered;
   const auto whole = query_coordinate(stages, pixel);
   REQUIRE(whole.status == CoordinateQueryStatus::kReady);
@@ -74,7 +87,7 @@ TEST_CASE("Coordinate query resolves Adam7 pass-local packed samples",
 
   // Adam7 pass 1 starts at (0,0), steps by (8,8); (8,8) is local (1,1).
   Selection selection;
-  selection.image = ImageCoordinate{0, 1, 1, 8, 8, 0};
+  selection.image = static_coordinate(1, 1, 8, 8, 0);
   selection.image->packed_sample =
       pnga::trace_model::PackedSampleCoordinate{2, 2};
   selection.stage = Stage::kNative;
@@ -103,7 +116,7 @@ TEST_CASE("Coordinate query exposes stable no-selection and applicability states
               none.status)) == "no selection");
 
   Selection chunk;
-  chunk.image = ImageCoordinate{0, 0, 0, 1, 1};
+  chunk.image = static_coordinate(0, 0, 1, 1);
   chunk.stage = Stage::kChunk;
   const auto not_applicable = query_coordinate(stages, chunk);
   REQUIRE(not_applicable.status == CoordinateQueryStatus::kNotApplicable);
@@ -111,7 +124,7 @@ TEST_CASE("Coordinate query exposes stable no-selection and applicability states
           "stage does not have image-coordinate semantics");
 
   Selection outside;
-  outside.image = ImageCoordinate{0, 0, 0, 4, 0};
+  outside.image = static_coordinate(0, 0, 4, 0);
   outside.stage = Stage::kDelivered;
   const auto out_of_range = query_coordinate(stages, outside);
   REQUIRE(out_of_range.status == CoordinateQueryStatus::kOutOfRange);
@@ -126,7 +139,7 @@ TEST_CASE("Coordinate query rejects inconsistent pass-local coordinates",
   REQUIRE(stages.success);
 
   Selection selection;
-  selection.image = ImageCoordinate{0, 3, 1, 4, 4};
+  selection.image = static_coordinate(3, 1, 4, 4);
   const auto summary = query_coordinate(stages, selection);
   REQUIRE(summary.status == CoordinateQueryStatus::kOutOfRange);
   REQUIRE(summary.error == "pass-local row does not match coordinate");
@@ -140,7 +153,7 @@ TEST_CASE("Coordinate query rejects a second byte on an 8-bit sample",
   REQUIRE(stages.success);
 
   Selection selection;
-  selection.image = ImageCoordinate{0, 0, 0, 1, 1, 0};
+  selection.image = static_coordinate(0, 0, 1, 1, 0);
   selection.image->sample_byte = 1;
   const auto summary = query_coordinate(stages, selection);
   REQUIRE(summary.status == CoordinateQueryStatus::kOutOfRange);
@@ -155,7 +168,7 @@ TEST_CASE("Coordinate query resolves the selected byte of a 16-bit channel",
   REQUIRE(stages.success);
 
   Selection selection;
-  selection.image = ImageCoordinate{0, 0, 1, 1, 1, 2};
+  selection.image = static_coordinate(0, 1, 1, 1, 2);
   selection.image->sample_byte = 1;
   selection.stage = Stage::kNative;
   const auto summary = query_coordinate(stages, selection);

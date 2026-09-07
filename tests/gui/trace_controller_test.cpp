@@ -48,6 +48,10 @@ static std::unique_ptr<pnga::analysis_engine::QueryCoordinator> readyQuery(
   return query;
 }
 
+static pnga::trace_model::ImageCoordinate static_coordinate() {
+  return pnga::trace_model::ImageCoordinate{};
+}
+
 class TraceControllerTest : public QObject {
   Q_OBJECT
  private slots:
@@ -79,10 +83,10 @@ void TraceControllerTest::identicalCommittedIntervalIsSubmittedOnce() {
   TraceController controller(widgets);
   controller.setQueryCoordinator(query.get());
   controller.replaceDocument(5, source);
-  controller.requestFor({0, 0, 0, 0, 0});
+  controller.requestFor(static_coordinate());
   QTRY_COMPARE_WITH_TIMEOUT(
       controller.acceptedRequestCountForTest(), std::size_t{1}, 5000);
-  controller.requestFor({0, 0, 0, 0, 0});
+  controller.requestFor(static_coordinate());
   QCOMPARE(controller.acceptedRequestCountForTest(), std::size_t{1});
 }
 
@@ -97,10 +101,10 @@ void TraceControllerTest::replacementDropsOldGenerationResult() {
   TraceController controller(widgets);
   controller.setQueryCoordinator(query.get());
   controller.replaceDocument(5, source);
-  controller.requestFor({0, 0, 0, 0, 0});
+  controller.requestFor(static_coordinate());
   controller.replaceDocument(6, source);
   controller.setQueryCoordinator(query.get());
-  controller.requestFor({0, 0, 0, 0, 0});
+  controller.requestFor(static_coordinate());
   // The fast-index publication alone already stamps the block view's
   // generation, so wait on a view that only the generation-6 trace bundle
   // updates before asserting the other two pages.
