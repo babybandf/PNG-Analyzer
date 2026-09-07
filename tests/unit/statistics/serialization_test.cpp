@@ -37,8 +37,18 @@ std::string read_golden(const std::string& name) {
       std::filesystem::path(PNGA_STATISTICS_GOLDEN_DIR) / name;
   std::ifstream in(path, std::ios::binary);
   REQUIRE(in.good());
-  return std::string(std::istreambuf_iterator<char>(in),
-                     std::istreambuf_iterator<char>());
+  std::string bytes{std::istreambuf_iterator<char>(in),
+                    std::istreambuf_iterator<char>()};
+  // Checkouts that translated the fixture's LF endings (git autocrlf on
+  // Windows) must not change the comparison outcome: the serializer emits
+  // LF only, so a CRLF fixture normalizes back while any lone CR byte still
+  // fails the byte-exact comparison.
+  std::size_t pos = 0;
+  while ((pos = bytes.find("\r\n", pos)) != std::string::npos) {
+    bytes.erase(pos, 1);
+    ++pos;
+  }
+  return bytes;
 }
 
 DocumentIdentity valid_identity() {

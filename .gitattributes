@@ -1,0 +1,4 @@
+# Byte-exact test fixtures: checkout must never transform their bytes.
+# The statistics golden reports are compared byte for byte against the
+# serializer output (LF only); a git autocrlf checkout would corrupt them.
+tests/unit/statistics/golden/* -text
