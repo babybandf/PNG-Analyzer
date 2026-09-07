@@ -691,13 +691,60 @@ StatisticsOccurrenceResult run_token_occurrence(
     std::uint64_t logical_end = 0;
     if (best.exact && best.deflate_begin == best.deflate_end) {
       // Zero-width occurrence (a stored block's boundary EOB): honest
-      // kReady at the exact boundary byte, consuming no input bytes.
+      // kReady at the exact boundary byte, consuming no input bytes. The
+      // anchor must be a real file position: the boundary byte is mapped
+      // through the virtual IDAT stream, and a boundary at the very end of
+      // the logical stream anchors to the last non-empty payload's end —
+      // never to a raw logical offset or an arbitrary CRC byte.
       if (!checked_add(wrapper_bits, best.deflate_begin, &logical_begin)) {
         return make_error(generation, "occurrence token accounting overflow");
       }
+      if (logical_begin % 8 != 0) {
+        // The zero-width anchor is byte-aligned by construction (stored
+        // blocks end byte-aligned); a conflicting assumption is an error,
+        // not a truncation.
+        return make_error(generation,
+                          "occurrence anchor is not byte aligned");
+      }
+      const std::uint64_t p = logical_begin / 8;
+      std::uint64_t physical = 0;
+      bool anchored = false;
+      if (p > stream.size()) {
+        return make_error(generation,
+                          "occurrence anchor is outside the virtual IDAT "
+                          "stream");
+      }
+      if (p < stream.size()) {
+        // Probe exactly one logical byte to locate the boundary's physical
+        // file position; the published span stays zero-width.
+        std::vector<PhysicalRange> ranges;
+        if (stream.logical_to_physical(p, 1, ranges) && ranges.size() == 1 &&
+            ranges[0].length == 1) {
+          physical = ranges[0].offset;
+          anchored = true;
+        }
+      } else {
+        for (std::size_t i = stream.segment_count(); i > 0; --i) {
+          const pnga::png_format::IdatSegment& segment = stream.segment(i - 1);
+          if (segment.length != 0) {
+            if (!checked_add(segment.physical_offset, segment.length,
+                             &physical)) {
+              return make_error(generation,
+                                "occurrence physical span overflow");
+            }
+            anchored = true;
+            break;
+          }
+        }
+      }
+      if (!anchored) {
+        return make_error(generation,
+                          "occurrence anchor has no verifiable file "
+                          "position");
+      }
       selection.physical_spans.push_back(
-          BitSpan{logical_begin / 8, 0, 0, false});
-      selection.logical = StreamSpan{logical_begin / 8, 0};
+          BitSpan{physical, 0, 0, false});
+      selection.logical = StreamSpan{p, 0};
       result.status = OccurrenceStatus::kReady;
       return result;
     }

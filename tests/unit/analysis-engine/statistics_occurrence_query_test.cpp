@@ -11,6 +11,7 @@
 #include <pnga/analysis-engine/job_scheduler.h>
 #include <pnga/analysis-engine/stage_analysis.h>
 #include <pnga/deflate-index/block_index.h>
+#include <pnga/deflate-trace/token_decoder.h>
 #include <pnga/io/byte_source.h>
 #include <pnga/png-format/chunk_index.h>
 #include <pnga/png-format/virtual_idat_stream.h>
@@ -933,7 +934,18 @@ TEST_CASE("Zero-width stored boundary end-of-block resolves to its exact "
   REQUIRE(first.selection.logical->start == 13);
   REQUIRE(first.selection.logical->length == 0);
   REQUIRE(first.selection.physical_spans.size() == 1);
-  REQUIRE(first.selection.physical_spans[0].offset == 13);
+  // The physical anchor is a real file position: the first IDAT payload's
+  // file start plus the logical boundary (computed independently from the
+  // chunk layout, not from the mapping under test).
+  std::uint64_t idat_data_offset = 0;
+  for (const auto& chunk : fixture.chunks.chunks) {
+    if (chunk.text() == "IDAT") {
+      idat_data_offset = chunk.data_offset;
+      break;
+    }
+  }
+  REQUIRE(idat_data_offset != 0);
+  REQUIRE(first.selection.physical_spans[0].offset == idat_data_offset + 13);
   REQUIRE(first.selection.physical_spans[0].length == 0);
 }
 
@@ -1231,4 +1243,375 @@ TEST_CASE("Filter navigation over a verified prefix block index stays honest",
   REQUIRE(later.status == OccurrenceStatus::kPartial);
   REQUIRE(later.error == "filter navigation reached the verified block index "
                          "prefix");
+}
+
+// --- WP-602 quality fix: zero-width anchors map to real file positions ------
+
+namespace {
+
+// Builds a valid zlib stream of `empty_blocks` empty stored blocks plus one
+// final stored block with two raw bytes (consecutive zero-output blocks).
+std::vector<std::byte> empty_stored_blocks_stream(std::uint32_t empty_blocks) {
+  const std::array<std::byte, 2> raw = {std::byte{0}, std::byte{127}};
+  const std::uint32_t adler = static_cast<std::uint32_t>(adler32(
+      adler32(0L, Z_NULL, 0), reinterpret_cast<const Bytef*>(raw.data()),
+      static_cast<uInt>(raw.size())));
+  std::vector<std::byte> stream;
+  stream.push_back(std::byte{0x78});
+  stream.push_back(std::byte{0x01});
+  for (std::uint32_t i = 0; i < empty_blocks; ++i) {
+    stream.push_back(std::byte{0x00});
+    stream.push_back(std::byte{0x00});
+    stream.push_back(std::byte{0x00});
+    stream.push_back(std::byte{0xFF});
+    stream.push_back(std::byte{0xFF});
+  }
+  stream.push_back(std::byte{0x01});
+  stream.push_back(std::byte{0x02});
+  stream.push_back(std::byte{0x00});
+  stream.push_back(std::byte{0xFD});
+  stream.push_back(std::byte{0xFF});
+  stream.insert(stream.end(), raw.begin(), raw.end());
+  for (const int shift : {24, 16, 8, 0}) {
+    stream.push_back(std::byte(static_cast<unsigned char>((adler >> shift) & 0xFFu)));
+  }
+  return stream;
+}
+
+// The first IDAT payload's file offset (independent chunk-layout oracle).
+std::uint64_t first_idat_data_offset(const ChunkIndex& chunks) {
+  for (const auto& chunk : chunks.chunks) {
+    if (chunk.text() == "IDAT") {
+      return chunk.data_offset;
+    }
+  }
+  return 0;
+}
+
+// Extracts the single IDAT payload of a fixture PNG (test-side scan).
+std::vector<std::byte> extract_single_idat_payload(
+    const std::vector<std::byte>& png) {
+  std::uint64_t pos = 8;
+  std::vector<std::byte> payload;
+  int idat_count = 0;
+  while (pos + 8 <= png.size()) {
+    const std::uint64_t length = (std::to_integer<std::uint64_t>(
+                                      png[static_cast<std::size_t>(pos)]) << 24) |
+                                 (std::to_integer<std::uint64_t>(
+                                      png[static_cast<std::size_t>(pos) + 1])
+                                  << 16) |
+                                 (std::to_integer<std::uint64_t>(
+                                      png[static_cast<std::size_t>(pos) + 2])
+                                  << 8) |
+                                 std::to_integer<std::uint64_t>(
+                                     png[static_cast<std::size_t>(pos) + 3]);
+    const std::string type(reinterpret_cast<const char*>(
+                               png.data() + static_cast<std::ptrdiff_t>(pos) + 4),
+                           4);
+    if (type == "IDAT") {
+      ++idat_count;
+      payload.assign(
+          png.begin() + static_cast<std::ptrdiff_t>(pos + 8),
+          png.begin() + static_cast<std::ptrdiff_t>(pos + 8 + length));
+    }
+    pos += 12 + length;
+  }
+  REQUIRE(idat_count == 1);
+  return payload;
+}
+
+// Rebuilds a fixture PNG with `pieces` as consecutive IDAT payloads (some
+// may be empty), recomputing every CRC.
+std::vector<std::byte> rebuild_with_idat_pieces(
+    const std::vector<std::byte>& base_png,
+    const std::vector<std::vector<std::byte>>& pieces) {
+  const auto push = [](std::vector<std::byte>& out, const char* type,
+                       const std::vector<std::byte>& data) {
+    const std::uint32_t len = static_cast<std::uint32_t>(data.size());
+    for (const int shift : {24, 16, 8, 0}) {
+      out.push_back(std::byte(
+          static_cast<unsigned char>((len >> shift) & 0xFFu)));
+    }
+    uLong crc = crc32(0L, Z_NULL, 0);
+    crc = crc32(crc, reinterpret_cast<const Bytef*>(type), 4);
+    for (int i = 0; i < 4; ++i) {
+      out.push_back(std::byte(static_cast<unsigned char>(type[i])));
+    }
+    if (!data.empty()) {
+      crc = crc32(crc, reinterpret_cast<const Bytef*>(data.data()),
+                  static_cast<uInt>(data.size()));
+      out.insert(out.end(), data.begin(), data.end());
+    }
+    for (const int shift : {24, 16, 8, 0}) {
+      out.push_back(std::byte(
+          static_cast<unsigned char>((crc >> shift) & 0xFFu)));
+    }
+  };
+  std::vector<std::byte> out(base_png.begin(), base_png.begin() + 8);
+  std::uint64_t pos = 8;
+  bool replaced = false;
+  while (pos + 8 <= base_png.size()) {
+    const std::uint64_t length =
+        (std::to_integer<std::uint64_t>(
+             base_png[static_cast<std::size_t>(pos)]) << 24) |
+        (std::to_integer<std::uint64_t>(
+             base_png[static_cast<std::size_t>(pos) + 1]) << 16) |
+        (std::to_integer<std::uint64_t>(
+             base_png[static_cast<std::size_t>(pos) + 2]) << 8) |
+        std::to_integer<std::uint64_t>(
+            base_png[static_cast<std::size_t>(pos) + 3]);
+    char type_chars[5] = {};
+    for (int i = 0; i < 4; ++i) {
+      type_chars[i] = static_cast<char>(
+          std::to_integer<unsigned char>(
+              base_png[static_cast<std::size_t>(pos) + 4 + i]));
+    }
+    const std::string type(type_chars);
+    if (type != "IDAT") {
+      push(out, type_chars,
+           std::vector<std::byte>(
+               base_png.begin() + static_cast<std::ptrdiff_t>(pos + 8),
+               base_png.begin() +
+                   static_cast<std::ptrdiff_t>(pos + 8 + length)));
+    } else {
+      REQUIRE(!replaced);
+      for (const auto& piece : pieces) {
+        push(out, "IDAT", piece);
+      }
+      replaced = true;
+    }
+    pos += 12 + length;
+  }
+  REQUIRE(replaced);
+  return out;
+}
+
+}  // namespace
+
+TEST_CASE("Zero-width EOB anchored at the next IDAT payload start",
+          "[analysis-engine][wp602-quality]") {
+  // The stored-literals payload is split at logical byte 13, so the
+  // zero-width EOB boundary coincides exactly with the second payload's
+  // first byte.
+  const std::vector<std::byte> payload = extract_single_idat_payload(
+      make_controlled_fixture(ControlledCaseId::kTraceStoredLiterals)
+          .png_bytes);
+  REQUIRE(payload.size() > 13);
+  std::vector<std::byte> first_piece(payload.begin(), payload.begin() + 13);
+  std::vector<std::byte> second_piece(payload.begin() + 13, payload.end());
+  const std::vector<std::byte> png = rebuild_with_idat_pieces(
+      make_controlled_fixture(ControlledCaseId::kTraceStoredLiterals)
+          .png_bytes,
+      {first_piece, second_piece});
+
+  QueryFixture fixture;
+  fixture.bytes = png;
+  fixture.source = std::make_shared<MemoryByteSource>(fixture.bytes);
+  fixture.chunks = index_chunks(*fixture.source);
+  fixture.stages = std::make_shared<const StageSet>(
+      pnga::analysis_engine::analyze_source(*fixture.source));
+  VirtualIDATStream stream(fixture.chunks);
+  IdatByteSource logical(stream, *fixture.source);
+  fixture.blocks = index_blocks(logical, 1u << 22);
+  REQUIRE(fixture.blocks.success);
+  REQUIRE(stream.segment_count() == 2);
+
+  const auto eob = query_statistics_occurrence(
+      *fixture.source, fixture.chunks, fixture.stages.get(), &fixture.blocks,
+      make_request(StatisticsBucketDomain::kTokenKind, "eob"), nullptr);
+  REQUIRE(eob.status == OccurrenceStatus::kReady);
+  REQUIRE(eob.selection.logical.has_value());
+  REQUIRE(eob.selection.logical->start == 13);
+  REQUIRE(eob.selection.logical->length == 0);
+  REQUIRE(eob.selection.physical_spans.size() == 1);
+  REQUIRE(eob.selection.physical_spans[0].length == 0);
+  // The anchor is the second payload's first file byte, not the logical
+  // offset and not a CRC byte of the first chunk.
+  std::vector<const pnga::png_format::ChunkNode*> idats;
+  for (const auto& chunk : fixture.chunks.chunks) {
+    if (chunk.text() == "IDAT") {
+      idats.push_back(&chunk);
+    }
+  }
+  REQUIRE(idats.size() == 2);
+  REQUIRE(eob.selection.physical_spans[0].offset == idats[1]->data_offset);
+  REQUIRE(eob.selection.physical_spans[0].offset !=
+          eob.selection.logical->start);
+}
+
+TEST_CASE("Zero-width EOB skips an empty IDAT chunk in the middle",
+          "[analysis-engine][wp602-quality]") {
+  // Payload split around an empty IDAT: [0,13), (), [13,17). The boundary
+  // byte 13 is simultaneously the next non-empty payload's first byte, so
+  // the mapping must skip the empty chunk's header, payload and CRC.
+  const auto base =
+      make_controlled_fixture(ControlledCaseId::kTraceStoredLiterals);
+  const std::vector<std::byte> payload =
+      extract_single_idat_payload(base.png_bytes);
+  REQUIRE(payload.size() > 13);
+  std::vector<std::byte> piece1(payload.begin(), payload.begin() + 13);
+  std::vector<std::byte> piece2;  // deliberately empty
+  std::vector<std::byte> piece3(payload.begin() + 13, payload.end());
+  const std::vector<std::byte> png =
+      rebuild_with_idat_pieces(base.png_bytes, {piece1, piece2, piece3});
+
+  QueryFixture fixture;
+  fixture.bytes = png;
+  fixture.source = std::make_shared<MemoryByteSource>(fixture.bytes);
+  fixture.chunks = index_chunks(*fixture.source);
+  fixture.stages = std::make_shared<const StageSet>(
+      pnga::analysis_engine::analyze_source(*fixture.source));
+  VirtualIDATStream stream(fixture.chunks);
+  IdatByteSource logical(stream, *fixture.source);
+  fixture.blocks = index_blocks(logical, 1u << 22);
+  REQUIRE(fixture.blocks.success);
+  REQUIRE(stream.segment_count() == 3);
+  REQUIRE(stream.segment(1).length == 0);
+
+  const auto eob = query_statistics_occurrence(
+      *fixture.source, fixture.chunks, fixture.stages.get(), &fixture.blocks,
+      make_request(StatisticsBucketDomain::kTokenKind, "eob"), nullptr);
+  REQUIRE(eob.status == OccurrenceStatus::kReady);
+  REQUIRE(eob.selection.logical->start == 13);
+  REQUIRE(eob.selection.logical->length == 0);
+  REQUIRE(eob.selection.physical_spans.size() == 1);
+  REQUIRE(eob.selection.physical_spans[0].length == 0);
+  // The anchor is the third payload's first file byte.
+  std::vector<const pnga::png_format::ChunkNode*> idats;
+  for (const auto& chunk : fixture.chunks.chunks) {
+    if (chunk.text() == "IDAT") {
+      idats.push_back(&chunk);
+    }
+  }
+  REQUIRE(idats.size() == 3);
+  REQUIRE(idats[1]->data_length == 0);
+  REQUIRE(eob.selection.physical_spans[0].offset == idats[2]->data_offset);
+}
+
+TEST_CASE("Consecutive zero-output blocks anchor to their own boundaries",
+          "[analysis-engine][wp602-quality]") {
+  std::vector<std::byte> bytes(pnga::png_format::kPngSignature.begin(),
+                               pnga::png_format::kPngSignature.end());
+  const std::vector<std::byte> stream = empty_stored_blocks_stream(3);
+  const auto push = [&bytes](const char* type,
+                             const std::vector<std::byte>& data) {
+    const std::uint32_t len = static_cast<std::uint32_t>(data.size());
+    for (const int shift : {24, 16, 8, 0}) {
+      bytes.push_back(std::byte(
+          static_cast<unsigned char>((len >> shift) & 0xFFu)));
+    }
+    uLong crc = crc32(0L, Z_NULL, 0);
+    crc = crc32(crc, reinterpret_cast<const Bytef*>(type), 4);
+    for (int i = 0; i < 4; ++i) {
+      bytes.push_back(std::byte(static_cast<unsigned char>(type[i])));
+    }
+    crc = crc32(crc, reinterpret_cast<const Bytef*>(data.data()),
+                static_cast<uInt>(data.size()));
+    bytes.insert(bytes.end(), data.begin(), data.end());
+    for (const int shift : {24, 16, 8, 0}) {
+      bytes.push_back(std::byte(
+          static_cast<unsigned char>((crc >> shift) & 0xFFu)));
+    }
+  };
+  std::vector<std::byte> ihdr(13, std::byte{0});
+  ihdr[7] = std::byte{1};
+  ihdr[8] = std::byte{8};
+  push("IHDR", ihdr);
+  push("IDAT", stream);
+  push("IEND", {});
+
+  QueryFixture fixture;
+  fixture.bytes = std::move(bytes);
+  fixture.source = std::make_shared<MemoryByteSource>(fixture.bytes);
+  fixture.chunks = index_chunks(*fixture.source);
+  fixture.stages = std::make_shared<const StageSet>(
+      pnga::analysis_engine::analyze_source(*fixture.source));
+  VirtualIDATStream stream_v(fixture.chunks);
+  IdatByteSource logical(stream_v, *fixture.source);
+  fixture.blocks = index_blocks(logical, 1u << 22);
+  REQUIRE(fixture.blocks.success);
+  REQUIRE(fixture.blocks.blocks.size() == 4);
+
+  // Each empty stored block's EOB is a zero-width boundary; the boundaries
+  // step through the stored headers at five-byte intervals (2-byte zlib
+  // header, then 7, 12, 17). All empty-block EOBs share output offset 0,
+  // so the output-cursor navigation sees block 0's boundary first and the
+  // final block's boundary (at logical 24, after the last stored header
+  // and its two raw bytes) as the next occurrence after output 0.
+  const std::uint64_t base = first_idat_data_offset(fixture.chunks);
+  REQUIRE(base != 0);
+  const auto first = query_statistics_occurrence(
+      *fixture.source, fixture.chunks, fixture.stages.get(), &fixture.blocks,
+      make_request(StatisticsBucketDomain::kTokenKind, "eob"), nullptr);
+  REQUIRE(first.status == OccurrenceStatus::kReady);
+  REQUIRE(first.selection.logical->start == 7);
+  REQUIRE(first.selection.logical->length == 0);
+  REQUIRE(first.selection.physical_spans.size() == 1);
+  REQUIRE(first.selection.physical_spans[0].offset == base + 7);
+  REQUIRE(first.selection.physical_spans[0].length == 0);
+
+  const auto final_eob = query_statistics_occurrence(
+      *fixture.source, fixture.chunks, fixture.stages.get(), &fixture.blocks,
+      make_request(StatisticsBucketDomain::kTokenKind, "eob",
+                   OccurrenceDirection::kNext, 0),
+      nullptr);
+  REQUIRE(final_eob.status == OccurrenceStatus::kReady);
+  REQUIRE(final_eob.selection.logical->start == 24);
+  REQUIRE(final_eob.selection.logical->length == 0);
+  REQUIRE(final_eob.selection.physical_spans[0].offset == base + 24);
+  REQUIRE(final_eob.selection.physical_spans[0].length == 0);
+
+  // The empty-block boundary after output 0 is again block 0's own EOB in
+  // scan order... the previous direction resolves the last boundary below
+  // the cursor: the final block's EOB at logical 24 (output 2).
+  const auto previous_final = query_statistics_occurrence(
+      *fixture.source, fixture.chunks, fixture.stages.get(), &fixture.blocks,
+      make_request(StatisticsBucketDomain::kTokenKind, "eob",
+                   OccurrenceDirection::kPrevious, 3),
+      nullptr);
+  REQUIRE(previous_final.status == OccurrenceStatus::kReady);
+  REQUIRE(previous_final.selection.logical->start == 24);
+  REQUIRE(previous_final.selection.physical_spans[0].offset == base + 24);
+}
+
+TEST_CASE("Zero-width anchor over a failed index prefix stays honest",
+          "[analysis-engine][wp602-quality]") {
+  // Corrupting the trailing Adler bytes fails the block index AFTER the
+  // stored block was verified (a one-block verified prefix), while the
+  // token scan still delivers that block's zero-width EOB. The prefix is
+  // consumed and the anchor maps to the real file position.
+  const auto base =
+      make_controlled_fixture(ControlledCaseId::kTraceStoredLiterals);
+  const std::vector<std::byte> payload =
+      extract_single_idat_payload(base.png_bytes);
+  REQUIRE(payload.size() > 13);
+  std::vector<std::byte> corrupt(payload);
+  corrupt[corrupt.size() - 2] =
+      static_cast<std::byte>(std::to_integer<unsigned char>(
+                                 corrupt[corrupt.size() - 2]) ^ 0xFFu);
+  const std::vector<std::byte> png =
+      rebuild_with_idat_pieces(base.png_bytes, {corrupt});
+
+  QueryFixture fixture;
+  fixture.bytes = png;
+  fixture.source = std::make_shared<MemoryByteSource>(fixture.bytes);
+  fixture.chunks = index_chunks(*fixture.source);
+  fixture.stages = std::make_shared<const StageSet>(
+      pnga::analysis_engine::analyze_source(*fixture.source));
+  VirtualIDATStream stream(fixture.chunks);
+  IdatByteSource logical(stream, *fixture.source);
+  fixture.blocks = index_blocks(logical, 1u << 22);
+  REQUIRE_FALSE(fixture.blocks.success);
+  REQUIRE(fixture.blocks.blocks.size() == 1);
+
+  const auto eob = query_statistics_occurrence(
+      *fixture.source, fixture.chunks, fixture.stages.get(), &fixture.blocks,
+      make_request(StatisticsBucketDomain::kTokenKind, "eob"), nullptr);
+  REQUIRE(eob.status == OccurrenceStatus::kReady);
+  REQUIRE(eob.selection.logical->start == 13);
+  REQUIRE(eob.selection.logical->length == 0);
+  REQUIRE(eob.selection.physical_spans.size() == 1);
+  REQUIRE(eob.selection.physical_spans[0].length == 0);
+  REQUIRE(eob.selection.physical_spans[0].offset ==
+          first_idat_data_offset(fixture.chunks) + 13);
 }

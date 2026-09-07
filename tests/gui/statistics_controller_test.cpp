@@ -141,6 +141,7 @@ class StatisticsControllerTest : public QObject {
   void exportGateFailureGivesFeedback();
   void midCollectionExportWritesLabeledPartial();
   void occurrencePublishesOnceAndStalePublishesNothing();
+  void deflateOccurrencePublishesPhysicalSpansInsideIdatPayload();
   void occurrenceSupersedeChainPublishesOnceAndSettles();
 };
 
@@ -530,6 +531,59 @@ void StatisticsControllerTest::
   QTRY_VERIFY_WITH_TIMEOUT(
       controller.findChildren<StatisticsOccurrenceWorker*>().isEmpty(),
       10000);
+}
+
+
+void StatisticsControllerTest::
+    deflateOccurrencePublishesPhysicalSpansInsideIdatPayload() {
+  QTemporaryFile png;
+  QVERIFY(writeFixture(png));
+
+  QMainWindow window;
+  MainWindowWidgets widgets = buildMainWindowUi(window, nullptr);
+  DocumentSession session(&window);
+  StatisticsController controller(widgets, session, &window);
+  BusRecorder recorder(&window);
+  QObject::connect(widgets.bus,
+                   &pnga::ui::qt::SelectionBus::selectionChanged, &recorder,
+                   &BusRecorder::onSelectionChanged);
+  QSignalSpy finished(&session, &DocumentSession::statisticsFinished);
+  QVERIFY(finished.isValid());
+
+  QVERIFY(session.replace(png.fileName()));
+  widgets.bus->setDocumentGeneration(session.generation());
+  session.startPrimaryWorkers();
+  widgets.inspector_tabs->setCurrentWidget(widgets.statistics_inspector);
+  QTRY_VERIFY_WITH_TIMEOUT(finished.count() == 1, 10000);
+
+  // Select the end-of-block token row on the DEFLATE page and request its
+  // first occurrence: the published selection must map to real file bytes
+  // inside the IDAT payload region of the fixture (the IDAT payload starts
+  // at file offset 41 in the base64 fixture and holds 11 bytes).
+  widgets.statistics_inspector->findChild<QTabWidget*>(
+             QStringLiteral("statisticsPages"))
+      ->setCurrentIndex(3);
+  auto* deflate_model = static_cast<pnga::ui::qt::StatisticsTableModel*>(
+      widgets.statistics_inspector
+          ->findChild<QTableView*>(QStringLiteral("statisticsDeflateTable"))
+          ->model());
+  const int eob_row = rowById(deflate_model, "tokens.eob");
+  QVERIFY(eob_row >= 0);
+  widgets.statistics_inspector
+      ->findChild<QTableView*>(QStringLiteral("statisticsDeflateTable"))
+      ->selectionModel()
+      ->select(deflate_model->index(eob_row, 0),
+               QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+  inspectorButton(widgets, "statisticsShowOccurrence")->click();
+  QTRY_VERIFY_WITH_TIMEOUT(recorder.count == 1, 10000);
+  QCOMPARE(recorder.last_origin, 4);
+  QCOMPARE(recorder.last.stage, pnga::trace_model::Stage::kTrace);
+  QVERIFY(recorder.last.logical.has_value());
+  QVERIFY(!recorder.last.physical_spans.empty());
+  for (const auto& span : recorder.last.physical_spans) {
+    QVERIFY(span.offset >= 41);
+    QVERIFY(span.offset + span.length <= 41 + 11);
+  }
 }
 
 void StatisticsControllerTest::exportGateFailureGivesFeedback() {
