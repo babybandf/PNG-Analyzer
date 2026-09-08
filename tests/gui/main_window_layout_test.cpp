@@ -172,7 +172,9 @@ void MainWindowLayoutTest::animationUiIsAbsentUntilCapabilityAndDestroyedOnReset
   mountAnimationUi(widgets, index, nullptr);
   QVERIFY(window.findChild<pnga::ui::qt::AnimationTimelineWidget*>() != nullptr);
   QVERIFY(window.findChild<pnga::ui::qt::AnimationInspector*>() != nullptr);
-  QCOMPARE(widgets.preview_tabs->tabText(0), QStringLiteral("Image"));
+  // The fixture's frame 0 is not the IDAT default image, so the first
+  // preview tab is relabeled as the static fallback while mounted.
+  QCOMPARE(widgets.preview_tabs->tabText(0), QStringLiteral("Static Fallback"));
   QCOMPARE(widgets.preview_tabs->tabText(4), QStringLiteral("Frame Output"));
   QCOMPARE(widgets.preview_tabs->count(), 8);
   QCOMPARE(widgets.inspector_tabs->tabText(widgets.inspector_tabs->count() - 1),
@@ -239,7 +241,19 @@ void MainWindowLayoutTest::apngVisiblePixelsFollowThumbnailStagesAndPlayback() {
   auto* list = window.findChild<QListView*>("animationThumbnails");
   QVERIFY(list && list->isVisible());
   QCOMPARE(list->model()->rowCount(), 2);
-  QTRY_COMPARE(qvariant_cast<QImage>(list->model()->data(list->model()->index(1, 0), Qt::DecorationRole)).pixelColor(0, 0), QColor(Qt::green));
+  // Thumbnails carry a 1-px black outline; the frame content is green. The
+  // decoration is fetched inside each QTRY because the async thumbnail
+  // worker replaces the transparent placeholder.
+  QTRY_COMPARE(
+      qvariant_cast<QImage>(list->model()->data(list->model()->index(1, 0),
+                                                Qt::DecorationRole))
+          .pixelColor(0, 0),
+      QColor(Qt::black));
+  QTRY_COMPARE(
+      qvariant_cast<QImage>(list->model()->data(list->model()->index(1, 0),
+                                                Qt::DecorationRole))
+          .pixelColor(48, 28),
+      QColor(Qt::green));
   QTest::mouseClick(list->viewport(), Qt::LeftButton, Qt::NoModifier,
                     list->visualRect(list->model()->index(1, 0)).center());
   QTRY_COMPARE(output->image().pixelColor(0, 0), QColor(Qt::green));

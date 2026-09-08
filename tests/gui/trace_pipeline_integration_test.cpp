@@ -384,12 +384,14 @@ void TracePipelineIntegrationTest::blockShowInHexCoversEveryIdatSpan() {
     }
   }
   QVERIFY(clicked);
-  QCoreApplication::processEvents();
+  // The navigation travels through queued signals (trace controller →
+  // selection bus → hex view); poll instead of a single processEvents pass
+  // so the test does not race the async hop under load.
+  QTRY_VERIFY_WITH_TIMEOUT(hex->currentLocation().has_value() &&
+                               *hex->currentLocation() == first_offset,
+                           4000);
   QCOMPARE(hex_source->source(), pnga::ui::qt::HexSource::kFile);
-  QVERIFY(hex->currentLocation().has_value());
-  QCOMPARE(*hex->currentLocation(), first_offset);
-  // Every physical span of the row is highlighted: no first-span-only path.
-  QCOMPARE(hex->highlightCount(), spans.size());
+  QTRY_COMPARE_WITH_TIMEOUT(hex->highlightCount(), spans.size(), 4000);
 }
 
 void TracePipelineIntegrationTest::showInflatedOutputNavigatesInflatedSource() {

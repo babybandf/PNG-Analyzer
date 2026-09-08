@@ -430,6 +430,12 @@ void mountAnimationUi(MainWindowWidgets& widgets,
   }
   widgets.animation_timeline->setTimeline(timeline);
   widgets.animation_timeline->setStaticFallbackAvailable(!index.frames.empty() && !index.frames.front().uses_idat);
+  // When the default image is an independent static fallback (no fcTL marks
+  // it as frame 0), relabel the first preview tab so it is not mistaken for
+  // the animation frames. The tab index and object name stay untouched.
+  if (!index.frames.empty() && !index.frames.front().uses_idat) {
+    widgets.preview_tabs->setTabText(0, QStringLiteral("Static Fallback"));
+  }
   widgets.animation_inspector =
       new pnga::ui::qt::AnimationInspector(widgets.inspector_tabs);
   widgets.animation_inspector->setObjectName(
@@ -508,6 +514,7 @@ void unmountAnimationUi(MainWindowWidgets& widgets) {
     delete view;
     view = nullptr;
   }
+  widgets.preview_tabs->setTabText(0, QStringLiteral("Image"));
   widgets.center_splitter->setStretchFactor(0, 3);
   widgets.center_splitter->setStretchFactor(1, 2);
 }

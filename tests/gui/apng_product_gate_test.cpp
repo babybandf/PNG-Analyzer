@@ -289,6 +289,12 @@ void ApngProductGateTest::validApngOpensPausedOnFrame0() {
   QTRY_COMPARE_WITH_TIMEOUT(controller->generation(), session->generation(),
                             4000);
 
+  // The default image is an independent fallback: the first preview tab is
+  // relabeled so it is not mistaken for the animation frames.
+  auto* preview = window.findChild<QTabWidget*>(QStringLiteral("previewTabs"));
+  QVERIFY(preview != nullptr);
+  QCOMPARE(preview->tabText(0), QStringLiteral("Static Fallback"));
+
   capture(window, QStringLiteral("valid-open-frame0-paused"));
   write_record();
 }
@@ -435,6 +441,10 @@ void ApngProductGateTest::closeAndStaticIsolation() {
             nullptr);
     QVERIFY(window.findChild<pnga::ui::qt::AnimationInspector*>() == nullptr);
     QVERIFY(stageView(window, 0) == nullptr);
+    auto* closed_preview =
+        window.findChild<QTabWidget*>(QStringLiteral("previewTabs"));
+    QVERIFY(closed_preview != nullptr);
+    QCOMPARE(closed_preview->tabText(0), QStringLiteral("Image"));
   }
   {
     QTemporaryDir dir;
