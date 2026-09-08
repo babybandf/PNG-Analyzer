@@ -84,4 +84,3 @@ TEST_CASE("Canvas composition observes cancellation between rows",
   REQUIRE_FALSE(result.success);
   REQUIRE(result.cancelled);
 }
-

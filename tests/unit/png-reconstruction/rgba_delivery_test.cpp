@@ -90,4 +90,3 @@ TEST_CASE("RGBA delivery observes cancellation between rows",
   REQUIRE(result.cancelled);
   REQUIRE(result.image.pixels.empty());
 }
-

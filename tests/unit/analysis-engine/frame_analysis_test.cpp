@@ -85,4 +85,3 @@ TEST_CASE("Frame analysis rejects an ordinal outside the verified prefix",
   REQUIRE(result.frame == nullptr);
   REQUIRE_FALSE(result.error.empty());
 }
-

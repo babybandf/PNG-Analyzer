@@ -91,4 +91,3 @@ void AnimationUiTest::thumbnailsCarryThinBlackOutline() {
 
 QTEST_MAIN(AnimationUiTest)
 #include "animation_ui_test.moc"
-
