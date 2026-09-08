@@ -242,6 +242,7 @@ add_executable(pnga_gui_main_window_layout_tests
 set_target_properties(pnga_gui_main_window_layout_tests PROPERTIES AUTOMOC ON)
 target_include_directories(pnga_gui_main_window_layout_tests PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/../../apps/png-analyzer-gui/src
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common
 )
 target_link_libraries(pnga_gui_main_window_layout_tests PRIVATE
   pnga::ui_qt

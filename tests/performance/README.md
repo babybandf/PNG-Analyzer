@@ -23,6 +23,14 @@ python3 scripts/run_performance_corpus.py --enforce-thresholds
 The values are deliberately a fixed local gate with headroom for normal
 machine noise, not a claim about every platform's release performance.
 
+## APNG metadata scenario (WP-706)
+
+`apng-metadata` generates 100,000 metadata-only frames in memory, measures the
+bounded animation index scan, and records frame count, animation chunk count,
+PNG size and retained metadata bytes. The scenario enforces the frozen
+64 MiB/100,000-frame/1,000,000-chunk resource limits; `metadata_us` is recorded
+for comparison and has no release time threshold yet.
+
 ## compression-inspector scenario (WP-5U12F)
 
 All measurements are Qt-free and run over the WP-607C controlled fixtures

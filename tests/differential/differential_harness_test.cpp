@@ -5,10 +5,14 @@
 
 #include "differential_harness.h"
 
+#include <pnga/png-format/animation_index.h>
+
 #include "controlled_fixture.h"
+#include "apng_fixture.h"
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
 #include <cstdint>
 #include <cstddef>
 #include <utility>
@@ -79,6 +83,18 @@ TEST_CASE("Differential corpus: the five WP-607C pixel cases match libpng",
     REQUIRE(r.native_matches);
     REQUIRE_FALSE(r.first.found);
   }
+}
+
+TEST_CASE("Differential static default APNG image matches libpng",
+          "[wp706][apng][oracle]") {
+  const std::array<pnga::png_format::FrameControl, 1> control = {
+      pnga::png_format::FrameControl{0, 1, 1, 0, 0, 1, 100, 0, 0}};
+  const auto bytes = pnga_test::make_apng(false, control);
+  const DifferentialResult result = compare_png(bytes);
+  REQUIRE(result.ok);
+  REQUIRE(result.dimensions_match);
+  REQUIRE(result.target_matches);
+  REQUIRE(result.native_matches);
 }
 
 // ---------------------------------------------------------------------------

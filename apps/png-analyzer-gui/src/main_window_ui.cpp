@@ -5,9 +5,12 @@
 // connects nothing; MainWindow performs all behavior wiring afterwards.
 
 #include "main_window_ui.h"
+#include "animation_controller.h"
 
 #include <pnga/analysis-engine/stage_analysis.h>
 #include <pnga/ui/qt/application_theme.h>
+#include <pnga/ui/qt/animation_inspector.h>
+#include <pnga/ui/qt/animation_timeline.h>
 #include <pnga/ui/qt/block_inspector.h>
 #include <pnga/ui/qt/chunk_detail_panel.h>
 #include <pnga/ui/qt/compression_context.h>
@@ -35,7 +38,13 @@
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <climits>
+#include <cstddef>
+#include <cstdint>
 #include <limits>
+#include <cstring>
+#include <utility>
+#include <vector>
 
 MainWindowWidgets buildMainWindowUi(
     QMainWindow& window, pnga::ui::qt::ApplicationTheme* theme) {
@@ -378,4 +387,121 @@ MainWindowWidgets buildMainWindowUi(
   }
 
   return widgets;
+}
+
+void mountAnimationUi(MainWindowWidgets& widgets,
+                      const pnga::png_format::AnimationIndex& index,
+                      AnimationController* controller) {
+  if (widgets.animation_timeline != nullptr || widgets.preview_tabs == nullptr ||
+      widgets.inspector_tabs == nullptr) {
+    return;
+  }
+  widgets.preview_tabs->setTabText(0, QStringLiteral("Frame Output"));
+  widgets.preview_tabs->setTabText(1, QStringLiteral("Pre-Blend"));
+  widgets.preview_tabs->setTabText(2, QStringLiteral("Post-Blend"));
+  widgets.preview_tabs->setTabText(3, QStringLiteral("Post-Dispose"));
+  widgets.animation_timeline =
+      new pnga::ui::qt::AnimationTimelineWidget(widgets.preview_tabs);
+  widgets.animation_timeline->setObjectName(QStringLiteral("animationTimeline"));
+  pnga::analysis_engine::AnimationTimeline timeline;
+  const auto complete = pnga::analysis_engine::make_timeline(
+      index, pnga::analysis_engine::PlaybackSpeed::kNormal);
+  if (complete.has_value()) {
+    timeline = *complete;
+  } else {
+    timeline.complete = false;
+    timeline.num_plays = index.control.has_value()
+                             ? index.control->num_plays
+                             : 0;
+    timeline.entries.reserve(index.frames.size());
+    for (const auto& frame : index.frames) {
+      timeline.entries.push_back({frame.ordinal, frame.control.delay_num,
+                                  frame.control.delay_den, 0, 0});
+    }
+  }
+  widgets.animation_timeline->setTimeline(timeline);
+  widgets.preview_tabs->addTab(widgets.animation_timeline,
+                               QStringLiteral("Timeline"));
+  widgets.animation_inspector =
+      new pnga::ui::qt::AnimationInspector(widgets.inspector_tabs);
+  widgets.animation_inspector->setObjectName(
+      QStringLiteral("animationInspector"));
+  widgets.inspector_tabs->addTab(widgets.animation_inspector,
+                                 QStringLiteral("Animation"));
+  if (!index.frames.empty()) {
+    widgets.animation_inspector->setFrameControl(index.frames.front().control);
+  }
+  if (controller != nullptr) {
+    QObject::connect(widgets.animation_timeline,
+                     &pnga::ui::qt::AnimationTimelineWidget::frameRequested,
+                     controller, &AnimationController::selectFrame);
+    QObject::connect(widgets.animation_timeline,
+                     &pnga::ui::qt::AnimationTimelineWidget::playRequested,
+                     controller, &AnimationController::play);
+    QObject::connect(widgets.animation_timeline,
+                     &pnga::ui::qt::AnimationTimelineWidget::pauseRequested,
+                     controller, &AnimationController::pause);
+    QObject::connect(
+        widgets.animation_timeline,
+        &pnga::ui::qt::AnimationTimelineWidget::speedRequested, controller,
+        [controller](int speed) {
+          using pnga::analysis_engine::PlaybackSpeed;
+          const auto selected = speed == 0   ? PlaybackSpeed::kQuarter
+                                : speed == 1 ? PlaybackSpeed::kHalf
+                                : speed == 2 ? PlaybackSpeed::kNormal
+                                             : PlaybackSpeed::kDouble;
+          controller->setSpeed(selected);
+        });
+  }
+}
+
+void unmountAnimationUi(MainWindowWidgets& widgets) {
+  if (widgets.animation_timeline != nullptr && widgets.preview_tabs != nullptr) {
+    const int tab = widgets.preview_tabs->indexOf(widgets.animation_timeline);
+    if (tab >= 0) widgets.preview_tabs->removeTab(tab);
+    delete widgets.animation_timeline;
+    widgets.animation_timeline = nullptr;
+  }
+  if (widgets.animation_inspector != nullptr && widgets.inspector_tabs != nullptr) {
+    const int tab = widgets.inspector_tabs->indexOf(widgets.animation_inspector);
+    if (tab >= 0) widgets.inspector_tabs->removeTab(tab);
+    delete widgets.animation_inspector;
+    widgets.animation_inspector = nullptr;
+  }
+  if (widgets.preview_tabs != nullptr) {
+    widgets.preview_tabs->setTabText(0, QStringLiteral("Image"));
+    widgets.preview_tabs->setTabText(1, QStringLiteral("Pixels"));
+    widgets.preview_tabs->setTabText(2, QStringLiteral("Filtered"));
+    widgets.preview_tabs->setTabText(3, QStringLiteral("Unfiltered"));
+  }
+}
+
+bool presentAnimationFrame(
+    MainWindowWidgets& widgets,
+    const pnga::analysis_engine::ReplayResult& result) {
+  if (!result.image || widgets.image_view == nullptr ||
+      widgets.inspector == nullptr) {
+    return false;
+  }
+  const auto& image = *result.image;
+  const std::size_t width = image.width;
+  const std::size_t height = image.height;
+  if (width != 0 && height > std::numeric_limits<std::size_t>::max() / width) {
+    return false;
+  }
+  const std::size_t bytes = width * height;
+  if (bytes > std::numeric_limits<std::size_t>::max() / 4 ||
+      image.pixels.size() != bytes * 4 || image.width > INT_MAX ||
+      image.height > INT_MAX) {
+    return false;
+  }
+  QImage qimage(static_cast<int>(image.width), static_cast<int>(image.height),
+                QImage::Format_RGBA8888);
+  std::memcpy(qimage.bits(), image.pixels.data(), image.pixels.size());
+  widgets.image_view->setImage(qimage);
+  std::vector<std::byte> delivered(image.pixels.size());
+  std::memcpy(delivered.data(), image.pixels.data(), image.pixels.size());
+  widgets.inspector->setDeliveredPixels(image.width, image.height,
+                                         std::move(delivered));
+  return true;
 }

@@ -349,6 +349,9 @@ void DocumentSession::onStageDone(std::uint64_t generation) {
   stage_worker_ = nullptr;
   openQueryCoordinator(stage_set_->header);
   emit stagesPublished(generation);
+  if (animation_index_ != nullptr) {
+    emit animationPublished(generation, animation_index_);
+  }
   // WP-602G: a statistics request recorded before the stage analysis
   // published starts exactly once the stages exist.
   if (statistics_requested_ && statistics_worker_ == nullptr) {
@@ -371,7 +374,9 @@ void DocumentSession::onAnimationDone(std::uint64_t generation) {
   }
   animation_index_ = animation_worker_->result();
   animation_worker_ = nullptr;
-  emit animationPublished(generation, animation_index_);
+  if (stage_set_ != nullptr) {
+    emit animationPublished(generation, animation_index_);
+  }
 }
 
 void DocumentSession::onChunkDetailDone(std::uint64_t generation,

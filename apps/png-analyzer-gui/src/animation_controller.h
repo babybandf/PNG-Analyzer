@@ -11,6 +11,10 @@
 #include <cstdint>
 #include <memory>
 
+struct MainWindowWidgets;
+class DocumentSession;
+class SelectionNavigationController;
+
 Q_DECLARE_METATYPE(
     std::shared_ptr<const pnga::analysis_engine::ReplayResult>)
 
@@ -42,6 +46,7 @@ class AnimationController final : public QObject {
   void capabilityChanged(int capability);
   void framePublished(
       std::shared_ptr<const pnga::analysis_engine::ReplayResult> result);
+  void staticFallbackSelected();
 
  private slots:
   void onWorkerResult(
@@ -59,5 +64,9 @@ class AnimationController final : public QObject {
   std::uint64_t request_serial_ = 0;
   std::uint32_t selected_ordinal_ = 0;
 };
+
+void bindAnimationUi(AnimationController& controller, DocumentSession& session,
+                     MainWindowWidgets& widgets,
+                     SelectionNavigationController& selection);
 
 #endif  // PNG_ANALYZER_GUI_ANIMATION_CONTROLLER_H

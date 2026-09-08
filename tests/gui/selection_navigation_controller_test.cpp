@@ -69,6 +69,7 @@ class SelectionNavigationControllerTest : public QObject {
   void typedNavigationRoutesFileAndGates();
   void typedNavigationInflatedUsesInflatedSource();
   void frameStreamSelectionUsesFrameOwnedSource();
+  void pixelSelectionUsesCurrentImageIdentity();
   void compressionCurrentFlowsThroughSharedStore();
   void statisticsSelectionRoutesZeroWidthPhysicalAnchorToHex();
   void chunkColumnsRefitOnDocumentReplaceAndPreserveWhileOpen();
@@ -217,6 +218,23 @@ void SelectionNavigationControllerTest::frameStreamSelectionUsesFrameOwnedSource
            pnga::ui::qt::HexSource::kFrameStream);
   QVERIFY(widgets.hex->navigateTo(1));
   QVERIFY(!widgets.hex->navigateTo(2));
+}
+
+void SelectionNavigationControllerTest::pixelSelectionUsesCurrentImageIdentity() {
+  QMainWindow window;
+  MainWindowWidgets widgets = buildMainWindowUi(window, nullptr);
+  SelectionNavigationController controller(
+      widgets, {[](const auto&) {}, [](std::uint64_t) {}});
+  controller.setDocument(1, nullptr, nullptr, nullptr);
+  widgets.bus->setDocumentGeneration(1);
+  controller.setImageIdentity(pnga::trace_model::AnimationFrame{3});
+  controller.onPixelSelected(2, 4);
+  const auto image = widgets.bus->current().image;
+  QVERIFY(image.has_value());
+  QVERIFY(std::holds_alternative<pnga::trace_model::AnimationFrame>(
+      image->identity));
+  QCOMPARE(std::get<pnga::trace_model::AnimationFrame>(image->identity).index,
+           3U);
 }
 
 void SelectionNavigationControllerTest::compressionCurrentFlowsThroughSharedStore() {

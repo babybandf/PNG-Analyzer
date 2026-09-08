@@ -25,8 +25,14 @@
 #include <QTreeView>
 #include <QWidget>
 
+#include <pnga/analysis-engine/animation_replay.h>
+#include <pnga/analysis-engine/animation_playback.h>
+#include <pnga/png-format/animation_index.h>
+
 namespace pnga::ui::qt {
 class ApplicationTheme;
+class AnimationInspector;
+class AnimationTimelineWidget;
 class BlockInspector;
 class ChunkDetailPanel;
 class CompressionContext;
@@ -84,11 +90,23 @@ struct MainWindowWidgets final {
   QAction* theme_system_action = nullptr;
   QAction* theme_light_action = nullptr;
   QAction* theme_dark_action = nullptr;
+  pnga::ui::qt::AnimationTimelineWidget* animation_timeline = nullptr;
+  pnga::ui::qt::AnimationInspector* animation_inspector = nullptr;
 };
 
 // Creates the complete widget/dock/menu/action graph of the analyzer window.
 // `theme` may be null (standalone tests); the theme menu is then omitted.
 MainWindowWidgets buildMainWindowUi(
     QMainWindow& window, pnga::ui::qt::ApplicationTheme* theme);
+
+class AnimationController;
+
+void mountAnimationUi(MainWindowWidgets& widgets,
+                      const pnga::png_format::AnimationIndex& index,
+                      AnimationController* controller);
+void unmountAnimationUi(MainWindowWidgets& widgets);
+bool presentAnimationFrame(
+    MainWindowWidgets& widgets,
+    const pnga::analysis_engine::ReplayResult& result);
 
 #endif  // PNG_ANALYZER_GUI_MAIN_WINDOW_UI_H

@@ -1,7 +1,13 @@
 #include "animation_controller.h"
 
-#include <pnga/png-format/animation_index.h>
+#include "document_session.h"
+#include "main_window_ui.h"
+#include "selection_navigation_controller.h"
 
+#include <pnga/png-format/animation_index.h>
+#include <pnga/png-format/virtual_frame_stream.h>
+
+#include <variant>
 #include <utility>
 
 AnimationController::AnimationController(QObject* parent) : QObject(parent) {
@@ -74,6 +80,7 @@ void AnimationController::selectStaticFallback() {
   if (playback_) {
     playback_->pause();
   }
+  emit staticFallbackSelected();
 }
 
 void AnimationController::play() {
@@ -153,4 +160,61 @@ void AnimationController::onWorkerResult(
     return;
   }
   emit framePublished(std::move(result));
+}
+
+void bindAnimationUi(AnimationController& controller, DocumentSession& session,
+                     MainWindowWidgets& widgets,
+                     SelectionNavigationController& selection) {
+  QObject::connect(
+      &session, &DocumentSession::animationPublished, &controller,
+      [&controller, &session, &widgets, &selection](
+          std::uint64_t generation,
+          std::shared_ptr<const pnga::png_format::AnimationIndex> index) {
+        if (generation != session.generation() || !index ||
+            !session.stageSet()) {
+          return;
+        }
+        pnga::analysis_engine::FrameRequest request;
+        request.generation = generation;
+        request.source = session.source();
+        request.index = std::move(index);
+        request.canvas_header = session.stageSet()->header;
+        controller.setDocument(request);
+        if (controller.capability() == AnimationController::Capability::kValid ||
+            controller.capability() == AnimationController::Capability::kPartial) {
+          mountAnimationUi(widgets, *request.index, &controller);
+          if (!request.index->frames.empty()) {
+            // The default frame is selected immediately by setDocument; make
+            // the Hex source presentation follow it before its worker result.
+            auto stream = pnga::png_format::make_frame_stream(
+                session.source(), request.index, 0);
+            if (stream != nullptr) {
+              selection.setImageIdentity(
+                  pnga::trace_model::AnimationFrame{0});
+              selection.setAnimationFrameStream(std::move(stream));
+            }
+          }
+        }
+      });
+  QObject::connect(
+      &controller, &AnimationController::framePublished, &controller,
+      [&session, &widgets, &selection](
+          std::shared_ptr<const pnga::analysis_engine::ReplayResult> result) {
+        if (!result || result->generation != session.generation()) return;
+        presentAnimationFrame(widgets, *result);
+        const auto* frame = std::get_if<pnga::trace_model::AnimationFrame>(
+            &result->identity);
+        if (frame && session.source() && session.animationIndex()) {
+          selection.setImageIdentity(*frame);
+          selection.setAnimationFrameStream(
+              pnga::png_format::make_frame_stream(
+                  session.source(), session.animationIndex(), frame->index));
+        }
+      });
+  QObject::connect(&controller, &AnimationController::staticFallbackSelected,
+                   &controller, [&selection] {
+                     selection.setImageIdentity(
+                         pnga::trace_model::StaticImage{});
+                     selection.setAnimationFrameStream(nullptr);
+                   });
 }

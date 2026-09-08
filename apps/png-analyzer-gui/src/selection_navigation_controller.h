@@ -68,6 +68,8 @@ class SelectionNavigationController final : public QObject {
   void onStageSetPublished(
       const std::shared_ptr<const pnga::analysis_engine::StageSet>& stages);
   void refreshHexSource();
+  void setImageIdentity(
+      const pnga::trace_model::ImageIdentity& identity) noexcept;
   void setAnimationFrameStream(
       std::shared_ptr<const pnga::png_format::IVirtualCompressedStream> stream);
 
@@ -118,6 +120,8 @@ class SelectionNavigationController final : public QObject {
   std::shared_ptr<const pnga::analysis_engine::StageSet> stage_set_;
   std::shared_ptr<const pnga::png_format::IVirtualCompressedStream>
       frame_stream_;
+  pnga::trace_model::ImageIdentity image_identity_ =
+      pnga::trace_model::StaticImage{};
   std::uint64_t generation_ = 0;
   std::uint64_t chunk_selection_serial_ = 0;
   std::uint64_t last_applied_navigation_serial_ = 0;

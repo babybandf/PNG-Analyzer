@@ -77,6 +77,7 @@ MainWindow::MainWindow(QWidget* parent,
       *this, widgets_,
       [this](const QString& path) { openRecentFile(path); });
   session_ = std::make_unique<DocumentSession>(this);
+  animation_ = std::make_unique<AnimationController>(this);
   connect(session_.get(), &DocumentSession::decodePublished, this,
           &MainWindow::onDecodeDone);
   connect(session_.get(), &DocumentSession::stagesPublished, this,
@@ -110,6 +111,7 @@ MainWindow::MainWindow(QWidget* parent,
             session_->requestChunkDetail(node, selection_serial);
           }},
       this, &workspace_->viewState(), &compression_store_);
+  bindAnimationUi(*animation_, *session_, widgets_, *selection_);
   trace_ = std::make_unique<TraceController>(widgets_, this);
   // WP-602G: the lazy Statistics controller wires its own widget actions,
   // tab activation and session-signal subscriptions.
@@ -164,8 +166,6 @@ MainWindow::MainWindow(QWidget* parent,
     dialog.exec();
   });
 
-  // Initial empty model so the selection-model connection is valid from the
-  // start; the controller reconnects after each real setModel.
   selection_->replaceChunkModel(&session_->index());
 
   connect(widgets_.image_view, &pnga::ui::qt::DeliveredImageView::pixelSelected,
@@ -375,6 +375,10 @@ void MainWindow::onDecodeDone(std::uint64_t generation) {
   if (generation != session_->generation()) {
     return;  // stale decode; never overwrite the current document's image
   }
+  if (animation_->capability() == AnimationController::Capability::kValid ||
+      animation_->capability() == AnimationController::Capability::kPartial) {
+    return;
+  }
   const auto& result = session_->decodeResult();
   if (!result.success) {
     widgets_.image_view->setImage(QImage());
@@ -388,7 +392,6 @@ void MainWindow::onDecodeDone(std::uint64_t generation) {
                 QImage::Format_RGBA8888);
   std::memcpy(qimage.bits(), img.rgba.data(), img.rgba.size());
   widgets_.image_view->setImage(qimage);
-  // Feed the delivered RGBA to the stage inspector's Delivered stage.
   widgets_.inspector->setDeliveredPixels(img.width, img.height, img.rgba);
   selection_->setDefaultPixelStatus(
       QStringLiteral("%1 x %2  (bit depth %3, color type %4)")
@@ -396,12 +399,6 @@ void MainWindow::onDecodeDone(std::uint64_t generation) {
           .arg(img.height)
           .arg(img.source_bit_depth)
           .arg(img.source_color_type));
-  // Establish a deterministic initial provenance target as soon as the
-  // delivered image is available. The stage/query/trace workers may finish
-  // in either order; the trace request is recorded while they are pending
-  // and openTraceCoordinator() replays it once both indexes exist. This
-  // keeps Compression populated immediately after opening a document
-  // instead of requiring an incidental image click first.
   selection_->onPixelSelected(0, 0);
 }
 
@@ -460,6 +457,8 @@ bool MainWindow::openFile(const QString& path) {
   if (!session_->replace(path)) {
     return false;
   }
+  animation_->close();
+  unmountAnimationUi(widgets_);
   const std::uint64_t generation = session_->generation();
   const QString absolute_path = QFileInfo(path).absoluteFilePath();
   workspace_->rememberOpenedFile(path);
@@ -514,6 +513,8 @@ void MainWindow::onCloseTriggered() {
   const QString closing_path = session_->currentFilePath();
 
   session_->close();
+  animation_->close();
+  unmountAnimationUi(widgets_);
   const std::uint64_t generation = session_->generation();
   widgets_.bus->setDocumentGeneration(generation);
   selection_->clearDocument(generation);

@@ -30,6 +30,7 @@
 #include <pnga/io/byte_source.h>
 #include <pnga/png-format/chunk_index.h>
 #include <pnga/png-format/virtual_idat_stream.h>
+#include <pnga/png-format/animation_index.h>
 #include <pnga/png-reconstruction/scanline_layout.h>
 #include <pnga/statistics/serialization.h>
 
@@ -64,6 +65,7 @@
 
 #include "controlled_fixture.h"
 #include "test_png_helpers.h"
+#include "apng_fixture.h"
 
 #ifndef PNGA_WP607C_CORPUS_REVISION
 #error "PNGA_WP607C_CORPUS_REVISION must be defined by the build"
@@ -193,6 +195,46 @@ struct LargeScenario {
     }
     row_p50_us = percentile(row_times, 50);
     row_p95_us = percentile(row_times, 95);
+  }
+};
+
+struct ApngMetadataScenario {
+  std::vector<std::byte> png_bytes;
+  std::uint64_t metadata_us = 0;
+  std::uint64_t retained_bytes = 0;
+  std::uint64_t frame_count = 0;
+  std::uint64_t animation_chunks = 0;
+
+  ApngMetadataScenario() {
+    constexpr std::size_t kFrames = 100000;
+    std::vector<pnga::png_format::FrameControl> controls(kFrames);
+    for (std::size_t i = 0; i < controls.size(); ++i) {
+      controls[i] = pnga::png_format::FrameControl{
+          0, 1, 1, 0, 0, static_cast<std::uint16_t>(i % 100), 100, 0, 0};
+    }
+    png_bytes = pnga_test::make_apng(false, controls);
+    auto source = std::make_shared<MemoryByteSource>(png_bytes);
+    pnga::png_format::AnimationIndex index;
+    pnga::png_format::AnimationLimits limits;
+    limits.max_frames = kFrames;
+    limits.max_animation_chunks = 1000000;
+    limits.max_metadata_bytes = 64ull * 1024 * 1024;
+    const auto elapsed = timed([&] {
+      index = pnga::png_format::index_animation(*source, limits,
+                                                [] { return false; });
+    });
+    metadata_us = elapsed.micros;
+    require(index.status == pnga::png_format::AnimationStatus::kComplete,
+            "APNG performance: metadata scan was not complete");
+    require(index.frames.size() == kFrames,
+            "APNG performance: frame count mismatch");
+    require(index.frames.size() <= limits.max_frames,
+            "APNG performance: frame budget exceeded");
+    require(index.retained_bytes <= limits.max_metadata_bytes,
+            "APNG performance: metadata budget exceeded");
+    frame_count = index.frames.size();
+    animation_chunks = index.frames.size() * 2 + 2;
+    retained_bytes = index.retained_bytes;
   }
 };
 
@@ -910,7 +952,8 @@ void emit_record(const LargeScenario& large,
                  const ProvenanceScenario& provenance,
                  const CompressionInspectorMetrics& inspector,
                  const StatisticsScenario& statistics,
-                 const BoundedBlocksScenario& bounded_blocks) {
+                 const BoundedBlocksScenario& bounded_blocks,
+                 const ApngMetadataScenario& apng) {
   constexpr const char* kCorpusRevision = PNGA_WP607C_CORPUS_REVISION;
   require(std::strlen(kCorpusRevision) == 64,
           "performance corpus revision must be 64 hex characters");
@@ -978,7 +1021,13 @@ void emit_record(const LargeScenario& large,
              << bounded_blocks.cancel_total_reads
              << ",\"process_rss_peak_kib\":"
              << bounded_blocks.process_rss_peak_kib
-             << ",\"checksum\":" << bounded_blocks.checksum << "}],"
+                << ",\"checksum\":" << bounded_blocks.checksum
+                << "},{\"id\":\"apng-metadata\",\"frames\":"
+             << apng.frame_count << ",\"animation_chunks\":"
+             << apng.animation_chunks << ",\"png_bytes\":"
+             << apng.png_bytes.size() << ",\"metadata_us\":"
+             << apng.metadata_us << ",\"retained_bytes\":"
+             << apng.retained_bytes << "}],"
                 "\"ui_scenario\":\"gui_trace_inspector_performance_tests\"}\n";
 }
 
@@ -992,7 +1041,8 @@ int main() {
         run_compression_inspector_scenario();
     const StatisticsScenario statistics;
     const BoundedBlocksScenario bounded_blocks;
-    emit_record(large, provenance, inspector, statistics, bounded_blocks);
+    const ApngMetadataScenario apng;
+    emit_record(large, provenance, inspector, statistics, bounded_blocks, apng);
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "performance runner: FAIL: " << error.what() << '\n';

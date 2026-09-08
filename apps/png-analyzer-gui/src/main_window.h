@@ -27,6 +27,7 @@ class ApplicationTheme;
 // WP-5U15: worker/bridge types live in document_workers.h (moved verbatim).
 #include "document_session.h"
 #include "document_workers.h"
+#include "animation_controller.h"
 #include "main_window_ui.h"
 #include "selection_navigation_controller.h"
 #include "statistics_controller.h"
@@ -72,6 +73,7 @@ class MainWindow final : public QMainWindow {
   pnga::ui::qt::CompressionSelectionStore compression_store_;
   std::unique_ptr<WorkspaceController> workspace_;
   std::unique_ptr<DocumentSession> session_;
+  std::unique_ptr<AnimationController> animation_;
   std::unique_ptr<SelectionNavigationController> selection_;
   std::unique_ptr<TraceController> trace_;
   std::unique_ptr<StatisticsController> statistics_;

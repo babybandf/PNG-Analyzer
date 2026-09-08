@@ -7,10 +7,15 @@
 #include <pnga/io/byte_source.h>
 #include <pnga/png-format/chunk_index.h>
 #include <pnga/png-format/virtual_idat_stream.h>
+#include <pnga/png-format/animation_index.h>
+#include <pnga/png-format/virtual_frame_stream.h>
+
+#include "../common/apng_fixture.h"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -60,3 +65,40 @@ TEST_CASE("Parser, Virtual IDAT and zlib wrapper survive bounded fuzz input",
   }
 }
 
+TEST_CASE("APNG metadata and frame streams survive deterministic mutations",
+          "[fuzz][wp603c][apng]") {
+  const std::array<pnga::png_format::FrameControl, 3> controls = {
+      pnga::png_format::FrameControl{0, 1, 1, 0, 0, 0, 0, 0, 0},
+      pnga::png_format::FrameControl{0, 1, 1, 0, 0, 1, 100, 1, 1},
+      pnga::png_format::FrameControl{0, 1, 1, 0, 0, 2, 100, 0, 0}};
+  const auto valid = pnga_test::make_apng(false, controls);
+  for (std::uint32_t iteration = 0; iteration < 64; ++iteration) {
+    auto bytes = valid;
+    if ((iteration & 1U) != 0) {
+      pnga_test::set_sequence(bytes, 3, iteration);
+    }
+    if ((iteration & 2U) != 0 && bytes.size() > 20) {
+      bytes.resize(bytes.size() - (iteration % 7U));
+    }
+    pnga::io::MemoryByteSource source(bytes);
+    pnga::png_format::AnimationLimits limits;
+    limits.max_frames = 8;
+    limits.max_animation_chunks = 32;
+    limits.max_metadata_bytes = 1U << 20;
+    const auto index = pnga::png_format::index_animation(
+        source, limits, [iteration] { return iteration == 63; });
+    if (!index.frames.empty()) {
+      auto owner = std::make_shared<const pnga::png_format::AnimationIndex>(
+          index);
+      const auto stream =
+          pnga::png_format::make_frame_stream(
+              std::make_shared<const pnga::io::MemoryByteSource>(bytes), owner,
+              0);
+      if (stream != nullptr && stream->size() != 0) {
+        std::vector<std::byte> window(
+            static_cast<std::size_t>(std::min<std::uint64_t>(stream->size(), 64)));
+        REQUIRE(stream->read(0, window.data(), window.size()));
+      }
+    }
+  }
+}

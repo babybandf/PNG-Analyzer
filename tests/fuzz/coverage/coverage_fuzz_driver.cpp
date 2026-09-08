@@ -6,6 +6,7 @@
 #include <pnga/io/byte_source.h>
 #include <pnga/png-format/chunk_index.h>
 #include <pnga/png-format/virtual_idat_stream.h>
+#include <pnga/png-format/animation_index.h>
 
 #include <algorithm>
 #include <cstddef>
@@ -33,5 +34,10 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data,
     (void)stream.read(source, 0, window.data(), window.size());
   }
   (void)pnga::deflate_trace::trace_zlib_wrapper(source);
+  pnga::png_format::AnimationLimits limits;
+  limits.max_frames = 1024;
+  limits.max_animation_chunks = 4096;
+  limits.max_metadata_bytes = 1U << 20;
+  (void)pnga::png_format::index_animation(source, limits, [] { return false; });
   return 0;
 }

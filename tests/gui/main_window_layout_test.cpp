@@ -4,6 +4,12 @@
 #include "main_window.h"
 #include "png_file_filter.h"
 
+#include <pnga/ui/qt/animation_inspector.h>
+#include <pnga/ui/qt/animation_timeline.h>
+#include <pnga/png-format/animation_index.h>
+
+#include "apng_fixture.h"
+
 #include <pnga/ui/qt/delivered_image_view.h>
 #include <pnga/ui/qt/hex_source_tab_bar.h>
 #include <pnga/ui/qt/hex_view.h>
@@ -37,6 +43,8 @@
 #include <QTemporaryDir>
 #include <QTreeView>
 #include <QUrl>
+
+#include <array>
 
 namespace {
 
@@ -96,6 +104,8 @@ class MainWindowLayoutTest : public QObject {
  private slots:
  void init();
   void supportedPngSuffixPredicateCoversPngAndApng();
+  void animationUiIsAbsentUntilCapabilityAndDestroyedOnReset();
+  void openingCompleteApngMountsAnimationUi();
   void defaultLayoutHasRequiredRegions();
   void docksAreMovableFloatableAndClosable();
   void workspaceSettingsRoundTrip();
@@ -133,6 +143,53 @@ void MainWindowLayoutTest::supportedPngSuffixPredicateCoversPngAndApng() {
   QVERIFY(hasSupportedPngSuffix(QStringLiteral("example.APNG")));
   QVERIFY(!hasSupportedPngSuffix(QStringLiteral("example.apng.txt")));
   QVERIFY(!hasSupportedPngSuffix(QStringLiteral("example.png.backup")));
+}
+
+void MainWindowLayoutTest::animationUiIsAbsentUntilCapabilityAndDestroyedOnReset() {
+  QMainWindow window;
+  MainWindowWidgets widgets = buildMainWindowUi(window, nullptr);
+  QVERIFY(window.findChild<pnga::ui::qt::AnimationTimelineWidget*>() == nullptr);
+  QVERIFY(window.findChild<pnga::ui::qt::AnimationInspector*>() == nullptr);
+
+  pnga::png_format::AnimationIndex index;
+  index.status = pnga::png_format::AnimationStatus::kComplete;
+  index.control = pnga::png_format::AnimationControl{1, 0};
+  index.frames.push_back(pnga::png_format::FrameRecord{
+      0, pnga::png_format::FrameControl{7, 1, 1, 0, 0, 1, 100, 0, 0},
+      false, {}});
+  mountAnimationUi(widgets, index, nullptr);
+  QVERIFY(window.findChild<pnga::ui::qt::AnimationTimelineWidget*>() != nullptr);
+  QVERIFY(window.findChild<pnga::ui::qt::AnimationInspector*>() != nullptr);
+  QCOMPARE(widgets.preview_tabs->tabText(0), QStringLiteral("Frame Output"));
+  QCOMPARE(widgets.inspector_tabs->tabText(widgets.inspector_tabs->count() - 1),
+           QStringLiteral("Animation"));
+
+  unmountAnimationUi(widgets);
+  QVERIFY(window.findChild<pnga::ui::qt::AnimationTimelineWidget*>() == nullptr);
+  QVERIFY(window.findChild<pnga::ui::qt::AnimationInspector*>() == nullptr);
+  QCOMPARE(widgets.preview_tabs->tabText(0), QStringLiteral("Image"));
+}
+
+void MainWindowLayoutTest::openingCompleteApngMountsAnimationUi() {
+  const std::array<pnga::png_format::FrameControl, 2> controls = {
+      pnga::png_format::FrameControl{0, 1, 1, 0, 0, 1, 100, 0, 0},
+      pnga::png_format::FrameControl{0, 1, 1, 0, 0, 1, 100, 0, 0}};
+  const auto raw = pnga_test::make_apng(false, controls);
+  QTemporaryFile file;
+  QVERIFY(file.open());
+  QCOMPARE(file.write(reinterpret_cast<const char*>(raw.data()),
+                      static_cast<qint64>(raw.size())),
+           static_cast<qint64>(raw.size()));
+  file.flush();
+
+  MainWindow window;
+  QVERIFY(window.openFile(file.fileName()));
+  QTRY_VERIFY_WITH_TIMEOUT(
+      window.findChild<pnga::ui::qt::AnimationTimelineWidget*>() != nullptr,
+      4000);
+  QVERIFY(window.findChild<pnga::ui::qt::AnimationInspector*>() != nullptr);
+  QCOMPARE(window.findChild<pnga::ui::qt::HexSourceTabBar*>()->tabText(1),
+           QStringLiteral("Frame Stream"));
 }
 
 void MainWindowLayoutTest::defaultLayoutHasRequiredRegions() {
