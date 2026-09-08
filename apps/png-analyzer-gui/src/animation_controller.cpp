@@ -4,7 +4,11 @@
 #include "main_window_ui.h"
 #include "selection_navigation_controller.h"
 
+#include <pnga/ui/qt/stage_inspector.h>
+#include <algorithm>
 #include <pnga/ui/qt/animation_inspector.h>
+#include <pnga/ui/qt/animation_timeline.h>
+#include <pnga/ui/qt/delivered_image_view.h>
 
 #include <pnga/png-format/animation_index.h>
 #include <pnga/png-format/virtual_frame_stream.h>
@@ -23,19 +27,25 @@ AnimationController::AnimationController(QObject* parent)
 }
 
 AnimationController::~AnimationController() {
-  cancelWorker();
-  if (worker_ != nullptr && worker_->isRunning()) {
-    worker_->wait();
-  }
+  playback_timer_.stop();
+  for (auto* worker : findChildren<AnimationWorker*>()) { worker->cancel(); worker->wait(); }
+  for (auto* worker : findChildren<ThumbnailWorker*>()) { worker->cancel(); worker->wait(); }
 }
 
 void AnimationController::setDocument(
     const pnga::analysis_engine::FrameRequest& document_context) {
   cancelWorker();
-  ++generation_;
+  playback_timer_.stop();
+  if (thumbnail_worker_) thumbnail_worker_->cancel();
+  thumbnail_queue_.clear();
+  thumbnail_pending_.clear();
+  generation_ = document_context.generation;
+  replay_ = std::make_shared<pnga::analysis_engine::AnimationReplay>(64ull * 1024 * 1024);
+  stage_ = pnga::trace_model::Stage::kFrameOutput;
+  showing_static_ = false;
   document_context_ = document_context;
   document_context_.generation = generation_;
-  request_serial_ = 0;
+  ++request_serial_;
   selected_ordinal_ = 0;
   playback_.reset();
 
@@ -63,7 +73,7 @@ void AnimationController::setDocument(
   }
   capability_ = next;
   emit capabilityChanged(static_cast<int>(capability_));
-  if (capability_ == Capability::kValid) {
+  if (capability_ == Capability::kValid || capability_ == Capability::kPartial) {
     // A complete animation always opens paused on its first verified frame.
     selectFrame(0);
   }
@@ -83,15 +93,17 @@ void AnimationController::selectFrame(std::uint32_t ordinal) {
     playback_->seek(ordinal, nowNs());
     playback_timer_.stop();
   }
+  showing_static_ = false;
   selected_ordinal_ = ordinal;
   startFrameWorker(ordinal);
+  notifyPlayback();
 }
 
 void AnimationController::selectStaticFallback() {
+  showing_static_ = true;
+  pause();
   cancelWorker();
-  if (playback_) {
-    playback_->pause();
-  }
+  ++request_serial_;
   emit staticFallbackSelected();
 }
 
@@ -100,6 +112,7 @@ void AnimationController::play() {
     playback_->play(nowNs());
     advancePlayback();
     playback_timer_.start();
+    notifyPlayback();
   }
 }
 
@@ -107,6 +120,7 @@ void AnimationController::pause() {
   if (playback_) {
     playback_->pause();
     playback_timer_.stop();
+    notifyPlayback();
   }
 }
 
@@ -121,10 +135,13 @@ void AnimationController::close() {
   cancelWorker();
   playback_timer_.stop();
   ++generation_;
+  if (thumbnail_worker_) thumbnail_worker_->cancel();
+  thumbnail_queue_.clear();
+  thumbnail_pending_.clear();
   document_context_ = {};
   playback_.reset();
   capability_ = Capability::kDetecting;
-  request_serial_ = 0;
+  ++request_serial_;
   emit capabilityChanged(static_cast<int>(capability_));
 }
 
@@ -134,44 +151,76 @@ void AnimationController::publishWorkerResultForTesting(
 }
 
 void AnimationController::advancePlaybackForTesting(std::uint64_t now_ns) {
+  test_time_ = now_ns;
   advancePlaybackAt(now_ns);
 }
 
 void AnimationController::cancelWorker() {
-  if (worker_ == nullptr) {
-    return;
-  }
-  worker_->cancel();
-  if (worker_->isRunning()) {
-    worker_->wait();
-  }
-  worker_->deleteLater();
-  worker_ = nullptr;
+  frame_pending_ = false;
+  if (worker_) worker_->cancel();
 }
-
 void AnimationController::startFrameWorker(std::uint32_t ordinal) {
-  cancelWorker();
   selected_ordinal_ = ordinal;
   ++request_serial_;
-  document_context_.request_serial = request_serial_;
-  document_context_.ordinal = ordinal;
-  pnga::analysis_engine::ReplayRequest replay_request{
-      document_context_, pnga::trace_model::Stage::kFrameOutput};
-  auto* worker = new AnimationWorker(std::move(replay_request),
-                                     request_serial_, this);
+  frame_pending_ = true;
+  if (worker_) { worker_->cancel(); return; }
+  launchPendingFrame();
+}
+void AnimationController::launchPendingFrame() {
+  if (!frame_pending_ || !document_context_.source) return;
+  frame_pending_ = false;
+  auto request = document_context_;
+  request.ordinal = selected_ordinal_;
+  request.request_serial = request_serial_;
+  auto* worker = new AnimationWorker({request, stage_}, request_serial_, this, replay_);
   worker_ = worker;
-  connect(worker, &AnimationWorker::finishedResult, this,
-          &AnimationController::onWorkerResult);
-  connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+  connect(worker, &AnimationWorker::finishedResult, this, &AnimationController::onWorkerResult);
   connect(worker, &QThread::finished, this, [this, worker] {
-    if (worker_ == worker) {
-      worker_ = nullptr;
-    }
+    if (worker_ == worker) worker_ = nullptr;
+    worker->deleteLater();
+    launchPendingFrame();
+  });
+  worker->start();
+}
+void AnimationController::selectStage(pnga::trace_model::Stage stage) {
+  if (stage_ == stage && !showing_static_) return;
+  showing_static_ = false;
+  pause();
+  stage_ = stage;
+  if (document_context_.index && !document_context_.index->frames.empty()) startFrameWorker(selected_ordinal_);
+}
+void AnimationController::notifyPlayback() {
+  using pnga::analysis_engine::PlaybackState;
+  emit playbackChanged(static_cast<int>(playback_ ? playback_->state() : PlaybackState::kPartial), selected_ordinal_);
+}
+void AnimationController::requestThumbnail(std::uint32_t ordinal) {
+  if (!document_context_.index || ordinal >= document_context_.index->frames.size() ||
+      thumbnail_pending_.contains(ordinal) || thumbnail_queue_.size() >= 32) return;
+  thumbnail_pending_.insert(ordinal);
+  thumbnail_queue_.push_back(ordinal);
+  launchThumbnail();
+}
+void AnimationController::launchThumbnail() {
+  if (thumbnail_worker_ || thumbnail_queue_.empty() || !document_context_.source) return;
+  auto request = document_context_;
+  request.ordinal = thumbnail_queue_.front();
+  thumbnail_queue_.pop_front();
+  auto* worker = new ThumbnailWorker(request, this);
+  thumbnail_worker_ = worker;
+  connect(worker, &ThumbnailWorker::ready, this,
+      [this](std::uint64_t generation, std::uint32_t ordinal, const QImage& image) {
+        if (generation == generation_) emit thumbnailReady(ordinal, image);
+      });
+  connect(worker, &QThread::finished, this, [this, worker, request] {
+    thumbnail_worker_ = nullptr;
+    if (request.generation == generation_) thumbnail_pending_.remove(request.ordinal);
+    worker->deleteLater();
+    launchThumbnail();
   });
   worker->start();
 }
 
-void AnimationController::advancePlayback() { advancePlaybackAt(nowNs()); }
+void AnimationController::advancePlayback() { advancePlaybackAt(nowNs()); notifyPlayback(); }
 
 void AnimationController::advancePlaybackAt(std::uint64_t now_ns) {
   if (!playback_ || !document_context_.index) return;
@@ -187,7 +236,7 @@ void AnimationController::advancePlaybackAt(std::uint64_t now_ns) {
 }
 
 std::uint64_t AnimationController::nowNs() const noexcept {
-  return static_cast<std::uint64_t>(clock_.nsecsElapsed());
+  return test_time_.value_or(static_cast<std::uint64_t>(clock_.nsecsElapsed()));
 }
 
 void AnimationController::onWorkerResult(
@@ -199,6 +248,12 @@ void AnimationController::onWorkerResult(
                                       selected_ordinal_}}) {
     return;
   }
+  if (result->stop != pnga::analysis_engine::ReplayResult::Stop::kReady || !result->image) {
+    pause();
+    if (result->stop != pnga::analysis_engine::ReplayResult::Stop::kCancelled)
+      emit animationError(QString::fromStdString(result->reason));
+    return;
+  }
   if (playback_ &&
       playback_->state() ==
           pnga::analysis_engine::PlaybackState::kWaitingForFrame &&
@@ -207,11 +262,14 @@ void AnimationController::onWorkerResult(
                            nowNs());
   }
   emit framePublished(std::move(result));
+  notifyPlayback();
 }
 
 void bindAnimationUi(AnimationController& controller, DocumentSession& session,
                      MainWindowWidgets& widgets,
                      SelectionNavigationController& selection) {
+  QObject::connect(widgets.x_spin, &QSpinBox::valueChanged, &controller, &AnimationController::pause);
+  QObject::connect(widgets.y_spin, &QSpinBox::valueChanged, &controller, &AnimationController::pause);
   QObject::connect(
       &session, &DocumentSession::animationPublished, &controller,
       [&controller, &session, &widgets, &selection](
@@ -230,6 +288,10 @@ void bindAnimationUi(AnimationController& controller, DocumentSession& session,
         if (controller.capability() == AnimationController::Capability::kValid ||
             controller.capability() == AnimationController::Capability::kPartial) {
           mountAnimationUi(widgets, *request.index, &controller);
+          for (auto* view : widgets.animation_views) {
+            QObject::connect(view, &pnga::ui::qt::DeliveredImageView::pixelSelected,
+                             &selection, &SelectionNavigationController::onAnimationPixelSelected);
+          }
           if (!request.index->frames.empty()) {
             // The default frame is selected immediately by setDocument; make
             // the Hex source presentation follow it before its worker result.
@@ -253,6 +315,15 @@ void bindAnimationUi(AnimationController& controller, DocumentSession& session,
             &result->identity);
         if (frame && session.source() && session.animationIndex()) {
           selection.setImageIdentity(*frame);
+          using pnga::trace_model::Stage;
+          const std::array stages{Stage::kFrameOutput, Stage::kPreBlend, Stage::kPostBlend, Stage::kPostDispose};
+          const auto stage_it = std::find(stages.begin(), stages.end(), result->stage);
+          if (stage_it != stages.end()) {
+            const auto& control = session.animationIndex()->frames[frame->index].control;
+            selection.setAnimationView(widgets.animation_views[stage_it - stages.begin()], result->stage,
+                result->stage == Stage::kFrameOutput ? control.x : 0,
+                result->stage == Stage::kFrameOutput ? control.y : 0);
+          }
           selection.setAnimationFrameStream(
               pnga::png_format::make_frame_stream(
                   session.source(), session.animationIndex(), frame->index));
@@ -264,7 +335,10 @@ void bindAnimationUi(AnimationController& controller, DocumentSession& session,
         }
       });
   QObject::connect(&controller, &AnimationController::staticFallbackSelected,
-                   &controller, [&selection] {
+                   &controller, [&selection, &session, &widgets] {
+                     const auto& decoded = session.decodeResult();
+                     if (decoded.success) widgets.inspector->setDeliveredPixels(
+                         decoded.image.width, decoded.image.height, decoded.image.rgba);
                      selection.setImageIdentity(
                          pnga::trace_model::StaticImage{});
                      selection.setAnimationFrameStream(nullptr);

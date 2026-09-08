@@ -9,6 +9,9 @@
 #include <QElapsedTimer>
 #include <QMetaType>
 #include <QTimer>
+#include <QImage>
+#include <deque>
+#include <QSet>
 
 #include <cstdint>
 #include <memory>
@@ -35,6 +38,8 @@ class AnimationController final : public QObject {
   void pause();
   void setSpeed(pnga::analysis_engine::PlaybackSpeed speed);
   void close();
+  void selectStage(pnga::trace_model::Stage stage);
+  void requestThumbnail(std::uint32_t ordinal);
 
   Capability capability() const noexcept { return capability_; }
   std::uint64_t generation() const noexcept { return generation_; }
@@ -50,6 +55,9 @@ class AnimationController final : public QObject {
   void framePublished(
       std::shared_ptr<const pnga::analysis_engine::ReplayResult> result);
   void staticFallbackSelected();
+  void playbackChanged(int state, std::uint32_t ordinal);
+  void animationError(const QString& reason);
+  void thumbnailReady(std::uint32_t ordinal, const QImage& image);
 
  private slots:
   void onWorkerResult(
@@ -58,6 +66,9 @@ class AnimationController final : public QObject {
  private:
   void cancelWorker();
   void startFrameWorker(std::uint32_t ordinal);
+  void launchPendingFrame();
+  void launchThumbnail();
+  void notifyPlayback();
   void advancePlayback();
   void advancePlaybackAt(std::uint64_t now_ns);
   std::uint64_t nowNs() const noexcept;
@@ -65,6 +76,14 @@ class AnimationController final : public QObject {
   pnga::analysis_engine::FrameRequest document_context_;
   AnimationWorker* worker_ = nullptr;
   std::unique_ptr<pnga::analysis_engine::AnimationPlayback> playback_;
+  std::shared_ptr<pnga::analysis_engine::AnimationReplay> replay_;
+  bool frame_pending_ = false;
+  bool showing_static_ = false;
+  pnga::trace_model::Stage stage_ = pnga::trace_model::Stage::kFrameOutput;
+  ThumbnailWorker* thumbnail_worker_ = nullptr;
+  std::deque<std::uint32_t> thumbnail_queue_;
+  QSet<std::uint32_t> thumbnail_pending_;
+  std::optional<std::uint64_t> test_time_;
   QElapsedTimer clock_;
   QTimer playback_timer_;
   Capability capability_ = Capability::kDetecting;

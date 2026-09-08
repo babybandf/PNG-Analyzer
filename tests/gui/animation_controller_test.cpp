@@ -37,6 +37,7 @@ pnga::analysis_engine::FrameRequest request_for(
                                          pnga::png_format::AnimationLimits{},
                                          [] { return false; }));
   pnga::analysis_engine::FrameRequest request;
+  request.generation = 41;
   request.source = std::move(source);
   request.index = std::move(index);
   request.canvas_header = {1, 1, 8, 6, false};
@@ -54,10 +55,14 @@ void AnimationControllerTest::publishesOnlyTheCurrentSerial() {
   controller.selectFrame(1);
 
   auto old = std::make_shared<pnga::analysis_engine::ReplayResult>();
+  old->stop = pnga::analysis_engine::ReplayResult::Stop::kReady;
+  old->image = std::make_shared<pnga::png_reconstruction::RgbaImage>();
   old->generation = controller.generation();
   old->request_serial = controller.requestSerial() - 1;
   old->identity = pnga::trace_model::AnimationFrame{0};
   auto current = std::make_shared<pnga::analysis_engine::ReplayResult>();
+  current->stop = pnga::analysis_engine::ReplayResult::Stop::kReady;
+  current->image = std::make_shared<pnga::png_reconstruction::RgbaImage>();
   current->generation = controller.generation();
   current->request_serial = controller.requestSerial();
   current->identity = pnga::trace_model::AnimationFrame{1};
@@ -81,9 +86,12 @@ void AnimationControllerTest::
   QSignalSpy published(&controller, &AnimationController::framePublished);
   controller.setDocument(
       request_for(pnga_test::make_apng(false, controls())));
+  controller.advancePlaybackForTesting(0);
   controller.play();
 
   auto first = std::make_shared<pnga::analysis_engine::ReplayResult>();
+  first->stop = pnga::analysis_engine::ReplayResult::Stop::kReady;
+  first->image = std::make_shared<pnga::png_reconstruction::RgbaImage>();
   first->generation = controller.generation();
   first->request_serial = controller.requestSerial();
   first->identity = pnga::trace_model::AnimationFrame{0};
@@ -92,6 +100,8 @@ void AnimationControllerTest::
 
   controller.advancePlaybackForTesting(20'000'000);
   auto second = std::make_shared<pnga::analysis_engine::ReplayResult>();
+  second->stop = pnga::analysis_engine::ReplayResult::Stop::kReady;
+  second->image = std::make_shared<pnga::png_reconstruction::RgbaImage>();
   second->generation = controller.generation();
   second->request_serial = controller.requestSerial();
   second->identity = pnga::trace_model::AnimationFrame{1};

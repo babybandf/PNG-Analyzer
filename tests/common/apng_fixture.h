@@ -29,9 +29,9 @@ inline void append_u32(std::vector<std::byte>& out, std::uint32_t value) {
   out.push_back(apng_byte(value));
 }
 
-inline std::vector<std::byte> apng_zlib_payload() {
+inline std::vector<std::byte> apng_zlib_payload(std::array<std::byte, 4> rgba = {}) {
   const std::array<std::byte, 5> raw = {
-      std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0}};
+      std::byte{0}, rgba[0], rgba[1], rgba[2], rgba[3]};
   uLongf bound = compressBound(static_cast<uLong>(raw.size()));
   std::vector<std::byte> compressed(static_cast<std::size_t>(bound));
   if (compress2(reinterpret_cast<Bytef*>(compressed.data()), &bound,
@@ -63,7 +63,8 @@ inline void append_apng_chunk(std::vector<std::byte>& png, const char* type,
 
 inline std::vector<std::byte> make_apng(
     bool default_is_frame,
-    std::span<const pnga::png_format::FrameControl> frames) {
+    std::span<const pnga::png_format::FrameControl> frames,
+    std::span<const std::array<std::byte, 4>> colors = {}) {
   std::vector<std::byte> png(pnga::png_format::kPngSignature.begin(),
                              pnga::png_format::kPngSignature.end());
 
@@ -87,6 +88,7 @@ inline std::vector<std::byte> make_apng(
 
   for (std::size_t i = 0; i < frames.size(); ++i) {
     const auto& frame = frames[i];
+    const auto frame_payload = i < colors.size() ? apng_zlib_payload(colors[i]) : compressed;
     std::vector<std::byte> fctl;
     append_u32(fctl, sequence++);
     append_u32(fctl, frame.width);
@@ -100,11 +102,11 @@ inline std::vector<std::byte> make_apng(
     append_apng_chunk(png, "fcTL", fctl);
 
     if (default_is_frame && i == 0) {
-      append_apng_chunk(png, "IDAT", compressed);
+      append_apng_chunk(png, "IDAT", frame_payload);
     } else {
       std::vector<std::byte> fdat;
       append_u32(fdat, sequence++);
-      fdat.insert(fdat.end(), compressed.begin(), compressed.end());
+      fdat.insert(fdat.end(), frame_payload.begin(), frame_payload.end());
       append_apng_chunk(png, "fdAT", fdat);
     }
   }

@@ -12,6 +12,7 @@
 // analysis-engine trace types into every moc TU. The builder .cpp includes
 // them fully.
 
+#include <array>
 #include <QAction>
 #include <QCheckBox>
 #include <QDockWidget>
@@ -92,6 +93,7 @@ struct MainWindowWidgets final {
   QAction* theme_dark_action = nullptr;
   pnga::ui::qt::AnimationTimelineWidget* animation_timeline = nullptr;
   pnga::ui::qt::AnimationInspector* animation_inspector = nullptr;
+  std::array<pnga::ui::qt::DeliveredImageView*, 4> animation_views{};
 };
 
 // Creates the complete widget/dock/menu/action graph of the analyzer window.

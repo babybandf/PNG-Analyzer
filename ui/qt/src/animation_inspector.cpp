@@ -15,17 +15,21 @@ AnimationInspector::AnimationInspector(QWidget* parent) : QWidget(parent) {
 
 void AnimationInspector::setFrameControl(
     const pnga::png_format::FrameControl& control) {
-  summary_text_ = QStringLiteral("sequence %1 · %2×%3 at (%4,%5) · delay %6/%7 · blend %8 · dispose %9")
-                      .arg(control.sequence)
-                      .arg(control.width)
-                      .arg(control.height)
-                      .arg(control.x)
-                      .arg(control.y)
-                      .arg(control.delay_num)
-                      .arg(control.delay_den)
-                      .arg(control.blend)
-                      .arg(control.dispose);
+  control_ = control;
+  const double effective_ms = qMax(10.0, 1000.0 * control.delay_num /
+      (control.delay_den == 0 ? 100 : control.delay_den) / speed_);
+  summary_text_ = QStringLiteral("Frame rectangle: %1×%2 at (%3,%4)\nsequence %5\nRaw delay: %6/%7 s\nEffective delay: %8 ms at %9×\nBlend: %10\nDispose: %11\nLoops: %12")
+      .arg(control.width).arg(control.height).arg(control.x).arg(control.y)
+      .arg(control.sequence).arg(control.delay_num).arg(control.delay_den)
+      .arg(effective_ms, 0, 'f', 1).arg(speed_)
+      .arg(control.blend == 0 ? "SOURCE" : "OVER")
+      .arg(control.dispose == 0 ? "NONE" : control.dispose == 1 ? "BACKGROUND" : "PREVIOUS")
+      .arg(loops_ == 0 ? QStringLiteral("Infinite") : QString::number(loops_));
   summary_->setText(summary_text_);
+}
+
+void AnimationInspector::setPlaybackContext(double speed, std::uint32_t loops) {
+  speed_ = speed; loops_ = loops; setFrameControl(control_);
 }
 
 QString AnimationInspector::summaryText() const { return summary_text_; }

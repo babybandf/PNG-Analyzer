@@ -16,10 +16,14 @@ class AnimationInspector final : public QWidget {
 
   void setFrameControl(const pnga::png_format::FrameControl& control);
   QString summaryText() const;
+  void setPlaybackContext(double speed, std::uint32_t loops);
 
  private:
   QLabel* summary_ = nullptr;
   QString summary_text_;
+  pnga::png_format::FrameControl control_{};
+  double speed_ = 1;
+  std::uint32_t loops_ = 0;
 };
 
 }  // namespace pnga::ui::qt

@@ -406,6 +406,7 @@ void SelectionNavigationController::applyChunkHexHighlight(
 }
 
 void SelectionNavigationController::onPixelSelected(int x, int y) {
+  if (animation_view_) { onAnimationPixelSelected(x, y); return; }
   {
     const QSignalBlocker x_blocker(w_.x_spin);
     const QSignalBlocker y_blocker(w_.y_spin);
@@ -461,6 +462,12 @@ void SelectionNavigationController::onPixelHoverLeft() {
 }
 
 void SelectionNavigationController::publishLockedCoordinate() {
+  if (animation_view_) {
+    const auto x = static_cast<std::int64_t>(w_.x_spin->value()) - animation_origin_x_;
+    const auto y = static_cast<std::int64_t>(w_.y_spin->value()) - animation_origin_y_;
+    if (x >= 0 && y >= 0) onAnimationPixelSelected(static_cast<int>(x), static_cast<int>(y));
+    return;
+  }
   const pnga::trace_model::ImageCoordinate coordinate = coordinate_for(
       image_identity_, static_cast<std::uint64_t>(w_.x_spin->value()),
       static_cast<std::uint64_t>(w_.y_spin->value()));
@@ -569,6 +576,7 @@ void SelectionNavigationController::refreshHexSource() {
 void SelectionNavigationController::setImageIdentity(
     const pnga::trace_model::ImageIdentity& identity) noexcept {
   image_identity_ = identity;
+  if (std::holds_alternative<pnga::trace_model::StaticImage>(identity)) animation_view_.clear();
 }
 
 void SelectionNavigationController::setAnimationFrameStream(
@@ -644,4 +652,35 @@ void SelectionNavigationController::restorePixelStatus() {
     return;
   }
   w_.pixel_label->setText(default_pixel_status_);
+}
+
+void SelectionNavigationController::setAnimationView(
+    pnga::ui::qt::DeliveredImageView* view, pnga::trace_model::Stage stage,
+    std::uint32_t origin_x, std::uint32_t origin_y) {
+  animation_view_ = view;
+  animation_stage_ = stage;
+  animation_origin_x_ = origin_x;
+  animation_origin_y_ = origin_y;
+}
+void SelectionNavigationController::onAnimationPixelSelected(int x, int y) {
+  if (!animation_view_ || x < 0 || y < 0) return;
+  const auto rgba = animation_view_->rgbaAt(x, y);
+  if (!rgba) return;
+  const auto global_x = static_cast<std::uint64_t>(x) + animation_origin_x_;
+  const auto global_y = static_cast<std::uint64_t>(y) + animation_origin_y_;
+  if (global_x > std::numeric_limits<int>::max() || global_y > std::numeric_limits<int>::max()) return;
+  const QSignalBlocker bx(w_.x_spin), by(w_.y_spin), bl(w_.lock_check);
+  w_.x_spin->setValue(static_cast<int>(global_x));
+  w_.y_spin->setValue(static_cast<int>(global_y));
+  w_.lock_check->setChecked(true);
+  animation_view_->setLockedPixel(QPoint(x, y));
+  w_.inspector->onPixelSelected(x, y);
+  pnga::trace_model::Selection selected;
+  selected.image = coordinate_for(image_identity_, global_x, global_y);
+  selected.stage = animation_stage_;
+  view_state_.set_locked(*selected.image);
+  // Canvas stages cannot be mapped through the static IDAT trace query.
+  w_.bus->publish(kImagePanelOrigin, generation_, selected);
+  w_.pixel_label->setText(QStringLiteral("(%1, %2) · RGBA %3, %4, %5, %6")
+      .arg(global_x).arg(global_y).arg((*rgba)[0]).arg((*rgba)[1]).arg((*rgba)[2]).arg((*rgba)[3]));
 }

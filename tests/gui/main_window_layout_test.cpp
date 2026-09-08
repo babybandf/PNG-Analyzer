@@ -9,6 +9,14 @@
 #include <pnga/png-format/animation_index.h>
 
 #include "apng_fixture.h"
+#include "animation_controller.h"
+#include "document_session.h"
+#include <QListView>
+#include <QComboBox>
+#include <QPushButton>
+#include <QLabel>
+#include <QDir>
+#include <pnga/ui/qt/selection_bus.h>
 
 #include <pnga/ui/qt/delivered_image_view.h>
 #include <pnga/ui/qt/hex_source_tab_bar.h>
@@ -28,6 +36,8 @@
 #include <QHeaderView>
 #include <QImage>
 #include <QLabel>
+#include <QDir>
+#include <pnga/ui/qt/selection_bus.h>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMimeData>
@@ -106,6 +116,8 @@ class MainWindowLayoutTest : public QObject {
   void supportedPngSuffixPredicateCoversPngAndApng();
   void animationUiIsAbsentUntilCapabilityAndDestroyedOnReset();
   void openingCompleteApngMountsAnimationUi();
+  void apngVisiblePixelsFollowThumbnailStagesAndPlayback();
+  void userApngSamplePlayback();
   void defaultLayoutHasRequiredRegions();
   void docksAreMovableFloatableAndClosable();
   void workspaceSettingsRoundTrip();
@@ -160,7 +172,9 @@ void MainWindowLayoutTest::animationUiIsAbsentUntilCapabilityAndDestroyedOnReset
   mountAnimationUi(widgets, index, nullptr);
   QVERIFY(window.findChild<pnga::ui::qt::AnimationTimelineWidget*>() != nullptr);
   QVERIFY(window.findChild<pnga::ui::qt::AnimationInspector*>() != nullptr);
-  QCOMPARE(widgets.preview_tabs->tabText(0), QStringLiteral("Frame Output"));
+  QCOMPARE(widgets.preview_tabs->tabText(0), QStringLiteral("Image"));
+  QCOMPARE(widgets.preview_tabs->tabText(4), QStringLiteral("Frame Output"));
+  QCOMPARE(widgets.preview_tabs->count(), 8);
   QCOMPARE(widgets.inspector_tabs->tabText(widgets.inspector_tabs->count() - 1),
            QStringLiteral("Animation"));
 
@@ -183,13 +197,135 @@ void MainWindowLayoutTest::openingCompleteApngMountsAnimationUi() {
   file.flush();
 
   MainWindow window;
+  auto* controller = window.findChild<AnimationController*>();
+  QVERIFY(controller != nullptr);
+  QSignalSpy frames(controller, &AnimationController::framePublished);
   QVERIFY(window.openFile(file.fileName()));
   QTRY_VERIFY_WITH_TIMEOUT(
       window.findChild<pnga::ui::qt::AnimationTimelineWidget*>() != nullptr,
       4000);
+  QTRY_VERIFY_WITH_TIMEOUT(frames.count() > 0, 4000);
+  const auto result = qvariant_cast<std::shared_ptr<const pnga::analysis_engine::ReplayResult>>(frames.last().at(0));
+  QVERIFY(result && result->image);
+  auto* session = window.findChild<DocumentSession*>();
+  QVERIFY(session != nullptr);
+  QCOMPARE(result->generation, session->generation());
   QVERIFY(window.findChild<pnga::ui::qt::AnimationInspector*>() != nullptr);
   QCOMPARE(window.findChild<pnga::ui::qt::HexSourceTabBar*>()->tabText(1),
            QStringLiteral("Frame Stream"));
+}
+
+void MainWindowLayoutTest::apngVisiblePixelsFollowThumbnailStagesAndPlayback() {
+  using View = pnga::ui::qt::DeliveredImageView;
+  const std::array<pnga::png_format::FrameControl, 2> controls = {
+      pnga::png_format::FrameControl{0, 1, 1, 0, 0, 1, 2, 0, 0},
+      pnga::png_format::FrameControl{0, 1, 1, 0, 0, 1, 1, 1, 0}};
+  const std::array<std::array<std::byte, 4>, 2> colors = {
+      std::array{std::byte{255}, std::byte{0}, std::byte{0}, std::byte{255}},
+      std::array{std::byte{0}, std::byte{255}, std::byte{0}, std::byte{255}}};
+  const auto raw = pnga_test::make_apng(false, controls, colors);
+  QTemporaryFile file;
+  QVERIFY(file.open());
+  QCOMPARE(file.write(reinterpret_cast<const char*>(raw.data()), raw.size()), qint64(raw.size()));
+  file.flush();
+  MainWindow window;
+  window.resize(1400, 950);
+  window.show();
+  QVERIFY(window.openFile(file.fileName()));
+  QTRY_VERIFY(window.findChild<View*>("animationStage0"));
+  auto* output = window.findChild<View*>("animationStage0");
+  QTRY_VERIFY(!output->image().isNull());
+  QCOMPARE(output->image().pixelColor(0, 0), QColor(Qt::red));
+  auto* list = window.findChild<QListView*>("animationThumbnails");
+  QVERIFY(list && list->isVisible());
+  QCOMPARE(list->model()->rowCount(), 2);
+  QTRY_COMPARE(qvariant_cast<QImage>(list->model()->data(list->model()->index(1, 0), Qt::DecorationRole)).pixelColor(0, 0), QColor(Qt::green));
+  QTest::mouseClick(list->viewport(), Qt::LeftButton, Qt::NoModifier,
+                    list->visualRect(list->model()->index(1, 0)).center());
+  QTRY_COMPARE(output->image().pixelColor(0, 0), QColor(Qt::green));
+  auto* tabs = window.findChild<QTabWidget*>("previewTabs");
+  tabs->setCurrentIndex(0);
+  QCOMPARE(window.findChild<pnga::ui::qt::HexSourceTabBar*>()->tabText(1), QStringLiteral("IDAT"));
+  tabs->setCurrentIndex(4);
+  QTRY_COMPARE(window.findChild<pnga::ui::qt::HexSourceTabBar*>()->tabText(1), QStringLiteral("Frame Stream"));
+  tabs->setCurrentIndex(0);
+  window.findChild<QPushButton*>("animationNext")->click();
+  QCOMPARE(tabs->currentIndex(), 4);
+  QTRY_COMPARE(window.findChild<pnga::ui::qt::HexSourceTabBar*>()->tabText(1), QStringLiteral("Frame Stream"));
+  emit output->pixelSelected(0, 0);
+  const auto selected = window.findChild<pnga::ui::qt::SelectionBus*>()->current();
+  QCOMPARE(selected.stage, pnga::trace_model::Stage::kFrameOutput);
+  QVERIFY(selected.image.has_value());
+  QCOMPARE(std::get<pnga::trace_model::AnimationFrame>(selected.image->identity).index, 1u);
+  tabs->setCurrentIndex(5);
+  auto* pre = window.findChild<View*>("animationStage1");
+  QTRY_VERIFY(!pre->image().isNull());
+  QCOMPARE(pre->image().pixelColor(0, 0), QColor(Qt::red));
+  tabs->setCurrentIndex(7);
+  auto* disposed = window.findChild<View*>("animationStage3");
+  QTRY_VERIFY(!disposed->image().isNull());
+  QCOMPARE(disposed->image().pixelColor(0, 0).alpha(), 0);
+  auto* controller = window.findChild<AnimationController*>();
+  controller->advancePlaybackForTesting(0);
+  auto* first = window.findChild<QPushButton*>("animationFirst");
+  first->click();
+  auto* frame = window.findChild<QSpinBox*>("animationFrame");
+  QTRY_COMPARE(frame->value(), 0);
+  auto* play = window.findChild<QPushButton*>("animationPlay");
+  QSignalSpy published(controller, &AnimationController::framePublished);
+  play->click();
+  QCOMPARE(tabs->currentIndex(), 6);
+  auto* post = window.findChild<View*>("animationStage2");
+  QTRY_VERIFY(!post->image().isNull());
+  QTRY_COMPARE(post->image().pixelColor(0, 0), QColor(Qt::red));
+  auto* speed = window.findChild<QComboBox*>("animationSpeed");
+  QCOMPARE(speed->count(), 4);
+  speed->setCurrentIndex(3);
+  controller->advancePlaybackForTesting(300000000);
+  QTRY_COMPARE(post->image().pixelColor(0, 0), QColor(Qt::green));
+  QTRY_COMPARE(frame->value(), 1);
+  QCOMPARE(play->text(), QStringLiteral("Pause"));
+  play->click();
+  QCOMPARE(play->text(), QStringLiteral("Play"));
+  controller->advancePlaybackForTesting(9000000000ull);
+  QCOMPARE(frame->value(), 1);
+  // Real document replacement must reject queued frames and remove APNG controls.
+  QMetaObject::invokeMethod(&window, "onCloseTriggered", Qt::DirectConnection);
+  QVERIFY(window.findChild<View*>("animationStage0") == nullptr);
+  QVERIFY(window.findChild<QListView*>("animationThumbnails") == nullptr);
+}
+
+void MainWindowLayoutTest::userApngSamplePlayback() {
+  const auto path = qEnvironmentVariable("PNGA_APNG_GUI_SAMPLE");
+  if (path.isEmpty()) return; // Optional local regression, no external asset copied.
+  using View = pnga::ui::qt::DeliveredImageView;
+  MainWindow window;
+  window.show();
+  QVERIFY(window.openFile(path));
+  QTRY_VERIFY(window.findChild<View*>("animationStage0"));
+  auto* output = window.findChild<View*>("animationStage0");
+  QTRY_VERIFY(!output->image().isNull());
+  QCOMPARE(output->image().size(), QSize(128, 64));
+  const auto first = output->image();
+  window.findChild<QPushButton*>("animationNext")->click();
+  QTRY_VERIFY(output->image() != first);
+  auto* controller = window.findChild<AnimationController*>();
+  window.findChild<QPushButton*>("animationFirst")->click();
+  QTRY_COMPARE(output->image(), first);
+  window.findChild<QPushButton*>("animationPlay")->click();
+  auto* post = window.findChild<View*>("animationStage2");
+  QTRY_VERIFY(!post->image().isNull());
+  const auto canvas = post->image();
+  QTRY_VERIFY_WITH_TIMEOUT(post->image() != canvas, 4000);
+  const auto capture = qEnvironmentVariable("PNGA_APNG_CAPTURE_DIR");
+  if (!capture.isEmpty()) {
+    QDir().mkpath(capture);
+    QVERIFY(window.grab().save(capture + "/apng-playing.png"));
+    window.findChild<QPushButton*>("animationPlay")->click();
+    window.findChild<QTabWidget*>("previewTabs")->setCurrentIndex(4);
+    QTRY_VERIFY(!output->image().isNull());
+    QVERIFY(window.grab().save(capture + "/apng-frame-output.png"));
+  }
 }
 
 void MainWindowLayoutTest::defaultLayoutHasRequiredRegions() {

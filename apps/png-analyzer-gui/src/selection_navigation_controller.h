@@ -21,6 +21,7 @@
 
 #include <QModelIndex>
 #include <QObject>
+#include <QPointer>
 #include <QString>
 
 #include <cstdint>
@@ -70,6 +71,9 @@ class SelectionNavigationController final : public QObject {
   void refreshHexSource();
   void setImageIdentity(
       const pnga::trace_model::ImageIdentity& identity) noexcept;
+  void setAnimationView(pnga::ui::qt::DeliveredImageView* view, pnga::trace_model::Stage stage,
+                        std::uint32_t origin_x, std::uint32_t origin_y);
+  void onAnimationPixelSelected(int x, int y);
   void setAnimationFrameStream(
       std::shared_ptr<const pnga::png_format::IVirtualCompressedStream> stream);
 
@@ -127,6 +131,9 @@ class SelectionNavigationController final : public QObject {
   std::uint64_t last_applied_navigation_serial_ = 0;
   pnga::ui::qt::CompressionSelectionStore* compression_store_ = nullptr;
   QString default_pixel_status_;
+  QPointer<pnga::ui::qt::DeliveredImageView> animation_view_;
+  pnga::trace_model::Stage animation_stage_ = pnga::trace_model::Stage::kUnknown;
+  std::uint32_t animation_origin_x_ = 0, animation_origin_y_ = 0;
 };
 
 // Absolute inflated byte offset of a pixel's sample within its scanline.

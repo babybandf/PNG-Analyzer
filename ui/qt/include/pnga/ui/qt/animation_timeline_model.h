@@ -4,6 +4,8 @@
 #include <pnga/analysis-engine/animation_playback.h>
 
 #include <QAbstractListModel>
+#include <QCache>
+#include <QImage>
 
 namespace pnga::ui::qt {
 
@@ -27,9 +29,14 @@ class AnimationTimelineModel final : public QAbstractListModel {
 
   void setTimeline(const pnga::analysis_engine::AnimationTimeline& timeline);
   void clear();
+  void setThumbnail(std::uint32_t ordinal, const QImage& image);
+
+ signals:
+  void thumbnailRequested(std::uint32_t ordinal) const;
 
  private:
   pnga::analysis_engine::AnimationTimeline timeline_;
+  mutable QCache<int, QImage> thumbnails_{256};
 };
 
 }  // namespace pnga::ui::qt

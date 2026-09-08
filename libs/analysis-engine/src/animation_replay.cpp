@@ -170,6 +170,9 @@ ReplayResult AnimationReplay::materialize(
     return stopped(std::move(result), ReplayResult::Stop::kPartial,
                    "canvas size overflows");
   }
+  if (canvas_bytes * 4 > budget_ || canvas_bytes * 4 > std::numeric_limits<std::size_t>::max()) {
+    return stopped(std::move(result), ReplayResult::Stop::kPartial, "canvas exceeds replay budget");
+  }
   RgbaImage canvas;
   canvas.width = request.frame.canvas_header.width;
   canvas.height = request.frame.canvas_header.height;
@@ -178,7 +181,13 @@ ReplayResult AnimationReplay::materialize(
   const bool include_current =
       request.requested_stage != pnga::trace_model::Stage::kPreBlend;
   const std::uint32_t last = request.frame.ordinal;
-  for (std::uint32_t ordinal = 0; ordinal <= last; ++ordinal) {
+  std::uint32_t first = 0;
+  for (std::uint32_t prior = last; prior > 0; --prior) {
+    if (auto checkpoint = cached({request.frame.generation, prior - 1, pnga::trace_model::Stage::kPostDispose})) {
+      canvas = *checkpoint; first = prior; break;
+    }
+  }
+  for (std::uint32_t ordinal = first; ordinal <= last; ++ordinal) {
     if (cancelled()) {
       return stopped(std::move(result), ReplayResult::Stop::kCancelled,
                      "animation replay cancelled");
@@ -241,6 +250,10 @@ ReplayResult AnimationReplay::materialize(
     if (!dispose_result.success) {
       return stopped(std::move(result), ReplayResult::Stop::kError,
                      dispose_result.error);
+    }
+    if ((ordinal + 1) % 32 == 0) {
+      cache({request.frame.generation, ordinal, pnga::trace_model::Stage::kPostDispose},
+            std::make_shared<const RgbaImage>(canvas));
     }
   }
 

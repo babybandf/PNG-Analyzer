@@ -375,10 +375,6 @@ void MainWindow::onDecodeDone(std::uint64_t generation) {
   if (generation != session_->generation()) {
     return;  // stale decode; never overwrite the current document's image
   }
-  if (animation_->capability() == AnimationController::Capability::kValid ||
-      animation_->capability() == AnimationController::Capability::kPartial) {
-    return;
-  }
   const auto& result = session_->decodeResult();
   if (!result.success) {
     widgets_.image_view->setImage(QImage());
@@ -392,6 +388,7 @@ void MainWindow::onDecodeDone(std::uint64_t generation) {
                 QImage::Format_RGBA8888);
   std::memcpy(qimage.bits(), img.rgba.data(), img.rgba.size());
   widgets_.image_view->setImage(qimage);
+  if (widgets_.preview_tabs->currentIndex() >= 4 && widgets_.animation_timeline) return;
   widgets_.inspector->setDeliveredPixels(img.width, img.height, img.rgba);
   selection_->setDefaultPixelStatus(
       QStringLiteral("%1 x %2  (bit depth %3, color type %4)")

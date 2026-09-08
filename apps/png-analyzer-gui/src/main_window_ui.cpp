@@ -396,13 +396,22 @@ void mountAnimationUi(MainWindowWidgets& widgets,
       widgets.inspector_tabs == nullptr) {
     return;
   }
-  widgets.preview_tabs->setTabText(0, QStringLiteral("Frame Output"));
-  widgets.preview_tabs->setTabText(1, QStringLiteral("Pre-Blend"));
-  widgets.preview_tabs->setTabText(2, QStringLiteral("Post-Blend"));
-  widgets.preview_tabs->setTabText(3, QStringLiteral("Post-Dispose"));
-  widgets.animation_timeline =
-      new pnga::ui::qt::AnimationTimelineWidget(widgets.preview_tabs);
+  const QStringList titles{"Frame Output", "Pre-Blend", "Post-Blend", "Post-Dispose"};
+  for (int i = 0; i < 4; ++i) {
+    auto* view = new pnga::ui::qt::DeliveredImageView(widgets.preview_tabs);
+    view->setObjectName(QStringLiteral("animationStage%1").arg(i));
+    widgets.animation_views[i] = view;
+    widgets.preview_tabs->addTab(view, titles[i]);
+    if (controller) QObject::connect(view, &pnga::ui::qt::DeliveredImageView::pixelSelected,
+                                    controller, &AnimationController::pause);
+  }
+  widgets.animation_timeline = new pnga::ui::qt::AnimationTimelineWidget(widgets.center_splitter);
   widgets.animation_timeline->setObjectName(QStringLiteral("animationTimeline"));
+  widgets.center_splitter->insertWidget(1, widgets.animation_timeline);
+  widgets.center_splitter->setStretchFactor(0, 3);
+  widgets.center_splitter->setStretchFactor(1, 0);
+  widgets.center_splitter->setStretchFactor(2, 2);
+  widgets.center_splitter->setSizes({400, 195, 220});
   pnga::analysis_engine::AnimationTimeline timeline;
   const auto complete = pnga::analysis_engine::make_timeline(
       index, pnga::analysis_engine::PlaybackSpeed::kNormal);
@@ -420,31 +429,61 @@ void mountAnimationUi(MainWindowWidgets& widgets,
     }
   }
   widgets.animation_timeline->setTimeline(timeline);
-  widgets.preview_tabs->addTab(widgets.animation_timeline,
-                               QStringLiteral("Timeline"));
+  widgets.animation_timeline->setStaticFallbackAvailable(!index.frames.empty() && !index.frames.front().uses_idat);
   widgets.animation_inspector =
       new pnga::ui::qt::AnimationInspector(widgets.inspector_tabs);
   widgets.animation_inspector->setObjectName(
       QStringLiteral("animationInspector"));
   widgets.inspector_tabs->addTab(widgets.animation_inspector,
                                  QStringLiteral("Animation"));
+  widgets.animation_inspector->setPlaybackContext(1.0, timeline.num_plays);
   if (!index.frames.empty()) {
     widgets.animation_inspector->setFrameControl(index.frames.front().control);
   }
   if (controller != nullptr) {
+    const auto timeline_widget = widgets.animation_timeline;
+    QObject::connect(controller, &AnimationController::playbackChanged,
+                     timeline_widget, &pnga::ui::qt::AnimationTimelineWidget::setPlayback);
+    QObject::connect(controller, &AnimationController::animationError,
+                     timeline_widget, &pnga::ui::qt::AnimationTimelineWidget::setError);
+    QObject::connect(timeline_widget, &pnga::ui::qt::AnimationTimelineWidget::staticFallbackRequested,
+                     timeline_widget, [&widgets, controller] {
+                       widgets.preview_tabs->setCurrentIndex(0);
+                       controller->selectStaticFallback();
+                     });
+    QObject::connect(timeline_widget->model(), &pnga::ui::qt::AnimationTimelineModel::thumbnailRequested,
+                     controller, &AnimationController::requestThumbnail, Qt::QueuedConnection);
+    QObject::connect(controller, &AnimationController::thumbnailReady,
+                     timeline_widget->model(), &pnga::ui::qt::AnimationTimelineModel::setThumbnail);
+    QObject::connect(widgets.preview_tabs, &QTabWidget::currentChanged,
+                     timeline_widget, [controller](int tab) {
+      using pnga::trace_model::Stage;
+      const std::array stages{Stage::kFrameOutput, Stage::kPreBlend, Stage::kPostBlend, Stage::kPostDispose};
+      if (tab >= 4 && tab < 8) controller->selectStage(stages[tab - 4]);
+      else controller->selectStaticFallback();
+    });
     QObject::connect(widgets.animation_timeline,
                      &pnga::ui::qt::AnimationTimelineWidget::frameRequested,
-                     controller, &AnimationController::selectFrame);
+                     widgets.animation_timeline, [&widgets, controller](std::uint32_t ordinal) {
+                       if (widgets.preview_tabs->currentIndex() < 4) widgets.preview_tabs->setCurrentIndex(4);
+                       controller->selectFrame(ordinal);
+                     });
     QObject::connect(widgets.animation_timeline,
                      &pnga::ui::qt::AnimationTimelineWidget::playRequested,
-                     controller, &AnimationController::play);
+                     controller, [&widgets, controller] {
+                       widgets.preview_tabs->setCurrentIndex(6);
+                       controller->play();
+                     });
     QObject::connect(widgets.animation_timeline,
                      &pnga::ui::qt::AnimationTimelineWidget::pauseRequested,
                      controller, &AnimationController::pause);
     QObject::connect(
         widgets.animation_timeline,
         &pnga::ui::qt::AnimationTimelineWidget::speedRequested, controller,
-        [controller](int speed) {
+        [controller, &widgets, loops = timeline.num_plays](int speed) {
+          const std::array<double, 4> factors{0.25, 0.5, 1.0, 2.0};
+          if (speed < 0 || speed >= 4) return;
+          widgets.animation_inspector->setPlaybackContext(factors[speed], loops);
           using pnga::analysis_engine::PlaybackSpeed;
           const auto selected = speed == 0   ? PlaybackSpeed::kQuarter
                                 : speed == 1 ? PlaybackSpeed::kHalf
@@ -453,27 +492,24 @@ void mountAnimationUi(MainWindowWidgets& widgets,
           controller->setSpeed(selected);
         });
   }
+  widgets.preview_tabs->setCurrentIndex(4);
 }
 
 void unmountAnimationUi(MainWindowWidgets& widgets) {
-  if (widgets.animation_timeline != nullptr && widgets.preview_tabs != nullptr) {
-    const int tab = widgets.preview_tabs->indexOf(widgets.animation_timeline);
-    if (tab >= 0) widgets.preview_tabs->removeTab(tab);
-    delete widgets.animation_timeline;
-    widgets.animation_timeline = nullptr;
-  }
-  if (widgets.animation_inspector != nullptr && widgets.inspector_tabs != nullptr) {
-    const int tab = widgets.inspector_tabs->indexOf(widgets.animation_inspector);
-    if (tab >= 0) widgets.inspector_tabs->removeTab(tab);
+  delete widgets.animation_timeline;
+  widgets.animation_timeline = nullptr;
+  if (widgets.animation_inspector) {
+    widgets.inspector_tabs->removeTab(widgets.inspector_tabs->indexOf(widgets.animation_inspector));
     delete widgets.animation_inspector;
     widgets.animation_inspector = nullptr;
   }
-  if (widgets.preview_tabs != nullptr) {
-    widgets.preview_tabs->setTabText(0, QStringLiteral("Image"));
-    widgets.preview_tabs->setTabText(1, QStringLiteral("Pixels"));
-    widgets.preview_tabs->setTabText(2, QStringLiteral("Filtered"));
-    widgets.preview_tabs->setTabText(3, QStringLiteral("Unfiltered"));
+  for (auto*& view : widgets.animation_views) {
+    if (view) widgets.preview_tabs->removeTab(widgets.preview_tabs->indexOf(view));
+    delete view;
+    view = nullptr;
   }
+  widgets.center_splitter->setStretchFactor(0, 3);
+  widgets.center_splitter->setStretchFactor(1, 2);
 }
 
 bool presentAnimationFrame(
@@ -497,8 +533,15 @@ bool presentAnimationFrame(
   }
   QImage qimage(static_cast<int>(image.width), static_cast<int>(image.height),
                 QImage::Format_RGBA8888);
+  if (qimage.isNull()) return false;
   std::memcpy(qimage.bits(), image.pixels.data(), image.pixels.size());
-  widgets.image_view->setImage(qimage);
+  using pnga::trace_model::Stage;
+  const std::array stages{Stage::kFrameOutput, Stage::kPreBlend, Stage::kPostBlend, Stage::kPostDispose};
+  const auto stage = std::find(stages.begin(), stages.end(), result.stage);
+  if (stage == stages.end()) return false;
+  auto* view = widgets.animation_views[static_cast<std::size_t>(stage - stages.begin())];
+  if (!view) return false;
+  view->setImage(qimage);
   std::vector<std::byte> delivered(image.pixels.size());
   std::memcpy(delivered.data(), image.pixels.data(), image.pixels.size());
   widgets.inspector->setDeliveredPixels(image.width, image.height,

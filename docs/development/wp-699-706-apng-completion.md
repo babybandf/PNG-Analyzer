@@ -1,6 +1,10 @@
 # WP-699–706 — APNG First Release Completion
 
-Status: **PASS** (2026-09-08)
+Status: **FAIL — previous completion claim withdrawn** (2026-09-08)
+
+The earlier checks did not verify actual APNG playback or stage presentation.
+The completion claims below are historical and are not acceptance evidence.
+GUI implementation and end-to-end verification are being corrected.
 
 The implementation was completed on branch
 `wp-699-706-apng-implementation` in the independent worktree
