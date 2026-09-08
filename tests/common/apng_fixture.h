@@ -29,9 +29,7 @@ inline void append_u32(std::vector<std::byte>& out, std::uint32_t value) {
   out.push_back(apng_byte(value));
 }
 
-inline std::vector<std::byte> apng_zlib_payload(std::array<std::byte, 4> rgba = {}) {
-  const std::array<std::byte, 5> raw = {
-      std::byte{0}, rgba[0], rgba[1], rgba[2], rgba[3]};
+inline std::vector<std::byte> zlib_deflate(std::span<const std::byte> raw) {
   uLongf bound = compressBound(static_cast<uLong>(raw.size()));
   std::vector<std::byte> compressed(static_cast<std::size_t>(bound));
   if (compress2(reinterpret_cast<Bytef*>(compressed.data()), &bound,
@@ -41,6 +39,26 @@ inline std::vector<std::byte> apng_zlib_payload(std::array<std::byte, 4> rgba = 
   }
   compressed.resize(static_cast<std::size_t>(bound));
   return compressed;
+}
+
+inline std::vector<std::byte> apng_zlib_payload_canvas(
+    std::uint32_t width, std::uint32_t height, std::array<std::byte, 4> rgba) {
+  const std::size_t row = static_cast<std::size_t>(width) * 4 + 1;
+  std::vector<std::byte> raw;
+  raw.reserve(row * static_cast<std::size_t>(height));
+  for (std::uint32_t y = 0; y < height; ++y) {
+    raw.push_back(std::byte{0});
+    for (std::uint32_t x = 0; x < width; ++x) {
+      raw.insert(raw.end(), {rgba[0], rgba[1], rgba[2], rgba[3]});
+    }
+  }
+  return zlib_deflate(raw);
+}
+
+inline std::vector<std::byte> apng_zlib_payload(std::array<std::byte, 4> rgba = {}) {
+  const std::array<std::byte, 5> raw = {
+      std::byte{0}, rgba[0], rgba[1], rgba[2], rgba[3]};
+  return zlib_deflate(raw);
 }
 
 inline void append_apng_chunk(std::vector<std::byte>& png, const char* type,
@@ -61,18 +79,19 @@ inline void append_apng_chunk(std::vector<std::byte>& png, const char* type,
   append_u32(png, static_cast<std::uint32_t>(crc));
 }
 
-inline std::vector<std::byte> make_apng(
+inline std::vector<std::byte> make_apng_canvas(
     bool default_is_frame,
     std::span<const pnga::png_format::FrameControl> frames,
-    std::span<const std::array<std::byte, 4>> colors = {}) {
+    std::span<const std::array<std::byte, 4>> colors, std::uint32_t width,
+    std::uint32_t height) {
   std::vector<std::byte> png(pnga::png_format::kPngSignature.begin(),
                              pnga::png_format::kPngSignature.end());
 
   std::vector<std::byte> ihdr;
-  append_u32(ihdr, 1);
-  append_u32(ihdr, 1);
+  append_u32(ihdr, width);
+  append_u32(ihdr, height);
   ihdr.insert(ihdr.end(), {std::byte{8}, std::byte{6}, std::byte{0},
-                             std::byte{0}, std::byte{0}});
+                              std::byte{0}, std::byte{0}});
   append_apng_chunk(png, "IHDR", ihdr);
 
   std::vector<std::byte> actl;
@@ -80,15 +99,17 @@ inline std::vector<std::byte> make_apng(
   append_u32(actl, 0);
   append_apng_chunk(png, "acTL", actl);
 
-  const auto compressed = apng_zlib_payload();
+  const auto default_payload = apng_zlib_payload_canvas(width, height, {});
   std::uint32_t sequence = 0;
   if (!default_is_frame) {
-    append_apng_chunk(png, "IDAT", compressed);
+    append_apng_chunk(png, "IDAT", default_payload);
   }
 
   for (std::size_t i = 0; i < frames.size(); ++i) {
     const auto& frame = frames[i];
-    const auto frame_payload = i < colors.size() ? apng_zlib_payload(colors[i]) : compressed;
+    const auto frame_payload =
+        i < colors.size() ? apng_zlib_payload_canvas(width, height, colors[i])
+                          : default_payload;
     std::vector<std::byte> fctl;
     append_u32(fctl, sequence++);
     append_u32(fctl, frame.width);
@@ -112,6 +133,13 @@ inline std::vector<std::byte> make_apng(
   }
   append_apng_chunk(png, "IEND", {});
   return png;
+}
+
+inline std::vector<std::byte> make_apng(
+    bool default_is_frame,
+    std::span<const pnga::png_format::FrameControl> frames,
+    std::span<const std::array<std::byte, 4>> colors = {}) {
+  return make_apng_canvas(default_is_frame, frames, colors, 1, 1);
 }
 
 inline std::uint32_t fixture_u32(const std::byte* data) {

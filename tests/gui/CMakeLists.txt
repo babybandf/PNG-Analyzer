@@ -209,6 +209,12 @@ endfunction()
 add_pnga_gui_app_test(pnga_gui_apng_controller_tests
   animation_controller_test.cpp gui_apng_controller_tests)
 
+# WP-699-706 T17 product gate: frozen end-to-end acceptance flow; also the
+# native macOS evidence capture target when run without the offscreen
+# platform override and with PNGA_APNG_GATE_OUT set.
+add_pnga_gui_app_test(pnga_gui_apng_product_gate_tests
+  apng_product_gate_test.cpp gui_apng_product_gate_tests)
+
 add_pnga_gui_app_test(pnga_gui_document_workers_tests
   document_workers_test.cpp gui_document_workers_tests)
 

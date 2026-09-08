@@ -1,6 +1,8 @@
 # WP-699–706 — APNG First Release
 
-Status: **FAIL — GUI acceptance reopened** (2026-09-08)
+Status: **PASS** (2026-09-08; GUI acceptance reopened earlier the same day
+was closed — see `wp-699-706-apng-completion.md` for the full evidence
+matrix, native macOS capture record and honest not-executed items)
 
 Normative reference: W3C PNG Specification, Third Edition, sections 4.9,
 11.3.6 and 13 error handling. Compare remains deferred.
