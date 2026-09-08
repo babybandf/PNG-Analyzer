@@ -38,11 +38,12 @@ Verification completed on macOS arm64 with Qt 6.11.1:
 | `python3 scripts/run_gui_gate.py` | PASS; 3 DPI gates passed |
 | `python3 scripts/run_sanitizer_fuzz_gate.py --preset asan --skip-build --jobs 4` | PASS |
 | ASan differential/parser/PNG-format/analysis-engine subset | 4/4 passed |
+| ASan `gui_apng_controller_tests` | 1/1 passed |
 | `python3 scripts/run_performance_corpus.py --preset dev --skip-build --enforce-thresholds` | PASS |
 | `python3 scripts/run_package_smoke.py --preset release --jobs 2` | PASS; CLI package smoke passed |
 | `git diff --check` | PASS |
 
 The APNG performance record indexed 100,000 frames with 200,002 animation
 chunks, retained 8,000,144 bytes of metadata, and completed the metadata scan
-in 67,010 microseconds in the recorded run. Native GUI capture and cross-
+in 68,537 microseconds in the recorded run. Native GUI capture and cross-
 platform layout gates also passed in the dev CTest suite.
