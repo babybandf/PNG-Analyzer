@@ -5,6 +5,7 @@
 // copy only the caller's requested window and never concatenate IDAT payloads.
 
 #include <pnga/io/byte_source.h>
+#include <pnga/png-format/virtual_compressed_stream.h>
 #include <pnga/png-format/virtual_idat_stream.h>
 #include <pnga/analysis-engine/stage_analysis.h>
 
@@ -34,6 +35,9 @@ std::shared_ptr<const HexDataSource> make_file_hex_source(
 std::shared_ptr<const HexDataSource> make_idat_hex_source(
     std::shared_ptr<const pnga::io::IByteSource> source,
     const pnga::png_format::VirtualIDATStream& stream);
+
+std::shared_ptr<const HexDataSource> make_frame_hex_source(
+    std::shared_ptr<const pnga::png_format::IVirtualCompressedStream> stream);
 
 std::shared_ptr<const HexDataSource> make_inflated_hex_source(
     std::shared_ptr<const pnga::analysis_engine::StageSet> stages);

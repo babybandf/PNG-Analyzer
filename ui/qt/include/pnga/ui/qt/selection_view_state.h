@@ -17,6 +17,7 @@ enum class HexSource {
   kIdatStream = 1,
   kInflated = 2,
   kDefiltered = 3,
+  kFrameStream = 4,
 };
 
 enum class NumericBase { kDecimal = 0, kHexadecimal = 1 };

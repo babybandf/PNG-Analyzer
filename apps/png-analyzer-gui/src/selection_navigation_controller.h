@@ -14,6 +14,7 @@
 #include <pnga/analysis-engine/stage_analysis.h>
 #include <pnga/io/byte_source.h>
 #include <pnga/png-format/chunk_index.h>
+#include <pnga/png-format/virtual_compressed_stream.h>
 #include <pnga/trace-model/compression_navigation.h>
 #include <pnga/trace-model/selection.h>
 #include <pnga/ui/qt/selection_view_state.h>
@@ -67,6 +68,8 @@ class SelectionNavigationController final : public QObject {
   void onStageSetPublished(
       const std::shared_ptr<const pnga::analysis_engine::StageSet>& stages);
   void refreshHexSource();
+  void setAnimationFrameStream(
+      std::shared_ptr<const pnga::png_format::IVirtualCompressedStream> stream);
 
   pnga::ui::qt::SelectionViewState& viewState() noexcept;
   const pnga::ui::qt::SelectionViewState& viewState() const noexcept;
@@ -113,6 +116,8 @@ class SelectionNavigationController final : public QObject {
   const pnga::png_format::ChunkIndex* index_ = nullptr;
   pnga::analysis_engine::QueryCoordinator* query_ = nullptr;
   std::shared_ptr<const pnga::analysis_engine::StageSet> stage_set_;
+  std::shared_ptr<const pnga::png_format::IVirtualCompressedStream>
+      frame_stream_;
   std::uint64_t generation_ = 0;
   std::uint64_t chunk_selection_serial_ = 0;
   std::uint64_t last_applied_navigation_serial_ = 0;

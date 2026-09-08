@@ -23,6 +23,8 @@ constexpr SourcePresentation kSources[] = {
      "Hex source: Unfiltered"},
 };
 
+constexpr int kStreamTabIndex = 1;
+
 }  // namespace
 
 HexSourceTabBar::HexSourceTabBar(QWidget* parent) : QTabBar(parent) {
@@ -53,12 +55,27 @@ HexSourceTabBar::HexSourceTabBar(QWidget* parent) : QTabBar(parent) {
 }
 
 HexSource HexSourceTabBar::source() const noexcept {
+  if (animation_mode_ && currentIndex() == kStreamTabIndex) {
+    return HexSource::kFrameStream;
+  }
   return sourceForIndex(currentIndex());
 }
 
 void HexSourceTabBar::setSource(HexSource source) {
   const QSignalBlocker blocker(this);
   setCurrentIndex(indexForSource(source));
+}
+
+void HexSourceTabBar::setAnimationMode(bool animation) {
+  const QSignalBlocker blocker(this);
+  animation_mode_ = animation;
+  const auto& presentation = animation ? SourcePresentation{
+      "Frame Stream", "Virtual compressed payload for the selected frame",
+      "Hex source: Frame Stream"} : kSources[kStreamTabIndex];
+  setTabText(kStreamTabIndex, QString::fromLatin1(presentation.label));
+  setTabToolTip(kStreamTabIndex, QString::fromLatin1(presentation.tooltip));
+  setTabWhatsThis(kStreamTabIndex,
+                  QString::fromLatin1(presentation.accessible));
 }
 
 void HexSourceTabBar::onCurrentChanged(int index) {
@@ -82,6 +99,9 @@ HexSource HexSourceTabBar::sourceForIndex(int index) noexcept {
 }
 
 int HexSourceTabBar::indexForSource(HexSource source) noexcept {
+  if (source == HexSource::kFrameStream) {
+    return kStreamTabIndex;
+  }
   return static_cast<int>(source) >= 0 && static_cast<int>(source) < 4
              ? static_cast<int>(source)
              : 0;

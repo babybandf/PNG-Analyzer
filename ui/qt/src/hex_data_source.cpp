@@ -68,6 +68,29 @@ class IdatHexDataSource final : public HexDataSource {
   pnga::png_format::VirtualIDATStream stream_;
 };
 
+class VirtualStreamHexDataSource final : public HexDataSource {
+ public:
+  explicit VirtualStreamHexDataSource(
+      std::shared_ptr<const pnga::png_format::IVirtualCompressedStream> stream)
+      : stream_(std::move(stream)) {}
+
+  const char* name() const noexcept override { return "Frame Stream"; }
+  HexDataStatus status() const noexcept override {
+    return stream_ == nullptr ? HexDataStatus::kUnavailable
+                               : HexDataStatus::kReady;
+  }
+  std::uint64_t size() const noexcept override {
+    return stream_ == nullptr ? 0 : stream_->size();
+  }
+  bool read(std::uint64_t offset, std::byte* out,
+            std::size_t length) const noexcept override {
+    return stream_ != nullptr && stream_->read(offset, out, length);
+  }
+
+ private:
+  std::shared_ptr<const pnga::png_format::IVirtualCompressedStream> stream_;
+};
+
 }  // namespace
 
 const char* hex_data_status_text(HexDataStatus status) noexcept {
@@ -83,6 +106,11 @@ std::shared_ptr<const HexDataSource> make_idat_hex_source(
     std::shared_ptr<const pnga::io::IByteSource> source,
     const pnga::png_format::VirtualIDATStream& stream) {
   return std::make_shared<IdatHexDataSource>(std::move(source), stream);
+}
+
+std::shared_ptr<const HexDataSource> make_frame_hex_source(
+    std::shared_ptr<const pnga::png_format::IVirtualCompressedStream> stream) {
+  return std::make_shared<VirtualStreamHexDataSource>(std::move(stream));
 }
 
 class StageBytesHexDataSource final : public HexDataSource {

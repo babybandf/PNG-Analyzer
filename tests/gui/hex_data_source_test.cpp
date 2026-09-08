@@ -3,6 +3,7 @@
 #include <pnga/io/byte_source.h>
 #include <pnga/analysis-engine/stage_analysis.h>
 #include <pnga/png-format/virtual_idat_stream.h>
+#include <pnga/png-format/virtual_frame_stream.h>
 #include <pnga/ui/qt/hex_data_source.h>
 #include <pnga/ui/qt/hex_view.h>
 
@@ -17,6 +18,7 @@ class HexDataSourceTest : public QObject {
  private slots:
   void fileSourceReadsAndKeepsBackingAlive();
   void idatSourceReadsAcrossSegmentsWithoutConcatenation();
+  void frameSourceReadsLogicalStreamAndKeepsOwnersAlive();
   void derivedSourcesExposeStageBytesAndStates();
   void hexViewKeepsBoundedAddressHistory();
 };
@@ -55,6 +57,30 @@ void HexDataSourceTest::idatSourceReadsAcrossSegmentsWithoutConcatenation() {
   QCOMPARE(static_cast<unsigned>(bytes[1]), 11U);
   QCOMPARE(static_cast<unsigned>(bytes[2]), 13U);
   QCOMPARE(static_cast<unsigned>(bytes[3]), 14U);
+}
+
+void HexDataSourceTest::frameSourceReadsLogicalStreamAndKeepsOwnersAlive() {
+  auto backing = std::make_shared<pnga::io::MemoryByteSource>(
+      std::vector<std::byte>{std::byte{9}, std::byte{10}, std::byte{11},
+                              std::byte{12}, std::byte{13}, std::byte{14}});
+  auto index = std::make_shared<pnga::png_format::AnimationIndex>();
+  index->frames.push_back(pnga::png_format::FrameRecord{
+      0, {}, false,
+      {{1, 2}, {4, 1}}});
+  const auto stream =
+      pnga::png_format::make_frame_stream(backing, index, 0);
+  QVERIFY(stream != nullptr);
+  const auto source =
+      pnga::ui::qt::make_frame_hex_source(stream);
+  backing.reset();
+  index.reset();
+  QCOMPARE(source->name(), "Frame Stream");
+  QCOMPARE(source->size(), 3U);
+  std::array<std::byte, 3> bytes{};
+  QVERIFY(source->read(0, bytes.data(), bytes.size()));
+  QCOMPARE(static_cast<unsigned>(bytes[0]), 10U);
+  QCOMPARE(static_cast<unsigned>(bytes[1]), 11U);
+  QCOMPARE(static_cast<unsigned>(bytes[2]), 13U);
 }
 
 void HexDataSourceTest::derivedSourcesExposeStageBytesAndStates() {

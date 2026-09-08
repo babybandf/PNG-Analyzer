@@ -15,6 +15,7 @@
 #include <pnga/ui/qt/selection_bus.h>
 #include <pnga/ui/qt/stage_inspector.h>
 #include <pnga/ui/qt/stage_pixel_process_view.h>
+#include <pnga/png-format/virtual_frame_stream.h>
 
 #include <QCheckBox>
 #include <QColor>
@@ -167,6 +168,7 @@ void SelectionNavigationController::setDocument(
   index_ = index;
   query_ = query;
   stage_set_.reset();
+  frame_stream_.reset();
   view_state_.set_document_generation(generation);
   last_applied_navigation_serial_ = 0;
   if (compression_store_ != nullptr) {
@@ -180,6 +182,7 @@ void SelectionNavigationController::clearDocument(std::uint64_t generation) {
   index_ = nullptr;
   query_ = nullptr;
   stage_set_.reset();
+  frame_stream_.reset();
   view_state_.set_document_generation(generation);
   view_state_.clear_hover();
   view_state_.clear_locked();
@@ -558,15 +561,27 @@ void SelectionNavigationController::refreshHexSource() {
   updateHexSource();
 }
 
+void SelectionNavigationController::setAnimationFrameStream(
+    std::shared_ptr<const pnga::png_format::IVirtualCompressedStream> stream) {
+  frame_stream_ = std::move(stream);
+  if (w_.hex_source_tabs != nullptr) {
+    w_.hex_source_tabs->setAnimationMode(frame_stream_ != nullptr);
+  }
+  updateHexSource();
+}
+
 void SelectionNavigationController::updateHexSource() {
   if (w_.hex_source_tabs != nullptr) {
+    w_.hex_source_tabs->setAnimationMode(frame_stream_ != nullptr);
     w_.hex_source_tabs->setSource(view_state_.hex_source);
   }
   if (source_ == nullptr) {
     w_.hex->setSource(nullptr);
     return;
   }
-  if (view_state_.hex_source == pnga::ui::qt::HexSource::kIdatStream) {
+  if (view_state_.hex_source == pnga::ui::qt::HexSource::kFrameStream) {
+    w_.hex->setSource(pnga::ui::qt::make_frame_hex_source(frame_stream_));
+  } else if (view_state_.hex_source == pnga::ui::qt::HexSource::kIdatStream) {
     const pnga::png_format::VirtualIDATStream stream(*index_);
     w_.hex->setSource(pnga::ui::qt::make_idat_hex_source(source_, stream));
   } else if (view_state_.hex_source == pnga::ui::qt::HexSource::kInflated) {

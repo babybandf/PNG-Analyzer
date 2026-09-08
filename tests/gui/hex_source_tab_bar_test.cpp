@@ -12,6 +12,7 @@ class HexSourceTabBarTest : public QObject {
   void exposesStableSourcesAndMetadata();
   void selectionEmitsStronglyTypedSource();
   void programmaticSelectionDoesNotEmitDuplicateSignal();
+  void animationModeRenamesOnlyTheCompressedStreamTab();
 };
 
 void HexSourceTabBarTest::exposesStableSourcesAndMetadata() {
@@ -50,6 +51,21 @@ void HexSourceTabBarTest::programmaticSelectionDoesNotEmitDuplicateSignal() {
   QCOMPARE(spy.count(), 0);
   QCOMPARE(bar.currentIndex(), 3);
   QCOMPARE(bar.source(), pnga::ui::qt::HexSource::kDefiltered);
+}
+
+void HexSourceTabBarTest::animationModeRenamesOnlyTheCompressedStreamTab() {
+  pnga::ui::qt::HexSourceTabBar bar;
+  bar.setAnimationMode(true);
+  QCOMPARE(bar.tabText(0), QStringLiteral("File"));
+  QCOMPARE(bar.tabText(1), QStringLiteral("Frame Stream"));
+  QCOMPARE(bar.tabText(2), QStringLiteral("Inflated"));
+  QCOMPARE(bar.tabText(3), QStringLiteral("Unfiltered"));
+  bar.setCurrentIndex(1);
+  QCOMPARE(bar.source(), pnga::ui::qt::HexSource::kFrameStream);
+
+  bar.setAnimationMode(false);
+  QCOMPARE(bar.tabText(1), QStringLiteral("IDAT"));
+  QCOMPARE(bar.source(), pnga::ui::qt::HexSource::kIdatStream);
 }
 
 QTEST_MAIN(HexSourceTabBarTest)

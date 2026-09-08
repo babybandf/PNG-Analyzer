@@ -16,6 +16,7 @@ class HexSourceTabBar final : public QTabBar {
 
   HexSource source() const noexcept;
   void setSource(HexSource source);
+  void setAnimationMode(bool animation);
 
  signals:
   void sourceChanged(pnga::ui::qt::HexSource source);
@@ -26,6 +27,8 @@ class HexSourceTabBar final : public QTabBar {
  private:
   static HexSource sourceForIndex(int index) noexcept;
   static int indexForSource(HexSource source) noexcept;
+
+  bool animation_mode_ = false;
 };
 
 }  // namespace pnga::ui::qt

@@ -14,6 +14,7 @@
 #include <pnga/ui/qt/hex_source_tab_bar.h>
 #include <pnga/ui/qt/hex_view.h>
 #include <pnga/ui/qt/selection_bus.h>
+#include <pnga/png-format/virtual_frame_stream.h>
 
 #include <QtTest/QtTest>
 
@@ -67,6 +68,7 @@ class SelectionNavigationControllerTest : public QObject {
   void hexSourceSelectionUpdatesViewState();
   void typedNavigationRoutesFileAndGates();
   void typedNavigationInflatedUsesInflatedSource();
+  void frameStreamSelectionUsesFrameOwnedSource();
   void compressionCurrentFlowsThroughSharedStore();
   void statisticsSelectionRoutesZeroWidthPhysicalAnchorToHex();
   void chunkColumnsRefitOnDocumentReplaceAndPreserveWhileOpen();
@@ -189,6 +191,32 @@ void SelectionNavigationControllerTest::typedNavigationInflatedUsesInflatedSourc
   QCOMPARE(widgets.hex_source_tabs->source(),
            pnga::ui::qt::HexSource::kInflated);
   QCOMPARE(trace_requests, 0);
+}
+
+void SelectionNavigationControllerTest::frameStreamSelectionUsesFrameOwnedSource() {
+  QMainWindow window;
+  MainWindowWidgets widgets = buildMainWindowUi(window, nullptr);
+  SelectionNavigationController controller(
+      widgets, {[](const auto&) {}, [](std::uint64_t) {}});
+  auto backing = make_png_source();
+  pnga::png_format::ChunkIndex empty_index;
+  controller.setDocument(5, backing, &empty_index, nullptr);
+
+  auto animation = std::make_shared<pnga::png_format::AnimationIndex>();
+  animation->frames.push_back(pnga::png_format::FrameRecord{
+      0, {}, false, {{1, 2}}});
+  const auto stream =
+      pnga::png_format::make_frame_stream(backing, animation, 0);
+  QVERIFY(stream != nullptr);
+  controller.setAnimationFrameStream(stream);
+  controller.setHexSource(pnga::ui::qt::HexSource::kFrameStream);
+
+  QCOMPARE(widgets.hex_source_tabs->tabText(1),
+           QStringLiteral("Frame Stream"));
+  QCOMPARE(widgets.hex_source_tabs->source(),
+           pnga::ui::qt::HexSource::kFrameStream);
+  QVERIFY(widgets.hex->navigateTo(1));
+  QVERIFY(!widgets.hex->navigateTo(2));
 }
 
 void SelectionNavigationControllerTest::compressionCurrentFlowsThroughSharedStore() {
