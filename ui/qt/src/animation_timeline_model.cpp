@@ -1,5 +1,8 @@
 #include "pnga/ui/qt/animation_timeline_model.h"
 
+#include <QPainter>
+#include <QPen>
+
 namespace pnga::ui::qt {
 
 AnimationTimelineModel::AnimationTimelineModel(QObject* parent)
@@ -65,6 +68,13 @@ void AnimationTimelineModel::setThumbnail(std::uint32_t ordinal, const QImage& i
   if (ordinal >= static_cast<std::uint32_t>(rowCount())) return;
   QImage thumbnail = image.scaled(96, 60, Qt::KeepAspectRatio, Qt::SmoothTransformation);
   if (thumbnail.isNull()) { thumbnail = QImage(96, 60, QImage::Format_RGBA8888); thumbnail.fill(Qt::gray); }
+  // A thin black outline keeps light thumbnails visible against light and
+  // dark timeline backgrounds alike.
+  QPainter painter(&thumbnail);
+  painter.setPen(QPen(Qt::black, 1.0));
+  painter.setBrush(Qt::NoBrush);
+  painter.drawRect(thumbnail.rect().adjusted(0, 0, -1, -1));
+  painter.end();
   thumbnails_.insert(static_cast<int>(ordinal), new QImage(thumbnail));
   const auto item = index(static_cast<int>(ordinal), 0);
   emit dataChanged(item, item, {Qt::DecorationRole});

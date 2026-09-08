@@ -51,6 +51,13 @@ class DeliveredImageView final : public QWidget {
   void setLockedPixel(const QPoint& pixel);
   void clearLockedPixel();
 
+  // Presentation hint shown while the current image is fully transparent.
+  // The animation binding layer passes the dispose-semantics reason so an
+  // empty Pre-Blend/Post-Dispose canvas is not mistaken for a missing image.
+  // An empty reason keeps the generic text. Pure presentation: never touches
+  // decoded data.
+  void setEmptyCanvasHint(const QString& reason);
+
  protected:
   void paintEvent(QPaintEvent* event) override;
   void resizeEvent(QResizeEvent* event) override;
@@ -77,6 +84,7 @@ class DeliveredImageView final : public QWidget {
   void applyZoomText(const QString& text);
   void updateZoomControls();
   void layoutZoomControls();
+  void updateEmptyCanvasOverlay();
 
   QImage image_;
   ImageTransform transform_;
@@ -89,6 +97,8 @@ class DeliveredImageView final : public QWidget {
   QComboBox* zoom_percent_combo_ = nullptr;
   QLabel* zoom_dropdown_indicator_ = nullptr;
   QToolButton* zoom_in_button_ = nullptr;
+  QLabel* empty_hint_ = nullptr;
+  QString empty_hint_reason_;
   bool panning_ = false;
   bool dragged_ = false;
   bool manual_zoom_ = false;

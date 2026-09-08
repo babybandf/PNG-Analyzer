@@ -106,6 +106,10 @@ class ApngProductGateTest final : public QObject {
   // Cell 5: close destroys every APNG widget; a static PNG never creates any.
   void closeAndStaticIsolation();
 
+  // Cell 6: a fully transparent canvas stage shows an explanatory hint that
+  // disappears once the canvas carries content.
+  void emptyCanvasHintExplainsTransparentCanvas();
+
  private:
   void openApng(MainWindow& window, QTemporaryDir& dir,
                 const std::vector<std::byte>& bytes, const QString& name);
@@ -266,6 +270,13 @@ void ApngProductGateTest::validApngOpensPausedOnFrame0() {
   QVERIFY(status != nullptr);
   QCOMPARE(frame->value(), 0);
   QCOMPARE(list->model()->rowCount(), 3);
+  // Thumbnails carry a thin black outline once the async worker delivers
+  // them; the first pixel must be pure black.
+  QTRY_COMPARE_WITH_TIMEOUT(
+      qvariant_cast<QImage>(list->model()->data(list->model()->index(0, 0),
+                                                Qt::DecorationRole))
+          .pixelColor(0, 0),
+      QColor(Qt::black), 4000);
   QVERIFY(play->isEnabled());
   QCOMPARE(play->text(), QStringLiteral("Play"));
   QVERIFY(status->text().contains(QStringLiteral("Paused")));
@@ -450,6 +461,36 @@ void ApngProductGateTest::closeAndStaticIsolation() {
 }
 
 }  // namespace
+
+void ApngProductGateTest::emptyCanvasHintExplainsTransparentCanvas() {
+  QTemporaryDir dir;
+  MainWindow window;
+  openApng(window, dir, valid_sample_, QStringLiteral("valid.apng"));
+  window.show();
+
+  QTRY_VERIFY_WITH_TIMEOUT(stageView(window, 0) != nullptr, 4000);
+  QTRY_VERIFY_WITH_TIMEOUT(!stageView(window, 0)->image().isNull(), 4000);
+  auto* tabs = window.findChild<QTabWidget*>(QStringLiteral("previewTabs"));
+  QVERIFY(tabs != nullptr);
+
+  // Frame 0 Pre-Blend is the initial transparent canvas: the view must say
+  // so instead of looking like a missing image.
+  tabs->setCurrentIndex(5);
+  auto* pre = stageView(window, 1);
+  QTRY_VERIFY_WITH_TIMEOUT(!pre->image().isNull(), 4000);
+  auto* hint = pre->findChild<QLabel*>(QStringLiteral("emptyCanvasHint"));
+  QVERIFY(hint != nullptr);
+  QTRY_VERIFY_WITH_TIMEOUT(hint->isVisible(), 4000);
+  QVERIFY(hint->text().contains(QStringLiteral("Empty canvas")));
+  QVERIFY(hint->text().contains(QStringLiteral("transparent black")));
+
+  // Frame 1 Pre-Blend carries frame 0 (dispose NONE): no hint.
+  window.findChild<QPushButton*>(QStringLiteral("animationNext"))->click();
+  QTRY_COMPARE_WITH_TIMEOUT(pre->image().pixelColor(0, 0), QColor(Qt::red),
+                            4000);
+  QVERIFY(!hint->isVisible());
+  write_record();
+}
 
 QTEST_MAIN(ApngProductGateTest)
 #include "apng_product_gate_test.moc"

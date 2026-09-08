@@ -6,6 +6,8 @@
 
 #include <QtTest/QtTest>
 
+#include <QImage>
+
 using pnga::analysis_engine::AnimationTimeline;
 using pnga::analysis_engine::TimelineEntry;
 using pnga::ui::qt::AnimationInspector;
@@ -19,6 +21,7 @@ class AnimationUiTest final : public QObject {
   void largeTimelineStaysInTheModel();
   void timelineEmitsInteractionSignals();
   void inspectorShowsControlMetadata();
+  void thumbnailsCarryThinBlackOutline();
 };
 
 void AnimationUiTest::largeTimelineStaysInTheModel() {
@@ -59,6 +62,31 @@ void AnimationUiTest::inspectorShowsControlMetadata() {
       pnga::png_format::FrameControl{9, 10, 11, 2, 3, 4, 5, 1, 0});
   QVERIFY(inspector.summaryText().contains(QStringLiteral("10×11")));
   QVERIFY(inspector.summaryText().contains(QStringLiteral("sequence 9")));
+}
+
+void AnimationUiTest::thumbnailsCarryThinBlackOutline() {
+  AnimationTimeline timeline;
+  timeline.complete = true;
+  timeline.entries.push_back(TimelineEntry{0, 1, 100, 0, 10000000ull});
+  AnimationTimelineModel model;
+  model.setTimeline(timeline);
+  QImage frame(20, 12, QImage::Format_RGBA8888);
+  frame.fill(QColor(0, 128, 255, 255));
+  model.setThumbnail(0, frame);
+
+  const auto decoration = qvariant_cast<QImage>(model.data(
+      model.index(0, 0), Qt::DecorationRole));
+  QVERIFY(!decoration.isNull());
+  // Exactly a 1-px outline: border pixels black, interior keeps the content.
+  QCOMPARE(decoration.pixelColor(0, 0), QColor(Qt::black));
+  QCOMPARE(decoration.pixelColor(decoration.width() - 1, 0),
+           QColor(Qt::black));
+  QCOMPARE(decoration.pixelColor(0, decoration.height() - 1),
+           QColor(Qt::black));
+  QCOMPARE(decoration.pixelColor(decoration.width() / 2,
+                                 decoration.height() / 2),
+           QColor(0, 128, 255));
+  QCOMPARE(decoration.pixelColor(1, 1), QColor(0, 128, 255));
 }
 
 QTEST_MAIN(AnimationUiTest)

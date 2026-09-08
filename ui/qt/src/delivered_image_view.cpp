@@ -24,9 +24,46 @@
 
 namespace pnga::ui::qt {
 
+namespace {
+
+// True when every pixel of `image` has alpha 0. The delivered images are
+// RGBA8888; other formats are converted once. Bounded by the engine's decode
+// budget, so the single alpha pass stays on the order of milliseconds.
+bool image_fully_transparent(const QImage& image) {
+  if (image.isNull()) {
+    return false;
+  }
+  const QImage rgba = image.format() == QImage::Format_RGBA8888
+                          ? image
+                          : image.convertToFormat(QImage::Format_RGBA8888);
+  for (int y = 0; y < rgba.height(); ++y) {
+    const auto* line = rgba.constScanLine(y);
+    for (int x = 0; x < rgba.width(); ++x) {
+      if (line[static_cast<qsizetype>(x) * 4 + 3] != 0) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+}  // namespace
+
 DeliveredImageView::DeliveredImageView(QWidget* parent) : QWidget(parent) {
   setMouseTracking(true);
   setFocusPolicy(Qt::StrongFocus);
+
+  empty_hint_ = new QLabel(this);
+  empty_hint_->setObjectName(QStringLiteral("emptyCanvasHint"));
+  empty_hint_->setAlignment(Qt::AlignCenter);
+  empty_hint_->setWordWrap(true);
+  empty_hint_->setAttribute(Qt::WA_TransparentForMouseEvents);
+  empty_hint_->setStyleSheet(
+      QStringLiteral("background: rgba(96, 96, 96, 170);"
+                     " color: white;"
+                     " border-radius: 4px;"
+                     " padding: 6px 10px;"));
+  empty_hint_->hide();
 
   auto* controls = new QFrame(this);
   controls->setObjectName(QStringLiteral("imageZoomControls"));
@@ -94,7 +131,34 @@ void DeliveredImageView::setImage(const QImage& image) {
   clearLockedPixel();
   manual_zoom_ = false;
   refit();
+  updateEmptyCanvasOverlay();
   update();
+}
+
+void DeliveredImageView::setEmptyCanvasHint(const QString& reason) {
+  empty_hint_reason_ = reason;
+  updateEmptyCanvasOverlay();
+}
+
+void DeliveredImageView::updateEmptyCanvasOverlay() {
+  if (empty_hint_ == nullptr) {
+    return;
+  }
+  if (!image_fully_transparent(image_)) {
+    empty_hint_->hide();
+    return;
+  }
+  empty_hint_->setText(empty_hint_reason_.isEmpty()
+                           ? QObject::tr("Fully transparent image")
+                           : empty_hint_reason_);
+  const int max_width = qMin(qMax(0, width() - 32), 480);
+  empty_hint_->setFixedWidth(max_width);
+  const QSize hint = empty_hint_->sizeHint();
+  empty_hint_->setGeometry(
+      qMax(0, (width() - hint.width()) / 2),
+      qMax(0, (height() - hint.height()) / 2), hint.width(), hint.height());
+  empty_hint_->raise();
+  empty_hint_->show();
 }
 
 std::optional<std::array<std::uint8_t, 4>> DeliveredImageView::rgbaAt(
@@ -299,6 +363,7 @@ void DeliveredImageView::resizeEvent(QResizeEvent* event) {
     updateZoomControls();
   }
   layoutZoomControls();
+  updateEmptyCanvasOverlay();
 }
 
 void DeliveredImageView::wheelEvent(QWheelEvent* event) {

@@ -323,6 +323,30 @@ void bindAnimationUi(AnimationController& controller, DocumentSession& session,
             selection.setAnimationView(widgets.animation_views[stage_it - stages.begin()], result->stage,
                 result->stage == Stage::kFrameOutput ? control.x : 0,
                 result->stage == Stage::kFrameOutput ? control.y : 0);
+            // Explain why a canvas stage can legitimately be fully
+            // transparent; the view only shows the hint when the scan finds
+            // no opaque pixel.
+            QString empty_reason;
+            if (result->stage != Stage::kFrameOutput) {
+              if (frame->index == 0) {
+                empty_reason = QObject::tr(
+                    "Empty canvas · playback starts from transparent black");
+              } else {
+                const auto prev =
+                    session.animationIndex()->frames[frame->index - 1].control.dispose;
+                if (prev == 1) {
+                  empty_reason = QObject::tr(
+                      "Empty canvas · previous frame BACKGROUND dispose "
+                      "cleared the canvas");
+                } else if (prev == 2) {
+                  empty_reason = QObject::tr(
+                      "Empty canvas · previous frame PREVIOUS dispose "
+                      "restored an earlier state");
+                }
+              }
+            }
+            widgets.animation_views[stage_it - stages.begin()]
+                ->setEmptyCanvasHint(empty_reason);
           }
           selection.setAnimationFrameStream(
               pnga::png_format::make_frame_stream(
