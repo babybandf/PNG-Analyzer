@@ -110,6 +110,10 @@ class ApngProductGateTest final : public QObject {
   // disappears once the canvas carries content.
   void emptyCanvasHintExplainsTransparentCanvas();
 
+  // Cell 7: a palette APNG delivers through the document delivery context
+  // (PLTE/tRNS -> FrameRequest::delivery) and shows the palette colors.
+  void paletteApngDeliversThroughDocumentContext();
+
  private:
   void openApng(MainWindow& window, QTemporaryDir& dir,
                 const std::vector<std::byte>& bytes, const QString& name);
@@ -499,6 +503,72 @@ void ApngProductGateTest::emptyCanvasHintExplainsTransparentCanvas() {
   QTRY_COMPARE_WITH_TIMEOUT(pre->image().pixelColor(0, 0), QColor(Qt::red),
                             4000);
   QVERIFY(!hint->isVisible());
+  write_record();
+}
+
+void ApngProductGateTest::paletteApngDeliversThroughDocumentContext() {
+  // 3-frame palette APNG: every pixel is palette entry 1 (opaque), so the
+  // delivered view must show the PLTE color — exercising the PLTE/tRNS ->
+  // FrameRequest::delivery -> deliver_rgba8 path end to end.
+  constexpr std::size_t kFrames = 3;
+  std::vector<pnga::png_format::FrameControl> controls(kFrames);
+  for (std::size_t i = 0; i < kFrames; ++i) {
+    controls[i] = pnga::png_format::FrameControl{
+        0, 96, 64, 0, 0, 1, 100, 0, 0};
+  }
+  std::vector<std::byte> palette;
+  for (std::size_t i = 0; i < 256; ++i) {
+    for (const auto component :
+         pnga_test::apng_palette_entry(static_cast<std::uint16_t>(i))) {
+      palette.push_back(std::byte{component});
+    }
+  }
+  const pnga_test::ApngFormat format{3, 8, false, 1};
+  const auto png = pnga_test::make_apng_format(
+      false, controls, format,
+      [](std::uint32_t, std::uint32_t, std::uint8_t) { return std::uint16_t{1}; },
+      palette, {}, 96, 64);
+
+  QTemporaryDir dir;
+  MainWindow window;
+  auto* controller = window.findChild<AnimationController*>();
+  QVERIFY(controller != nullptr);
+  auto* session = window.findChild<DocumentSession*>();
+  QVERIFY(session != nullptr);
+  QSignalSpy errors(controller, &AnimationController::animationError);
+  QSignalSpy frames(controller, &AnimationController::framePublished);
+  openApng(window, dir, png, QStringLiteral("palette.apng"));
+  window.show();
+
+  QTRY_VERIFY_WITH_TIMEOUT(stageView(window, 0) != nullptr, 4000);
+  QWARN(qPrintable(QStringLiteral("diag: capability=") +
+                   QString::number(static_cast<int>(controller->capability())) +
+                   " published=" + QString::number(frames.count()) +
+                   " errors=" + QString::number(errors.count()) +
+                   " sessionIndexFrames=" +
+                   QString::number(session->animationIndex()
+                                       ? session->animationIndex()
+                                             ->frames.size()
+                                       : -1) +
+                   " stageSet=" +
+                   QString::number(session->stageSet() ? 1 : 0)));
+  auto* output = stageView(window, 0);
+  QTRY_VERIFY_WITH_TIMEOUT(!output->image().isNull(), 4000);
+  if (errors.count() > 0) {
+    QWARN(qPrintable(QStringLiteral("animationError: ") +
+                     errors.last().at(0).toString()));
+  }
+  QCOMPARE(controller->capability(), AnimationController::Capability::kValid);
+  const auto entry = pnga_test::apng_palette_entry(1);
+  QCOMPARE(output->image().pixelColor(0, 0),
+           QColor(entry[0], entry[1], entry[2]));
+
+  // Navigation decodes further palette frames through the same path.
+  window.findChild<QPushButton*>(QStringLiteral("animationNext"))->click();
+  QTRY_COMPARE_WITH_TIMEOUT(output->image().pixelColor(0, 0),
+                            QColor(entry[0], entry[1], entry[2]), 4000);
+
+  capture(window, QStringLiteral("palette-frame-output"));
   write_record();
 }
 

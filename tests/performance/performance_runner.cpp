@@ -53,6 +53,7 @@
 
 #if defined(__APPLE__)
 #include <mach/mach.h>
+#include <sys/resource.h>
 #elif defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -247,25 +248,24 @@ struct ApngMetadataScenario {
 // enforced (in-scenario require() plus the thresholds entry).
 constexpr std::uint64_t kReplayBudgetBytes = 64ull * 1024 * 1024;
 
+// True process peak RSS. macOS getrusage reports ru_maxrss in bytes, Linux
+// in KiB; Windows needs PROCESS_MEMORY_COUNTERS::PeakWorkingSetSize (bytes).
+// The mach/resident readouts used elsewhere are CURRENT-size snapshots, not
+// peaks, and must not be labeled as peaks.
 std::uint64_t apng_process_rss_peak_kib() {
-#if defined(__APPLE__)
-  mach_task_basic_info_data_t info{};
-  mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
-  if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO,
-                reinterpret_cast<task_info_t>(&info),
-                &count) != KERN_SUCCESS) {
-    return 0;
-  }
-  return static_cast<std::uint64_t>(info.resident_size / 1024);
-#elif defined(_WIN32)
+#if defined(_WIN32)
   PROCESS_MEMORY_COUNTERS counters{};
   counters.cb = sizeof(counters);
   GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters));
-  return static_cast<std::uint64_t>(counters.WorkingSetSize / 1024);
+  return static_cast<std::uint64_t>(counters.PeakWorkingSetSize / 1024);
 #else
   struct rusage usage {};
   getrusage(RUSAGE_SELF, &usage);
+#if defined(__APPLE__)
+  return static_cast<std::uint64_t>(usage.ru_maxrss / 1024);
+#else
   return static_cast<std::uint64_t>(usage.ru_maxrss);
+#endif
 #endif
 }
 

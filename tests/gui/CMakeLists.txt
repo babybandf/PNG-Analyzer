@@ -215,6 +215,12 @@ add_pnga_gui_app_test(pnga_gui_apng_controller_tests
 add_pnga_gui_app_test(pnga_gui_apng_product_gate_tests
   apng_product_gate_test.cpp gui_apng_product_gate_tests)
 
+# WP-706: GUI-side performance baselines (timeline scroll, playback
+# main-thread blocking). Recorded only — the plan approves no APNG time
+# thresholds.
+add_pnga_gui_app_test(pnga_gui_apng_gui_performance_tests
+  apng_gui_performance_test.cpp gui_apng_gui_performance_tests)
+
 add_pnga_gui_app_test(pnga_gui_document_workers_tests
   document_workers_test.cpp gui_document_workers_tests)
 

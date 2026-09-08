@@ -1,4 +1,5 @@
 #include "animation_worker.h"
+#include <QDebug>
 #include <climits>
 
 AnimationWorker::AnimationWorker(pnga::analysis_engine::ReplayRequest request,
