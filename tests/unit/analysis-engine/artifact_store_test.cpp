@@ -204,3 +204,22 @@ TEST_CASE("All-backing variants materialize or report tile handles",
   REQUIRE(t.tile_id() == 42);
   REQUIRE_FALSE(t.bytes().has_value());
 }
+
+TEST_CASE("ArtifactStore erases entries and clears retained accounting",
+          "[analysis-engine][wp703]") {
+  ArtifactStore store(100);
+  const auto first = key(Stage::kFiltered, 0);
+  const auto second = key(Stage::kNative, 0);
+  REQUIRE(store.put(first, StageArtifact::owned_bytes(Stage::kFiltered,
+                                                       bytes_of(20))) ==
+          StoreError::kOk);
+  REQUIRE(store.put(second, StageArtifact::owned_bytes(Stage::kNative,
+                                                        bytes_of(30))) ==
+          StoreError::kOk);
+  store.erase(first);
+  REQUIRE_FALSE(store.contains(first));
+  REQUIRE(store.used_bytes() == 30);
+  store.clear();
+  REQUIRE(store.entry_count() == 0);
+  REQUIRE(store.used_bytes() == 0);
+}

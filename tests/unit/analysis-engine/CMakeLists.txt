@@ -7,6 +7,7 @@ add_executable(pnga_analysis_engine_tests
   coordinate_query_test.cpp
   decode_trace_inspector_test.cpp
   document_fingerprint_test.cpp
+  animation_replay_test.cpp
   filtered_scanlines_test.cpp
   huffman_inspector_test.cpp
   job_scheduler_test.cpp

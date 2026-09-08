@@ -129,4 +129,20 @@ bool ArtifactStore::contains(
   return it != entries_.end() && !it->second.evicted;
 }
 
+void ArtifactStore::erase(const pnga::trace_model::ArtifactKey& key) noexcept {
+  const auto it = entries_.find(key);
+  if (it == entries_.end()) {
+    return;
+  }
+  if (!it->second.evicted) {
+    used_ -= it->second.size;
+  }
+  entries_.erase(it);
+}
+
+void ArtifactStore::clear() noexcept {
+  entries_.clear();
+  used_ = 0;
+}
+
 }  // namespace pnga::analysis_engine

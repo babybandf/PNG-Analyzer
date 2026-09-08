@@ -59,6 +59,9 @@ class ArtifactStore {
   // True when `key` is currently materialized in the store.
   bool contains(const pnga::trace_model::ArtifactKey& key) const noexcept;
 
+  void erase(const pnga::trace_model::ArtifactKey& key) noexcept;
+  void clear() noexcept;
+
   std::size_t entry_count() const noexcept { return entries_.size(); }
 
  private:

@@ -3,6 +3,7 @@
 
 add_library(pnga_analysis_engine
   src/artifact_store.cpp
+  src/animation_replay.cpp
   src/block_inspector.cpp
   src/coordinate_query.cpp
   src/decode_trace_inspector.cpp
