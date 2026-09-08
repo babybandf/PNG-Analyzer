@@ -16,8 +16,10 @@
 // the non-time invariants: the scalar scan retains at most one token record
 // and the declared working memory stays within the frozen 64 MiB cap.
 
+#include <pnga/analysis-engine/animation_replay.h>
 #include <pnga/analysis-engine/block_inspector.h>
 #include <pnga/analysis-engine/decode_trace_inspector.h>
+#include <pnga/analysis-engine/frame_analysis.h>
 #include <pnga/analysis-engine/huffman_inspector.h>
 #include <pnga/analysis-engine/pixel_provenance.h>
 #include <pnga/analysis-engine/scanline_anchor.h>
@@ -42,6 +44,7 @@
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -235,6 +238,242 @@ struct ApngMetadataScenario {
     frame_count = index.frames.size();
     animation_chunks = index.frames.size() * 2 + 2;
     retained_bytes = index.retained_bytes;
+  }
+};
+
+// WP-706: replay performance scenarios. The plan freezes the replay cache
+// budget at 64 MiB but approves no APNG time thresholds, so the recorded
+// p50/p95 values are baselines and only the frozen budget assertions are
+// enforced (in-scenario require() plus the thresholds entry).
+constexpr std::uint64_t kReplayBudgetBytes = 64ull * 1024 * 1024;
+
+std::uint64_t apng_process_rss_peak_kib() {
+#if defined(__APPLE__)
+  mach_task_basic_info_data_t info{};
+  mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
+  if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO,
+                reinterpret_cast<task_info_t>(&info),
+                &count) != KERN_SUCCESS) {
+    return 0;
+  }
+  return static_cast<std::uint64_t>(info.resident_size / 1024);
+#elif defined(_WIN32)
+  PROCESS_MEMORY_COUNTERS counters{};
+  counters.cb = sizeof(counters);
+  GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters));
+  return static_cast<std::uint64_t>(counters.WorkingSetSize / 1024);
+#else
+  struct rusage usage {};
+  getrusage(RUSAGE_SELF, &usage);
+  return static_cast<std::uint64_t>(usage.ru_maxrss);
+#endif
+}
+
+pnga::png_format::AnimationIndex index_apng_fixture(
+    const pnga::io::IByteSource& source, std::size_t frames) {
+  pnga::png_format::AnimationLimits limits;
+  limits.max_frames = frames;
+  limits.max_animation_chunks = 4 * frames + 16;
+  limits.max_metadata_bytes = kReplayBudgetBytes;
+  auto result = pnga::png_format::index_animation(source, limits,
+                                                  [] { return false; });
+  require(result.status == pnga::png_format::AnimationStatus::kComplete,
+          "APNG replay scenario: metadata scan was not complete");
+  require(result.frames.size() == frames,
+          "APNG replay scenario: frame count mismatch");
+  return result;
+}
+
+struct ApngPlaybackScenario {
+  static constexpr std::size_t kFrames = 100;
+  std::vector<std::byte> png_bytes;
+  std::uint64_t cold_p50_us = 0;
+  std::uint64_t cold_p95_us = 0;
+  std::uint64_t warm_p50_us = 0;
+  std::uint64_t warm_p95_us = 0;
+  std::uint64_t retained_bytes = 0;
+  std::uint64_t process_rss_peak_kib = 0;
+  std::uint64_t checksum = 0;
+
+  ApngPlaybackScenario() {
+    constexpr std::uint32_t kWidth = 96;
+    constexpr std::uint32_t kHeight = 64;
+    std::vector<pnga::png_format::FrameControl> controls(kFrames);
+    std::vector<std::array<std::byte, 4>> colors(kFrames);
+    for (std::size_t i = 0; i < kFrames; ++i) {
+      controls[i] = pnga::png_format::FrameControl{
+          0, kWidth, kHeight, 0, 0, 1, 100, 0, 0};
+      const auto r = static_cast<unsigned char>((i * 29 + 40) % 256);
+      const auto g = static_cast<unsigned char>((i * 53 + 80) % 256);
+      const auto b = static_cast<unsigned char>((i * 7 + 160) % 256);
+      colors[i] = {std::byte{r}, std::byte{g}, std::byte{b}, std::byte{255}};
+    }
+    png_bytes = pnga_test::make_apng_canvas(false, controls, colors, kWidth,
+                                            kHeight);
+    auto source = std::make_shared<MemoryByteSource>(png_bytes);
+    const auto animation_index =
+        std::make_shared<const pnga::png_format::AnimationIndex>(
+            index_apng_fixture(*source, kFrames));
+
+    pnga::analysis_engine::FrameRequest frame;
+    frame.generation = 7;
+    frame.source = source;
+    frame.index = animation_index;
+    frame.canvas_header = ImageHeader{kWidth, kHeight, 8, 6, false};
+
+    const auto replay_post_blend = [&](pnga::analysis_engine::AnimationReplay&
+                                           replay, std::uint32_t ordinal,
+                                       std::uint64_t serial) {
+      pnga::analysis_engine::FrameRequest request = frame;
+      request.ordinal = ordinal;
+      request.request_serial = serial;
+      const auto result = replay.materialize(
+          {request, pnga::trace_model::Stage::kPostBlend}, nullptr);
+      require(result.stop ==
+                  pnga::analysis_engine::ReplayResult::Stop::kReady,
+              "APNG playback scenario: frame was not ready");
+      require(result.image != nullptr,
+              "APNG playback scenario: missing canvas");
+      return result;
+    };
+
+    // Cold playback: a fresh replay cache per frame, so each measurement
+    // covers the full decode+blend chain of that frame.
+    std::vector<std::uint64_t> cold_us;
+    cold_us.reserve(kFrames);
+    for (std::uint32_t ordinal = 0; ordinal < kFrames; ++ordinal) {
+      pnga::analysis_engine::AnimationReplay replay(kReplayBudgetBytes);
+      const auto elapsed = timed([&] {
+        const auto result = replay_post_blend(replay, ordinal, ordinal + 1);
+        checksum += (*result.image).pixels[0];
+      });
+      cold_us.push_back(elapsed.micros);
+    }
+
+    // Warm playback: one document-scoped replay over the whole sequence —
+    // the production AnimationController path with 32-frame checkpoints.
+    pnga::analysis_engine::AnimationReplay replay(kReplayBudgetBytes);
+    std::vector<std::uint64_t> warm_us;
+    warm_us.reserve(kFrames);
+    for (std::uint32_t ordinal = 0; ordinal < kFrames; ++ordinal) {
+      const auto elapsed = timed([&] {
+        const auto result =
+            replay_post_blend(replay, ordinal, 1000 + ordinal);
+        checksum += (*result.image).pixels[1];
+      });
+      warm_us.push_back(elapsed.micros);
+    }
+    require(replay.retained_bytes() <= kReplayBudgetBytes,
+            "APNG playback scenario: replay budget exceeded");
+    retained_bytes = replay.retained_bytes();
+
+    cold_p50_us = percentile(cold_us, 50);
+    cold_p95_us = percentile(cold_us, 95);
+    warm_p50_us = percentile(warm_us, 50);
+    warm_p95_us = percentile(warm_us, 95);
+    process_rss_peak_kib = apng_process_rss_peak_kib();
+  }
+};
+
+struct ApngRandomJumpScenario {
+  static constexpr std::size_t kFrames = 1000;
+  static constexpr std::size_t kColdJumps = 8;
+  static constexpr std::size_t kWarmJumps = 292;
+  static constexpr std::uint64_t kSeed = 20260908;
+  std::vector<std::byte> png_bytes;
+  std::uint64_t cold_p50_us = 0;
+  std::uint64_t cold_p95_us = 0;
+  std::uint64_t warm_p50_us = 0;
+  std::uint64_t warm_p95_us = 0;
+  std::uint64_t retained_bytes = 0;
+  std::uint64_t process_rss_peak_kib = 0;
+  std::uint64_t checksum = 0;
+
+  ApngRandomJumpScenario() {
+    constexpr std::uint32_t kWidth = 96;
+    constexpr std::uint32_t kHeight = 64;
+    std::vector<pnga::png_format::FrameControl> controls(kFrames);
+    std::vector<std::array<std::byte, 4>> colors(kFrames);
+    for (std::size_t i = 0; i < kFrames; ++i) {
+      controls[i] = pnga::png_format::FrameControl{
+          0, kWidth, kHeight, 0, 0, 1, 100, 0, 0};
+      const auto r = static_cast<unsigned char>((i * 17 + 5) % 256);
+      const auto g = static_cast<unsigned char>((i * 43 + 90) % 256);
+      const auto b = static_cast<unsigned char>((i * 11 + 180) % 256);
+      colors[i] = {std::byte{r}, std::byte{g}, std::byte{b}, std::byte{255}};
+    }
+    png_bytes = pnga_test::make_apng_canvas(false, controls, colors, kWidth,
+                                            kHeight);
+    auto source = std::make_shared<MemoryByteSource>(png_bytes);
+    const auto animation_index =
+        std::make_shared<const pnga::png_format::AnimationIndex>(
+            index_apng_fixture(*source, kFrames));
+
+    pnga::analysis_engine::FrameRequest frame;
+    frame.generation = 9;
+    frame.source = source;
+    frame.index = animation_index;
+    frame.canvas_header = ImageHeader{kWidth, kHeight, 8, 6, false};
+
+    const auto replay_post_blend = [&](pnga::analysis_engine::AnimationReplay&
+                                           replay, std::uint32_t ordinal,
+                                       std::uint64_t serial) {
+      pnga::analysis_engine::FrameRequest request = frame;
+      request.ordinal = ordinal;
+      request.request_serial = serial;
+      const auto result = replay.materialize(
+          {request, pnga::trace_model::Stage::kPostBlend}, nullptr);
+      require(result.stop ==
+                  pnga::analysis_engine::ReplayResult::Stop::kReady,
+              "APNG random-jump scenario: frame was not ready");
+      require(result.image != nullptr,
+              "APNG random-jump scenario: missing canvas");
+      return result;
+    };
+
+    // Fixed-seed generator so the jump order is reproducible run to run.
+    std::mt19937_64 rng{kSeed};
+    std::uniform_int_distribution<std::uint32_t> pick(
+        0, static_cast<std::uint32_t>(kFrames - 1));
+
+    // Cold jumps: a fresh replay per jump measures the unprimed chain.
+    std::vector<std::uint64_t> cold_us;
+    cold_us.reserve(kColdJumps);
+    for (std::size_t i = 0; i < kColdJumps; ++i) {
+      const auto ordinal = pick(rng);
+      pnga::analysis_engine::AnimationReplay replay(kReplayBudgetBytes);
+      const auto elapsed = timed([&] {
+        const auto result = replay_post_blend(replay, ordinal, ordinal + 1);
+        checksum += (*result.image).pixels[2];
+      });
+      cold_us.push_back(elapsed.micros);
+    }
+
+    // Warm jumps: prime the checkpoints with a sequential sweep, then jump.
+    std::vector<std::uint64_t> warm_us;
+    warm_us.reserve(kWarmJumps);
+    pnga::analysis_engine::AnimationReplay replay(kReplayBudgetBytes);
+    for (std::uint32_t ordinal = 0; ordinal < kFrames; ++ordinal) {
+      replay_post_blend(replay, ordinal, 2000 + ordinal);
+    }
+    for (std::size_t i = 0; i < kWarmJumps; ++i) {
+      const auto ordinal = pick(rng);
+      const auto elapsed = timed([&] {
+        const auto result =
+            replay_post_blend(replay, ordinal, 5000 + ordinal);
+        checksum += (*result.image).pixels[3];
+      });
+      warm_us.push_back(elapsed.micros);
+    }
+    require(replay.retained_bytes() <= kReplayBudgetBytes,
+            "APNG random-jump scenario: replay budget exceeded");
+    retained_bytes = replay.retained_bytes();
+
+    cold_p50_us = percentile(cold_us, 50);
+    cold_p95_us = percentile(cold_us, 95);
+    warm_p50_us = percentile(warm_us, 50);
+    warm_p95_us = percentile(warm_us, 95);
+    process_rss_peak_kib = apng_process_rss_peak_kib();
   }
 };
 
@@ -953,7 +1192,9 @@ void emit_record(const LargeScenario& large,
                  const CompressionInspectorMetrics& inspector,
                  const StatisticsScenario& statistics,
                  const BoundedBlocksScenario& bounded_blocks,
-                 const ApngMetadataScenario& apng) {
+                 const ApngMetadataScenario& apng,
+                 const ApngPlaybackScenario& playback,
+                 const ApngRandomJumpScenario& random_jump) {
   constexpr const char* kCorpusRevision = PNGA_WP607C_CORPUS_REVISION;
   require(std::strlen(kCorpusRevision) == 64,
           "performance corpus revision must be 64 hex characters");
@@ -1027,7 +1268,32 @@ void emit_record(const LargeScenario& large,
              << apng.animation_chunks << ",\"png_bytes\":"
              << apng.png_bytes.size() << ",\"metadata_us\":"
              << apng.metadata_us << ",\"retained_bytes\":"
-             << apng.retained_bytes << "}],"
+             << apng.retained_bytes
+             << "},{\"id\":\"apng-playback-100\",\"frames\":"
+             << ApngPlaybackScenario::kFrames << ",\"png_bytes\":"
+             << playback.png_bytes.size()
+             << ",\"cold_p50_us\":" << playback.cold_p50_us
+             << ",\"cold_p95_us\":" << playback.cold_p95_us
+             << ",\"warm_p50_us\":" << playback.warm_p50_us
+             << ",\"warm_p95_us\":" << playback.warm_p95_us
+             << ",\"retained_bytes\":" << playback.retained_bytes
+             << ",\"process_rss_peak_kib\":"
+             << playback.process_rss_peak_kib << ",\"checksum\":"
+             << playback.checksum
+             << "},{\"id\":\"apng-random-jump-1000\",\"frames\":"
+             << ApngRandomJumpScenario::kFrames
+             << ",\"seed\":" << ApngRandomJumpScenario::kSeed
+             << ",\"png_bytes\":" << random_jump.png_bytes.size()
+             << ",\"cold_jumps\":" << ApngRandomJumpScenario::kColdJumps
+             << ",\"warm_jumps\":" << ApngRandomJumpScenario::kWarmJumps
+             << ",\"cold_p50_us\":" << random_jump.cold_p50_us
+             << ",\"cold_p95_us\":" << random_jump.cold_p95_us
+             << ",\"warm_p50_us\":" << random_jump.warm_p50_us
+             << ",\"warm_p95_us\":" << random_jump.warm_p95_us
+             << ",\"retained_bytes\":" << random_jump.retained_bytes
+             << ",\"process_rss_peak_kib\":"
+             << random_jump.process_rss_peak_kib << ",\"checksum\":"
+             << random_jump.checksum << "}],"
                 "\"ui_scenario\":\"gui_trace_inspector_performance_tests\"}\n";
 }
 
@@ -1042,7 +1308,10 @@ int main() {
     const StatisticsScenario statistics;
     const BoundedBlocksScenario bounded_blocks;
     const ApngMetadataScenario apng;
-    emit_record(large, provenance, inspector, statistics, bounded_blocks, apng);
+    const ApngPlaybackScenario playback;
+    const ApngRandomJumpScenario random_jump;
+    emit_record(large, provenance, inspector, statistics, bounded_blocks,
+                apng, playback, random_jump);
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "performance runner: FAIL: " << error.what() << '\n';

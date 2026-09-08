@@ -48,6 +48,18 @@
     {
       "id": "apng-metadata",
       "max_us": {}
+    },
+    {
+      "id": "apng-playback-100",
+      "max_us": {
+        "retained_bytes": 67108864
+      }
+    },
+    {
+      "id": "apng-random-jump-1000",
+      "max_us": {
+        "retained_bytes": 67108864
+      }
     }
   ]
 }

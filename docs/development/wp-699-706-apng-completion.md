@@ -58,10 +58,23 @@ assets added.
 | `python3 scripts/run_package_smoke.py --preset release --jobs 2` | PASS — `png-analyzer-0.1.0-macOS-arm64.tar.gz`, CLI `pnga 0.1.0` |
 | `git diff --check` | exit 0 |
 
-The APNG metadata performance scenario (100,000 frames, 200,002 animation
-chunks) remains in the enforced run; the recorded scan retained
-8,000,144 bytes of metadata. Time metrics have no approved APNG thresholds
-and are reported as baselines only.
+The APNG performance record covers the three frozen WP-706 scenarios
+(`pnga_performance_runner`, fixed-seed and budget-checked):
+
+| Scenario | Recorded | Enforced |
+| --- | --- | --- |
+| `apng-metadata` | 100,000-frame metadata scan (68–70 ms, 8,000,144 B retained) | 64 MiB metadata budget |
+| `apng-playback-100` | 100 small-frame sequential playback, cold P50/P95 ≈ 165/309 ms, warm P50/P95 ≈ 56/104 ms per frame, retained 2.5 MB | 64 MiB replay budget |
+| `apng-random-jump-1000` | 1,000-frame animation, fixed seed 20260908, 8 cold + 292 warm jumps, cold P50/P95 ≈ 1.5/3.0 s, warm P50/P95 ≈ 2/23 µs, retained 25.3 MB | 64 MiB replay budget |
+
+No approved APNG time thresholds exist, so the latency figures above are
+recorded as baselines only; the machine-enforced limits are the frozen
+64 MiB budgets (`retained_bytes` entries in `tests/performance/thresholds-v1.json`
+plus in-runner assertions). Process RSS peak is recorded per scenario. The
+headless runner cannot measure GUI-thread blocking; timeline-model
+virtualization (100,000 entries without per-frame widgets) is covered by the
+`largeTimelineStaysInTheModel` unit test and the inspector performance test,
+and interactive responsiveness by the native product-gate capture.
 
 ## Native macOS evidence (cocoa, not offscreen)
 
