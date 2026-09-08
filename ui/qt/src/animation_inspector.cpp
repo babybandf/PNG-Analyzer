@@ -9,7 +9,9 @@ AnimationInspector::AnimationInspector(QWidget* parent) : QWidget(parent) {
   summary_ = new QLabel(this);
   summary_->setWordWrap(true);
   auto* layout = new QVBoxLayout(this);
-  layout->setContentsMargins(0, 0, 0, 0);
+  // Keep the summary text clear of the dock borders; word wrap absorbs the
+  // reduced text width at narrow inspector widths.
+  layout->setContentsMargins(10, 8, 10, 8);
   layout->addWidget(summary_);
 }
 
