@@ -70,11 +70,24 @@ The APNG performance record covers the three frozen WP-706 scenarios
 No approved APNG time thresholds exist, so the latency figures above are
 recorded as baselines only; the machine-enforced limits are the frozen
 64 MiB budgets (`retained_bytes` entries in `tests/performance/thresholds-v1.json`
-plus in-runner assertions). Process RSS peak is recorded per scenario. The
-headless runner cannot measure GUI-thread blocking; timeline-model
-virtualization (100,000 entries without per-frame widgets) is covered by the
-`largeTimelineStaysInTheModel` unit test and the inspector performance test,
-and interactive responsiveness by the native product-gate capture.
+plus in-runner assertions). Process RSS peak is recorded per scenario — the
+readouts are true peaks (`getrusage ru_maxrss` with macOS byte units handled;
+Windows `PeakWorkingSetSize`); the pre-existing `statistics-bounded-blocks`
+scenario keeps the older current-size readout under the same field name and
+is recorded here as an inherited issue rather than changed inside this work
+package.
+
+GUI-side baselines are recorded by
+`tests/gui/apng_gui_performance_test.cpp` (CTest
+`gui_apng_gui_performance_tests`; `PNGA_APNG_PERF_OUT` emits
+`build/evidence/wp-699-706/apng-gui-performance.json` at the recorded tip
+`0a70b13`, native cocoa window): timeline model population of 100,000
+entries took 9.1 ms and a 1,000-step scroll sweep 231 ms (step P95 188 us;
+step max 65 ms on the first scroll, which includes view initialization).
+During real playback of the 100-frame document, a 1 ms event-loop probe
+measured tick-gap P50 4.2 ms / P95 12.5 ms / max 77 ms — no long
+main-thread freeze. The publication rate inside the window (8 publications)
+is worker-throughput-bound on the first replay pass, not UI-bound.
 
 ## Native macOS evidence (cocoa, not offscreen)
 
@@ -100,6 +113,12 @@ earlier capture at `8a96119` is superseded.
 | static-fallback-selected | captured (PASS) |
 | partial-playback-disabled | captured (PASS) |
 | static-no-animation-ui | captured (PASS) |
+| palette-frame-output | captured (PASS) |
+
+The capture was refreshed again at `0a70b13` after the palette delivery
+wiring landed; the palette cell drives a generated palette APNG (256-entry
+PLTE) through the PLTE/tRNS -> FrameRequest::delivery -> deliver_rgba8 path
+in the real window.
 
 ## Frame decode matrix and composition fuzz (T8/T16 closure)
 
