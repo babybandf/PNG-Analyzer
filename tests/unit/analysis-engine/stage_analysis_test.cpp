@@ -3,9 +3,11 @@
 // interlaced images.
 
 #include <pnga/analysis-engine/stage_analysis.h>
+#include <pnga/analysis-engine/job_scheduler.h>
 
 #include <pnga/io/byte_source.h>
 #include <pnga/png-format/chunk_index.h>
+#include <pnga/png-format/virtual_frame_stream.h>
 #include <pnga/png-format/virtual_idat_stream.h>
 #include <pnga/png-reconstruction/native_samples.h>
 #include <pnga/png-reconstruction/scanline_layout.h>
@@ -13,6 +15,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 #include "test_png_helpers.h"
@@ -20,8 +23,10 @@
 using namespace pnga_test;  // NOLINT: test helpers are the local vocabulary
 
 using pnga::analysis_engine::analyze_stages;
+using pnga::analysis_engine::DecodeLimits;
 using pnga::analysis_engine::filter_formula;
 using pnga::analysis_engine::FilterFormula;
+using pnga::analysis_engine::StageStop;
 using pnga::analysis_engine::StageSet;
 using pnga::io::MemoryByteSource;
 using pnga::png_format::ChunkIndex;
@@ -190,4 +195,38 @@ TEST_CASE("Stage analysis and formula reject invalid input",
   const StageSet failed = analyze_stages(stream, source, e.header);
   REQUIRE_FALSE(failed.success);
   REQUIRE_FALSE(failed.error.empty());
+}
+
+TEST_CASE("Generic stage analysis rejects an over-budget job before inflate",
+          "[analysis-engine][wp702]") {
+  const EncodedPng e = encode_png(64, 64, 8, 6, false, false);
+  auto source = std::make_shared<const MemoryByteSource>(e.png_bytes);
+  const auto chunks = pnga::png_format::index_chunks(*source);
+  const auto stream = pnga::png_format::make_idat_stream(source, chunks);
+  REQUIRE(stream != nullptr);
+
+  DecodeLimits limits;
+  limits.max_working_bytes = 1;
+  const StageSet result = analyze_stages(*stream, e.header, limits, nullptr);
+  REQUIRE_FALSE(result.success);
+  REQUIRE(result.stop == StageStop::kBudget);
+  REQUIRE(result.filtered.empty());
+  REQUIRE(result.native.samples.empty());
+}
+
+TEST_CASE("Generic stage analysis reports cancellation before reading",
+          "[analysis-engine][wp702]") {
+  const EncodedPng e = encode_png(8, 8, 8, 6, false, false);
+  auto source = std::make_shared<const MemoryByteSource>(e.png_bytes);
+  const auto chunks = pnga::png_format::index_chunks(*source);
+  const auto stream = pnga::png_format::make_idat_stream(source, chunks);
+  REQUIRE(stream != nullptr);
+
+  pnga::analysis_engine::CancellationToken token;
+  token.request_cancel();
+  const StageSet result = analyze_stages(*stream, e.header, DecodeLimits{},
+                                         &token);
+  REQUIRE_FALSE(result.success);
+  REQUIRE(result.stop == StageStop::kCancelled);
+  REQUIRE(result.filtered.empty());
 }

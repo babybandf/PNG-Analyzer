@@ -16,10 +16,19 @@
 #include "pnga/analysis-engine/filtered_scanlines.h"
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
 namespace pnga::analysis_engine {
+
+class CancellationToken;
+
+struct DecodeLimits {
+  std::uint64_t max_working_bytes = 64ull * 1024 * 1024;
+};
+
+enum class StageStop { kReady, kBudget, kCancelled, kInvalid };
 
 // All stage data for one image, ready for the inspector. `filtered` holds the
 // flat filtered bytes; `unfiltered` the packed reconstructed target;
@@ -27,6 +36,7 @@ namespace pnga::analysis_engine {
 // (used by the on-demand filter formula); `scanlines` the stream-order spans.
 struct StageSet {
   bool success = false;
+  StageStop stop = StageStop::kInvalid;
   std::string error;
   pnga::png_reconstruction::ImageHeader header;
   bool interlace = false;
@@ -43,6 +53,11 @@ StageSet analyze_stages(
     const pnga::png_format::VirtualIDATStream& stream,
     const pnga::io::IByteSource& source,
     const pnga::png_reconstruction::ImageHeader& header);
+
+StageSet analyze_stages(
+    const pnga::png_format::IVirtualCompressedStream& stream,
+    const pnga::png_reconstruction::ImageHeader& header,
+    const DecodeLimits& limits, const CancellationToken* cancellation);
 
 // Convenience entry for the GUI: parses the signature and IHDR, builds the
 // virtual IDAT stream and materializes every stage in one call.

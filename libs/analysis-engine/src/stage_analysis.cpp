@@ -6,16 +6,92 @@
 #include "pnga/analysis-engine/stage_analysis.h"
 
 #include <pnga/png-format/chunk_index.h>
+#include <pnga/analysis-engine/job_scheduler.h>
 
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
+#include <optional>
 
 namespace pnga::analysis_engine {
 
 namespace {
 
 std::uint8_t u8(std::byte b) { return static_cast<std::uint8_t>(b); }
+
+std::optional<std::uint64_t> checked_add(std::uint64_t a,
+                                         std::uint64_t b) noexcept {
+  if (a > std::numeric_limits<std::uint64_t>::max() - b) {
+    return std::nullopt;
+  }
+  return a + b;
+}
+
+std::optional<std::uint64_t> checked_mul(std::uint64_t a,
+                                         std::uint64_t b) noexcept {
+  if (a != 0 && b > std::numeric_limits<std::uint64_t>::max() / a) {
+    return std::nullopt;
+  }
+  return a * b;
+}
+
+std::optional<std::uint64_t> working_bytes(
+    const pnga::png_reconstruction::ImageHeader& header,
+    const pnga::png_reconstruction::ScanlineLayout& layout) noexcept {
+  std::uint64_t total = layout.total_bytes.value_or(0);
+  const auto row = pnga::png_reconstruction::row_bytes(
+      header.width, header.bit_depth, header.color_type);
+  const auto target = row.has_value()
+                          ? checked_mul(header.height, *row)
+                          : std::nullopt;
+  if (!target.has_value()) {
+    return std::nullopt;
+  }
+  const auto area = checked_mul(header.width, header.height);
+  const auto channels =
+      pnga::png_reconstruction::channels_for_color_type(header.color_type);
+  const auto samples =
+      area.has_value() ? checked_mul(*area, channels) : std::nullopt;
+  const auto sample_bytes =
+      samples.has_value() ? checked_mul(*samples, sizeof(std::uint16_t))
+                          : std::nullopt;
+  if (!sample_bytes.has_value()) {
+    return std::nullopt;
+  }
+  std::uint64_t pass_rows = 0;
+  std::uint64_t scanline_count = 0;
+  for (std::size_t p = 0; p < layout.pass_count; ++p) {
+    const auto& pass = layout.passes[p];
+    const auto rows = checked_mul(pass.height, pass.row_bytes);
+    if (!rows.has_value()) {
+      return std::nullopt;
+    }
+    const auto next_rows = checked_add(pass_rows, *rows);
+    const auto next_count = checked_add(scanline_count, pass.height);
+    if (!next_rows.has_value() || !next_count.has_value()) {
+      return std::nullopt;
+    }
+    pass_rows = *next_rows;
+    scanline_count = *next_count;
+  }
+  const auto scanline_meta = checked_mul(
+      scanline_count, sizeof(FilteredScanlineSpan));
+  const auto pass_meta = checked_mul(layout.pass_count,
+                                     sizeof(pnga::png_reconstruction::ReconstructedPass));
+  if (!scanline_meta.has_value() || !pass_meta.has_value()) {
+    return std::nullopt;
+  }
+  for (const auto component : {*target, pass_rows, *sample_bytes,
+                               *scanline_meta, *pass_meta}) {
+    const auto next = checked_add(total, component);
+    if (!next.has_value()) {
+      return std::nullopt;
+    }
+    total = *next;
+  }
+  return total;
+}
 
 // Reads the 13-byte IHDR body and decodes width/height/bit_depth/color_type
 // and the interlace flag (spec §5.2). Chunk bodies are not interpreted by the
@@ -106,6 +182,78 @@ StageSet analyze_stages(const pnga::png_format::VirtualIDATStream& stream,
   out.unfiltered = std::move(recon.target);
   out.native = std::move(native.image);
   out.success = true;
+  out.stop = StageStop::kReady;
+  return out;
+}
+
+StageSet analyze_stages(
+    const pnga::png_format::IVirtualCompressedStream& stream,
+    const pnga::png_reconstruction::ImageHeader& header,
+    const DecodeLimits& limits, const CancellationToken* cancellation) {
+  StageSet out;
+  out.header = header;
+  out.interlace = header.interlace;
+  const auto is_cancelled = [cancellation]() {
+    return cancellation != nullptr && cancellation->cancelled();
+  };
+  auto fail = [&out](StageStop stop, const char* message) {
+    out.stop = stop;
+    out.error = message;
+    out.success = false;
+    return out;
+  };
+  if (is_cancelled()) {
+    return fail(StageStop::kCancelled, "decode cancelled");
+  }
+
+  const auto layout =
+      pnga::png_reconstruction::compute_scanline_layout(header);
+  if (!layout.has_value()) {
+    return fail(StageStop::kInvalid, "invalid image header");
+  }
+  const auto required = working_bytes(header, *layout);
+  if (!required.has_value() ||
+      *required > limits.max_working_bytes ||
+      *required > std::numeric_limits<std::size_t>::max()) {
+    return fail(StageStop::kBudget, "decode working set exceeds the size limit");
+  }
+
+  const FilteredOutcome filtered = inflate_filtered(
+      stream, *layout, limits.max_working_bytes, is_cancelled);
+  if (filtered.cancelled || is_cancelled()) {
+    return fail(StageStop::kCancelled, "decode cancelled");
+  }
+  if (filtered.budget_exceeded) {
+    return fail(StageStop::kBudget, "decode working set exceeds the size limit");
+  }
+  if (!filtered.success) {
+    return fail(StageStop::kInvalid, filtered.error.c_str());
+  }
+
+  const auto recon = pnga::png_reconstruction::reconstruct_image(
+      header, *layout, filtered.filtered, is_cancelled);
+  if (recon.cancelled || is_cancelled()) {
+    return fail(StageStop::kCancelled, "decode cancelled");
+  }
+  if (!recon.success) {
+    return fail(StageStop::kInvalid, recon.error.c_str());
+  }
+  const auto native = pnga::png_reconstruction::extract_native_samples(
+      header, recon.target, is_cancelled);
+  if (native.cancelled || is_cancelled()) {
+    return fail(StageStop::kCancelled, "decode cancelled");
+  }
+  if (!native.success) {
+    return fail(StageStop::kInvalid, native.error.c_str());
+  }
+
+  out.scanlines = filtered.scanlines;
+  out.passes = recon.passes;
+  out.filtered = filtered.filtered;
+  out.unfiltered = recon.target;
+  out.native = native.image;
+  out.success = true;
+  out.stop = StageStop::kReady;
   return out;
 }
 

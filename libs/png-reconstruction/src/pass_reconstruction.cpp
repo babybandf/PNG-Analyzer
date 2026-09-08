@@ -32,7 +32,8 @@ std::optional<std::uint64_t> checked_mul(std::uint64_t a,
 
 PassReconstructionOutcome reconstruct_image(
     const ImageHeader& header, const ScanlineLayout& layout,
-    std::span<const std::byte> filtered) {
+    std::span<const std::byte> filtered,
+    const std::function<bool()>& cancelled) {
   PassReconstructionOutcome out;
   out.interlace = header.interlace;
 
@@ -44,6 +45,18 @@ PassReconstructionOutcome reconstruct_image(
     out.target.clear();
     return out;
   };
+  auto cancel = [&out]() {
+    out.success = false;
+    out.cancelled = true;
+    out.error = "reconstruction cancelled";
+    out.passes.clear();
+    out.target.clear();
+    return out;
+  };
+
+  if (cancelled && cancelled()) {
+    return cancel();
+  }
 
   if (header.width == 0 || header.height == 0) {
     return fail("invalid image dimensions");
@@ -75,6 +88,9 @@ PassReconstructionOutcome reconstruct_image(
 
   std::uint64_t cursor = 0;
   for (std::size_t p = 0; p < layout.pass_count; ++p) {
+    if (cancelled && cancelled()) {
+      return cancel();
+    }
     const PassLayout& pass = layout.passes[p];
     ReconstructedPass rp;
     rp.pass_index = p;
@@ -101,6 +117,9 @@ PassReconstructionOutcome reconstruct_image(
     std::vector<std::byte> row(static_cast<std::size_t>(pass.row_bytes));
 
     for (std::uint64_t r = 0; r < pass.height; ++r) {
+      if (cancelled && cancelled()) {
+        return cancel();
+      }
       if (pass.filter_row_bytes > filtered.size() - cursor) {
         return fail("filtered buffer truncated inside pass");
       }
@@ -157,6 +176,12 @@ PassReconstructionOutcome reconstruct_image(
   }
   out.success = true;
   return out;
+}
+
+PassReconstructionOutcome reconstruct_image(
+    const ImageHeader& header, const ScanlineLayout& layout,
+    std::span<const std::byte> filtered) {
+  return reconstruct_image(header, layout, filtered, {});
 }
 
 }  // namespace pnga::png_reconstruction

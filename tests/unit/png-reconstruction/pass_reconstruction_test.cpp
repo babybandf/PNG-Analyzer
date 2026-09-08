@@ -304,3 +304,19 @@ TEST_CASE("Reconstruction is deterministic", "[png-reconstruction][wp303]") {
   REQUIRE(a.target == b.target);
   REQUIRE(a.passes == b.passes);
 }
+
+TEST_CASE("Reconstruction cancellation produces no partial target",
+          "[png-reconstruction][wp702]") {
+  const EncodedPng e = encode_png(32, 32, 8, 6, /*interlace=*/true,
+                                  /*all_none=*/false);
+  const auto layout = compute_scanline_layout(e.header);
+  REQUIRE(layout.has_value());
+  int checks = 0;
+  const auto out = reconstruct_image(e.header, *layout, e.filtered,
+                                     [&checks] { return ++checks > 3; });
+  REQUIRE_FALSE(out.success);
+  REQUIRE(out.cancelled);
+  REQUIRE(checks > 3);
+  REQUIRE(out.target.empty());
+  REQUIRE(out.passes.empty());
+}

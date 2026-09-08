@@ -220,3 +220,17 @@ TEST_CASE("Native extraction rejects invalid input", "[png-reconstruction][wp304
   REQUIRE_FALSE(mismatch.success);
   REQUIRE_FALSE(mismatch.error.empty());
 }
+
+TEST_CASE("Native sample extraction observes cancellation",
+          "[png-reconstruction][wp702]") {
+  const std::vector<std::byte> raw = make_raw_image(16, 16, 8, 6,
+                                                     /*seed=*/1);
+  int checks = 0;
+  const auto out = extract_native_samples(
+      ImageHeader{16, 16, 8, 6, false}, raw,
+      [&checks] { return ++checks > 4; });
+  REQUIRE_FALSE(out.success);
+  REQUIRE(out.cancelled);
+  REQUIRE(checks > 4);
+  REQUIRE(out.image.samples.empty());
+}

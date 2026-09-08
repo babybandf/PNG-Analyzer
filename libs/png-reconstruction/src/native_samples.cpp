@@ -33,9 +33,21 @@ bool valid_bit_depth(std::uint8_t bit_depth) noexcept {
 }  // namespace
 
 NativeSamplesOutcome extract_native_samples(
-    const ImageHeader& header, std::span<const std::byte> packed) {
+    const ImageHeader& header, std::span<const std::byte> packed,
+    const std::function<bool()>& cancelled) {
   NativeSamplesOutcome out;
   NativeImage& image = out.image;
+
+  auto cancel = [&out]() {
+    out.success = false;
+    out.cancelled = true;
+    out.error = "native sample extraction cancelled";
+    out.image = NativeImage{};
+    return out;
+  };
+  if (cancelled && cancelled()) {
+    return cancel();
+  }
 
   if (header.width == 0 || header.height == 0) {
     out.error = "invalid image dimensions";
@@ -80,6 +92,9 @@ NativeSamplesOutcome extract_native_samples(
 
   std::size_t index = 0;
   for (std::uint32_t y = 0; y < header.height; ++y) {
+    if (cancelled && cancelled()) {
+      return cancel();
+    }
     const std::byte* row = packed.data() + static_cast<std::size_t>(y) *
                                                *row_bytes_opt;
     for (std::uint32_t x = 0; x < header.width; ++x) {
@@ -105,6 +120,11 @@ NativeSamplesOutcome extract_native_samples(
 
   out.success = true;
   return out;
+}
+
+NativeSamplesOutcome extract_native_samples(
+    const ImageHeader& header, std::span<const std::byte> packed) {
+  return extract_native_samples(header, packed, {});
 }
 
 }  // namespace pnga::png_reconstruction

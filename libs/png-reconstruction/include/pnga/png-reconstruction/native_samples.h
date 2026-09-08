@@ -10,6 +10,7 @@
 #include "pnga/png-reconstruction/scanline_layout.h"
 
 #include <cstdint>
+#include <functional>
 #include <span>
 #include <string>
 #include <vector>
@@ -31,6 +32,7 @@ struct NativeImage {
 
 struct NativeSamplesOutcome {
   bool success = false;
+  bool cancelled = false;
   std::string error;  // stable message on failure
   NativeImage image;
 };
@@ -41,6 +43,10 @@ struct NativeSamplesOutcome {
 // failure no partial image is produced.
 NativeSamplesOutcome extract_native_samples(
     const ImageHeader& header, std::span<const std::byte> packed);
+
+NativeSamplesOutcome extract_native_samples(
+    const ImageHeader& header, std::span<const std::byte> packed,
+    const std::function<bool()>& cancelled);
 
 }  // namespace pnga::png_reconstruction
 

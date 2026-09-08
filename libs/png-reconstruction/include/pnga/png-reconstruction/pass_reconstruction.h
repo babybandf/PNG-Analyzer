@@ -15,6 +15,7 @@
 #include "pnga/png-reconstruction/scanline_layout.h"
 
 #include <cstdint>
+#include <functional>
 #include <span>
 #include <string>
 #include <vector>
@@ -32,6 +33,7 @@ struct ReconstructedPass {
 
 struct PassReconstructionOutcome {
   bool success = false;
+  bool cancelled = false;
   std::string error;  // stable message on failure
   bool interlace = false;
   // One entry per pass (1 for non-interlaced, 7 for Adam7). Distinguishes the
@@ -52,6 +54,11 @@ struct PassReconstructionOutcome {
 PassReconstructionOutcome reconstruct_image(
     const ImageHeader& header, const ScanlineLayout& layout,
     std::span<const std::byte> filtered);
+
+PassReconstructionOutcome reconstruct_image(
+    const ImageHeader& header, const ScanlineLayout& layout,
+    std::span<const std::byte> filtered,
+    const std::function<bool()>& cancelled);
 
 }  // namespace pnga::png_reconstruction
 

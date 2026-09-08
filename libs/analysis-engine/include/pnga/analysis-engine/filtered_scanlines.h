@@ -11,6 +11,7 @@
 #include <pnga/png-reconstruction/scanline_layout.h>
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -31,6 +32,8 @@ struct FilteredOutcome {
   std::vector<FilteredScanlineSpan> scanlines;  // stream order (pass-major)
   bool exact_size = false;  // inflated bytes == expected layout total
   bool adler_ok = true;
+  bool budget_exceeded = false;
+  bool cancelled = false;
 };
 
 // Inflates the virtual IDAT stream and splits it into filtered scanlines per
@@ -40,6 +43,12 @@ FilteredOutcome inflate_filtered(
     const pnga::png_format::VirtualIDATStream& stream,
     const pnga::io::IByteSource& source,
     const pnga::png_reconstruction::ScanlineLayout& layout);
+
+FilteredOutcome inflate_filtered(
+    const pnga::io::IByteSource& stream,
+    const pnga::png_reconstruction::ScanlineLayout& layout,
+    std::uint64_t max_output,
+    const std::function<bool()>& cancelled = {});
 
 }  // namespace pnga::analysis_engine
 
