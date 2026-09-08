@@ -97,6 +97,18 @@ earlier capture at `8a96119` is superseded.
   not configured in this environment; the sanitizer fuzz gate covers the
   deterministic replay + smoke level recorded above.
 
+## Environment note: Qt provenance
+
+The local verification builds resolve Qt through
+`/opt/homebrew/lib/cmake/Qt6` (Homebrew `qt` 6.11.1), not the official Qt
+installer the repository dependency contract names. This is a pre-existing
+characteristic of this machine's toolchain that every previously accepted
+work package on this host was verified against (including the WP-5U14N
+native theme evidence at Qt 6.11.1), not something this branch introduced.
+It is recorded here for honesty; switching the host to the official
+installer Qt is a repository-level infrastructure task outside this work
+package's allowed paths.
+
 ## Changed paths since the withdrawn claim
 
 - `apps/png-analyzer-gui/src/animation_controller.*`,
