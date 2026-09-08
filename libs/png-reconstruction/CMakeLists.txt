@@ -4,6 +4,7 @@
 # Testable without Qt and without libpng. ADR-0003: never link Qt.
 
 add_library(pnga_png_reconstruction
+  src/canvas_composition.cpp
   src/native_samples.cpp
   src/pass_reconstruction.cpp
   src/rgba_delivery.cpp

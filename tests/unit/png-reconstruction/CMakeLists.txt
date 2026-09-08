@@ -4,6 +4,7 @@
 # pnga_png_reconstruction target itself never links libpng.
 
 add_executable(pnga_png_reconstruction_tests
+  canvas_composition_test.cpp
   native_samples_test.cpp
   pass_reconstruction_test.cpp
   rgba_delivery_test.cpp
