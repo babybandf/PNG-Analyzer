@@ -71,7 +71,12 @@ all 7 cells executed against real windows, 7 screenshots under
 `build/evidence/wp-699-706/captures/` (git-ignored) plus
 `apng-product-gate-evidence.json` recording environment (macOS 26.6.2, arm64,
 Qt 6.11.1, cocoa, device-pixel-ratio 2.0, logical DPI 72, window 1400x950,
-commit `8a96119`) and SHA-256 of every capture and generated sample.
+commit `c19f473`) and SHA-256 of every capture and generated sample.
+
+The capture was re-run at the final pre-merge tip `c19f473` after the
+post-acceptance GUI refinements (empty-canvas hint, thumbnail outlines,
+monospace Animation inspector text, "Static Fallback" tab label); the
+earlier capture at `8a96119` is superseded.
 
 | Cell | Result |
 | --- | --- |
@@ -105,6 +110,11 @@ commit `8a96119`) and SHA-256 of every capture and generated sample.
   `tests/gui/animation_controller_test.cpp`,
   `main_window_layout_test.cpp`, new
   `tests/gui/apng_product_gate_test.cpp`, `tests/gui/CMakeLists.txt`
+- Post-acceptance UI refinements (`ea29333`, `fd1d721`, `40ae443`,
+  `0e3090e`): empty-canvas hint in `DeliveredImageView` with
+  dispose-semantics reasons, 1-px black thumbnail outlines, Animation
+  inspector layout margins and monospace theme font, "Static Fallback"
+  relabeling of the first preview tab for independent-fallback APNGs
 - `docs/development/wp-699-706-apng-completion.md`,
   `docs/development/wp-699-706-apng-first-release.md`
 
