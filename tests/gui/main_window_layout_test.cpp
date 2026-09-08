@@ -2,6 +2,7 @@
 // app window but never opens a file, so no decoder or file I/O is involved.
 
 #include "main_window.h"
+#include "png_file_filter.h"
 
 #include <pnga/ui/qt/delivered_image_view.h>
 #include <pnga/ui/qt/hex_source_tab_bar.h>
@@ -93,7 +94,8 @@ void send_dock_title_dblclick(QDockWidget* dock, bool floating) {
 class MainWindowLayoutTest : public QObject {
   Q_OBJECT
  private slots:
-  void init();
+ void init();
+  void supportedPngSuffixPredicateCoversPngAndApng();
   void defaultLayoutHasRequiredRegions();
   void docksAreMovableFloatableAndClosable();
   void workspaceSettingsRoundTrip();
@@ -122,6 +124,15 @@ class MainWindowLayoutTest : public QObject {
 void MainWindowLayoutTest::init() {
   QSettings settings;
   settings.clear();
+}
+
+void MainWindowLayoutTest::supportedPngSuffixPredicateCoversPngAndApng() {
+  QVERIFY(hasSupportedPngSuffix(QStringLiteral("example.png")));
+  QVERIFY(hasSupportedPngSuffix(QStringLiteral("example.PNG")));
+  QVERIFY(hasSupportedPngSuffix(QStringLiteral("example.ApNg")));
+  QVERIFY(hasSupportedPngSuffix(QStringLiteral("example.APNG")));
+  QVERIFY(!hasSupportedPngSuffix(QStringLiteral("example.apng.txt")));
+  QVERIFY(!hasSupportedPngSuffix(QStringLiteral("example.png.backup")));
 }
 
 void MainWindowLayoutTest::defaultLayoutHasRequiredRegions() {

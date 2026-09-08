@@ -4,6 +4,7 @@
 // generation-gated.
 
 #include "main_window.h"
+#include "png_file_filter.h"
 
 #include <pnga/ui/qt/about_dialog.h>
 #include <pnga/ui/qt/application_theme.h>
@@ -59,9 +60,7 @@ bool hasLocalPngUrl(const QMimeData* mime_data) {
       continue;
     }
     const QFileInfo file_info(url.toLocalFile());
-    if (file_info.isFile() &&
-        file_info.suffix().compare(QStringLiteral("png"),
-                                   Qt::CaseInsensitive) == 0) {
+    if (file_info.isFile() && hasSupportedPngSuffix(file_info.fileName())) {
       return true;
     }
   }
@@ -345,9 +344,7 @@ void MainWindow::dropEvent(QDropEvent* event) {
       continue;
     }
     const QFileInfo file_info(url.toLocalFile());
-    if (!file_info.isFile() ||
-        file_info.suffix().compare(QStringLiteral("png"),
-                                   Qt::CaseInsensitive) != 0) {
+    if (!file_info.isFile() || !hasSupportedPngSuffix(file_info.fileName())) {
       continue;
     }
     if (openFile(file_info.absoluteFilePath())) {
@@ -567,7 +564,8 @@ void MainWindow::onOpenTriggered() {
   dialog.setOption(QFileDialog::DontUseNativeDialog, true);
   dialog.setWindowTitle(QStringLiteral("Open PNG"));
   dialog.setDirectory(workspace_->lastOpenDirectory());
-  dialog.setNameFilter(QStringLiteral("PNG files (*.png *.PNG)"));
+  dialog.setNameFilter(
+      QStringLiteral("PNG/APNG files (*.png *.PNG *.apng *.APNG)"));
   // QFileSystemModel disables non-matching files by default. That is the
   // behavior seen in the macOS picker; make the Qt-backed dialog hide them
   // instead while retaining directory entries for navigation.
