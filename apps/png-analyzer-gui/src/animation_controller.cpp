@@ -12,6 +12,7 @@
 
 #include <pnga/png-format/animation_index.h>
 #include <pnga/png-format/virtual_frame_stream.h>
+#include <pnga/analysis-engine/frame_analysis.h>
 
 #include <variant>
 #include <utility>
@@ -284,6 +285,10 @@ void bindAnimationUi(AnimationController& controller, DocumentSession& session,
         request.source = session.source();
         request.index = std::move(index);
         request.canvas_header = session.stageSet()->header;
+        // Palette/tRNS frames need the document delivery context; without
+        // it deliver_rgba8 rejects type-3 frames with "palette is missing".
+        request.delivery = pnga::analysis_engine::delivery_context_from(
+            *request.index, request.canvas_header);
         controller.setDocument(request);
         if (controller.capability() == AnimationController::Capability::kValid ||
             controller.capability() == AnimationController::Capability::kPartial) {

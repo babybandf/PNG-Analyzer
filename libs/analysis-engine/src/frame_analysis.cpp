@@ -2,9 +2,58 @@
 
 #include <pnga/png-format/virtual_frame_stream.h>
 
+#include <cstddef>
 #include <utility>
 
 namespace pnga::analysis_engine {
+namespace {
+
+std::uint16_t big_endian_u16(const std::byte* data) {
+  return static_cast<std::uint16_t>(
+      (std::to_integer<std::uint16_t>(data[0]) << 8) |
+      std::to_integer<std::uint16_t>(data[1]));
+}
+
+}  // namespace
+
+pnga::png_reconstruction::DeliveryContext delivery_context_from(
+    const pnga::png_format::AnimationIndex& index,
+    const pnga::png_reconstruction::ImageHeader& canvas_header) {
+  pnga::png_reconstruction::DeliveryContext context;
+  if (canvas_header.color_type == 3) {
+    if (index.palette_bytes.empty() || index.palette_bytes.size() % 3 != 0 ||
+        index.palette_bytes.size() > 768) {
+      return context;
+    }
+    for (std::size_t i = 0; i + 2 < index.palette_bytes.size(); i += 3) {
+      context.palette.push_back(
+          {std::to_integer<std::uint8_t>(index.palette_bytes[i]),
+           std::to_integer<std::uint8_t>(index.palette_bytes[i + 1]),
+           std::to_integer<std::uint8_t>(index.palette_bytes[i + 2])});
+    }
+    context.palette_alpha.reserve(index.transparency_bytes.size());
+    for (const auto alpha : index.transparency_bytes) {
+      context.palette_alpha.push_back(std::to_integer<std::uint8_t>(alpha));
+    }
+    return context;
+  }
+  if (canvas_header.color_type == 0) {
+    if (index.transparency_bytes.size() == 2) {
+      context.transparent_gray =
+          big_endian_u16(index.transparency_bytes.data());
+    }
+    return context;
+  }
+  if (canvas_header.color_type == 2) {
+    if (index.transparency_bytes.size() == 6) {
+      context.transparent_rgb = {big_endian_u16(index.transparency_bytes.data()),
+                                 big_endian_u16(index.transparency_bytes.data() + 2),
+                                 big_endian_u16(index.transparency_bytes.data() + 4)};
+    }
+    return context;
+  }
+  return context;
+}
 
 FrameResult analyze_frame(const FrameRequest& request,
                           const CancellationToken* cancellation) {

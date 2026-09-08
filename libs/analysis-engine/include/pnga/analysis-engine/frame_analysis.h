@@ -46,6 +46,17 @@ struct FrameResult {
   std::shared_ptr<const FrameStageSet> frame;
 };
 
+// Converts the PLTE/tRNS bytes retained by the animation index into the
+// delivery context analyze_frame applies to every frame of the document.
+// Interpretation follows the canvas header's color type: palette indices
+// for type 3, a 2-byte gray sample for type 0 and a 6-byte RGB triple for
+// type 2, all compared at the original bit depth. Malformed bytes yield an
+// empty context so delivery fails with its stable palette error instead of
+// guessing.
+pnga::png_reconstruction::DeliveryContext delivery_context_from(
+    const pnga::png_format::AnimationIndex& index,
+    const pnga::png_reconstruction::ImageHeader& canvas_header);
+
 FrameResult analyze_frame(const FrameRequest& request,
                           const CancellationToken* cancellation);
 

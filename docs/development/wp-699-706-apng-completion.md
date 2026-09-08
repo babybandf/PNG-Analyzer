@@ -101,6 +101,43 @@ earlier capture at `8a96119` is superseded.
 | partial-playback-disabled | captured (PASS) |
 | static-no-animation-ui | captured (PASS) |
 
+## Frame decode matrix and composition fuzz (T8/T16 closure)
+
+`tests/unit/analysis-engine/frame_analysis_test.cpp` now carries the frozen
+WP-702 frame-level matrix over `analyze_frame` with independently computed
+delivered-RGBA expectations (the delivery rules — scale 255/max, 16-bit
+`>>8`, palette lookup, tRNS comparison at the original depth — are
+reimplemented in the test, not generated through the production path):
+
+- full color-type/bit-depth matrix: gray 1/2/4/8/16, RGB 8/16, palette
+  1/2/4/8 (with generated PLTE), gray+alpha 8/16, RGBA 8/16;
+- Adam7 interlaced frames for RGBA8, gray16 and palette4 over an odd-sized
+  canvas (partial first/last passes);
+- tRNS at original depth for gray 8/1, RGB 16 and palette 4;
+- multi-fdAT frames (payload partitioned across four fdAT chunks) deliver
+  byte-identical pixels to a single-fdAT frame;
+- subrect frames map the frame-local pattern with their fcTL offsets;
+- corrupt frame streams (flipped zlib payload byte and an invalid filter
+  byte, both with recomputed CRCs so indexing stays complete) fail with a
+  stable error instead of partial pixels.
+
+`tests/unit/png-reconstruction/canvas_composition_test.cpp` adds a seeded
+(20260908) 4,000-iteration rect-arithmetic fuzz over blend×dispose: rects
+deliberately hang off the canvas edges, accepted paths verify that bytes
+outside the rect never change, PREVIOUS restores the pre-blend rectangle
+exactly and BACKGROUND clears the rect to transparent black; rejected paths
+must leave the canvas untouched (≈1.38 million assertions per run, covered
+by the ASan suite).
+
+The fixture gained `make_apng_format` (every color type/depth/interlace,
+PLTE/tRNS emission, fdAT payload splitting) plus `refresh_chunk_crc` for
+CRC-consistent corruption; `make_apng`/`make_apng_canvas` behavior is
+unchanged. The engine gained `delivery_context_from(index, canvas_header)`
+converting the retained PLTE/tRNS bytes into the frame delivery context,
+and the GUI now fills `FrameRequest::delivery` with it — palette/tRNS APNG
+files previously failed delivery in the GUI ("palette is missing"); this
+closes that gap.
+
 ## Not executed (honest gaps)
 
 - Windows and Linux native window interaction evidence: **not executed** on
