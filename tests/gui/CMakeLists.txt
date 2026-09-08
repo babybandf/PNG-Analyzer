@@ -125,6 +125,19 @@ target_compile_features(pnga_gui_selection_bus_tests PRIVATE cxx_std_20)
 
 add_test(NAME gui_selection_bus_tests COMMAND pnga_gui_selection_bus_tests)
 
+add_executable(pnga_gui_apng_ui_tests
+  animation_ui_test.cpp
+)
+set_target_properties(pnga_gui_apng_ui_tests PROPERTIES AUTOMOC ON)
+target_link_libraries(pnga_gui_apng_ui_tests PRIVATE
+  pnga::ui_qt
+  pnga::analysis_engine
+  pnga::png_format
+  Qt6::Test
+)
+target_compile_features(pnga_gui_apng_ui_tests PRIVATE cxx_std_20)
+add_test(NAME gui_apng_ui_tests COMMAND pnga_gui_apng_ui_tests)
+
 add_executable(pnga_gui_selection_view_state_tests
   selection_view_state_test.cpp
 )

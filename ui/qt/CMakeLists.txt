@@ -8,6 +8,9 @@
 
 add_library(pnga_ui_qt
   include/pnga/ui/qt/about_dialog.h
+  include/pnga/ui/qt/animation_inspector.h
+  include/pnga/ui/qt/animation_timeline.h
+  include/pnga/ui/qt/animation_timeline_model.h
   include/pnga/ui/qt/application_theme.h
   include/pnga/ui/qt/block_inspector.h
   include/pnga/ui/qt/block_inspector_model.h
@@ -36,6 +39,9 @@ add_library(pnga_ui_qt
   include/pnga/ui/qt/stage_pixel_process_view.h
   include/pnga/ui/qt/stage_preview_view.h
   src/about_dialog.cpp
+  src/animation_inspector.cpp
+  src/animation_timeline.cpp
+  src/animation_timeline_model.cpp
   src/application_theme.cpp
   src/block_inspector.cpp
   src/block_inspector_model.cpp
