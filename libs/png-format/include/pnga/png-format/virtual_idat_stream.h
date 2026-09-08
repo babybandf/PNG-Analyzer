@@ -8,6 +8,7 @@
 
 #include "pnga/io/byte_source.h"
 #include "pnga/png-format/chunk_index.h"
+#include "pnga/png-format/virtual_compressed_stream.h"
 
 #include <cstdint>
 #include <optional>
@@ -20,14 +21,6 @@ struct IdatSegment {
   std::uint64_t physical_offset = 0;  // first data byte in the file
   std::uint64_t length = 0;           // data bytes
   std::uint64_t logical_start = 0;    // position in the virtual stream
-};
-
-// A physical byte range (offset/length pair, no views into any source).
-struct PhysicalRange {
-  std::uint64_t offset = 0;
-  std::uint64_t length = 0;
-
-  bool operator==(const PhysicalRange&) const = default;
 };
 
 // Logical-to-physical mapping for the concatenation of all IDAT data payloads

@@ -6,6 +6,7 @@ add_library(pnga_png_format
   src/checksum.cpp
   src/chunk_detail.cpp
   src/chunk_index.cpp
+  src/virtual_frame_stream.cpp
   src/virtual_idat_stream.cpp
 )
 add_library(pnga::png_format ALIAS pnga_png_format)
