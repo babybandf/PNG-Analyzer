@@ -28,6 +28,8 @@ std::filesystem::path filesystemPath(const QString& path) {
 }  // namespace
 
 DocumentSession::DocumentSession(QObject* parent) : QObject(parent) {
+  qRegisterMetaType<
+      std::shared_ptr<const pnga::png_format::AnimationIndex>>();
   query_bridge_ = new QueryStatusBridge(this);
   connect(query_bridge_, &QueryStatusBridge::rowStatus, this,
           &DocumentSession::rowQueryStatus);
@@ -65,6 +67,7 @@ bool DocumentSession::replace(const QString& path) {
   source_ = std::move(source);
   index_ = pnga::png_format::index_chunks(*source_);
   stage_set_.reset();
+  animation_index_.reset();
   validation_report_ = {};
   decode_result_ = {};
   chunk_detail_ = {};
@@ -73,6 +76,7 @@ bool DocumentSession::replace(const QString& path) {
   stage_worker_ = nullptr;
   validation_worker_ = nullptr;
   chunk_detail_worker_ = nullptr;
+  stopAnimationIndex();
   stopStatistics();
   current_file_path_ = QFileInfo(path).absoluteFilePath();
   emit replaced(generation_);
@@ -84,6 +88,7 @@ void DocumentSession::close() {
   source_.reset();
   index_ = {};
   stage_set_.reset();
+  animation_index_.reset();
   validation_report_ = {};
   decode_result_ = {};
   chunk_detail_ = {};
@@ -92,6 +97,7 @@ void DocumentSession::close() {
   stage_worker_ = nullptr;
   validation_worker_ = nullptr;
   chunk_detail_worker_ = nullptr;
+  stopAnimationIndex();
   stopStatistics();
   current_file_path_.clear();
   emit closed(generation_);
@@ -101,6 +107,7 @@ void DocumentSession::startPrimaryWorkers() {
   startValidation();
   startDecode();
   startStageAnalysis();
+  startAnimationIndex();
 }
 
 void DocumentSession::openQueryCoordinator(
@@ -237,6 +244,11 @@ DocumentSession::stageSet() const {
   return stage_set_;
 }
 
+std::shared_ptr<const pnga::png_format::AnimationIndex>
+DocumentSession::animationIndex() const {
+  return animation_index_;
+}
+
 const pnga::analysis_engine::DocumentValidationReport&
 DocumentSession::validationReport() const noexcept {
   return validation_report_;
@@ -290,6 +302,36 @@ void DocumentSession::startValidation() {
   worker->start();
 }
 
+void DocumentSession::startAnimationIndex() {
+  stopAnimationIndex();
+  if (source_ == nullptr) {
+    return;
+  }
+  auto* worker = new AnimationIndexWorker(generation_, source_, {}, this);
+  animation_worker_ = worker;
+  connect(worker, &AnimationIndexWorker::animationDone, this,
+          &DocumentSession::onAnimationDone);
+  connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+  connect(worker, &QThread::finished, this, [this, worker] {
+    if (animation_worker_ == worker) {
+      animation_worker_ = nullptr;
+    }
+  });
+  worker->start();
+}
+
+void DocumentSession::stopAnimationIndex() {
+  if (animation_worker_ == nullptr) {
+    return;
+  }
+  animation_worker_->cancel();
+  if (animation_worker_->isRunning()) {
+    animation_worker_->wait();
+  }
+  animation_worker_->deleteLater();
+  animation_worker_ = nullptr;
+}
+
 void DocumentSession::onDecodeDone(std::uint64_t generation) {
   if (generation != generation_ || decode_worker_ == nullptr) {
     return;  // stale decode; never overwrite the current document's image
@@ -321,6 +363,15 @@ void DocumentSession::onValidationDone(std::uint64_t generation) {
   validation_report_ = validation_worker_->result();
   validation_worker_ = nullptr;
   emit validationPublished(generation);
+}
+
+void DocumentSession::onAnimationDone(std::uint64_t generation) {
+  if (generation != generation_ || animation_worker_ == nullptr) {
+    return;
+  }
+  animation_index_ = animation_worker_->result();
+  animation_worker_ = nullptr;
+  emit animationPublished(generation, animation_index_);
 }
 
 void DocumentSession::onChunkDetailDone(std::uint64_t generation,

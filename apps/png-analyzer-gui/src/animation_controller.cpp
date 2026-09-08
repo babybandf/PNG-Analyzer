@@ -50,6 +50,10 @@ void AnimationController::setDocument(
   }
   capability_ = next;
   emit capabilityChanged(static_cast<int>(capability_));
+  if (capability_ == Capability::kValid) {
+    // A complete animation always opens paused on its first verified frame.
+    selectFrame(0);
+  }
 }
 
 void AnimationController::selectFrame(std::uint32_t ordinal) {

@@ -40,6 +40,26 @@ void ValidationWorker::run() {
   emit validationDone(generation_);
 }
 
+AnimationIndexWorker::AnimationIndexWorker(
+    std::uint64_t generation, std::shared_ptr<pnga::io::IByteSource> source,
+    pnga::png_format::AnimationLimits limits, QObject* parent)
+    : QThread(parent),
+      generation_(generation),
+      source_(std::move(source)),
+      limits_(limits) {}
+
+void AnimationIndexWorker::run() {
+  if (source_ == nullptr) {
+    result_ = std::make_shared<pnga::png_format::AnimationIndex>();
+    result_->status = pnga::png_format::AnimationStatus::kInvalid;
+  } else {
+    result_ = std::make_shared<pnga::png_format::AnimationIndex>(
+        pnga::png_format::index_animation(
+            *source_, limits_, [this] { return cancelled_.load(); }));
+  }
+  emit animationDone(generation_);
+}
+
 ChunkDetailWorker::ChunkDetailWorker(
     std::uint64_t generation, std::uint64_t selection_serial,
     std::shared_ptr<pnga::io::IByteSource> source,

@@ -18,12 +18,16 @@
 #include <pnga/io/byte_source.h>
 #include <pnga/png-format/chunk_detail.h>
 #include <pnga/png-format/chunk_index.h>
+#include <pnga/png-format/animation_index.h>
 
 #include <QObject>
 #include <QString>
 
 #include <cstdint>
 #include <memory>
+
+Q_DECLARE_METATYPE(
+    std::shared_ptr<const pnga::png_format::AnimationIndex>)
 
 namespace pnga::png_reconstruction {
 struct ImageHeader;
@@ -72,6 +76,8 @@ class DocumentSession final : public QObject {
   std::shared_ptr<const pnga::io::IByteSource> source() const;
   const pnga::backend_libpng::ReferenceResult& decodeResult() const noexcept;
   std::shared_ptr<const pnga::analysis_engine::StageSet> stageSet() const;
+  std::shared_ptr<const pnga::png_format::AnimationIndex> animationIndex()
+      const;
   const pnga::analysis_engine::DocumentValidationReport& validationReport()
       const noexcept;
   const pnga::png_format::ChunkDetail& chunkDetail() const noexcept;
@@ -82,6 +88,9 @@ class DocumentSession final : public QObject {
   void closed(std::uint64_t generation);
   void decodePublished(std::uint64_t generation);
   void stagesPublished(std::uint64_t generation);
+  void animationPublished(
+      std::uint64_t generation,
+      std::shared_ptr<const pnga::png_format::AnimationIndex> index);
   void validationPublished(std::uint64_t generation);
   void chunkDetailPublished(std::uint64_t generation,
                             std::uint64_t selection_serial);
@@ -99,6 +108,7 @@ class DocumentSession final : public QObject {
   void onDecodeDone(std::uint64_t generation);
   void onStageDone(std::uint64_t generation);
   void onValidationDone(std::uint64_t generation);
+  void onAnimationDone(std::uint64_t generation);
   void onChunkDetailDone(std::uint64_t generation,
                          std::uint64_t selection_serial);
   void onStatisticsProgress(
@@ -114,18 +124,22 @@ class DocumentSession final : public QObject {
   void startDecode();
   void startStageAnalysis();
   void startValidation();
+  void startAnimationIndex();
+  void stopAnimationIndex();
   void startStatistics();
   void stopStatistics();
 
   std::shared_ptr<pnga::io::IByteSource> source_;
   pnga::png_format::ChunkIndex index_;
   std::shared_ptr<const pnga::analysis_engine::StageSet> stage_set_;
+  std::shared_ptr<const pnga::png_format::AnimationIndex> animation_index_;
   pnga::analysis_engine::DocumentValidationReport validation_report_;
   pnga::backend_libpng::ReferenceResult decode_result_;
   pnga::png_format::ChunkDetail chunk_detail_;
   DecodeWorker* decode_worker_ = nullptr;
   StageWorker* stage_worker_ = nullptr;
   ValidationWorker* validation_worker_ = nullptr;
+  AnimationIndexWorker* animation_worker_ = nullptr;
   ChunkDetailWorker* chunk_detail_worker_ = nullptr;
   StatisticsWorker* statistics_worker_ = nullptr;
   bool statistics_requested_ = false;

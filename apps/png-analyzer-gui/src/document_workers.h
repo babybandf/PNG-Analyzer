@@ -13,11 +13,13 @@
 #include <pnga/io/byte_source.h>
 #include <pnga/png-format/chunk_detail.h>
 #include <pnga/png-format/chunk_index.h>
+#include <pnga/png-format/animation_index.h>
 
 #include <QObject>
 #include <QThread>
 
 #include <cstdint>
+#include <atomic>
 #include <memory>
 
 // Decodes a shared source on a worker thread. Owns its own source copy so a
@@ -97,6 +99,37 @@ class ValidationWorker final : public QThread {
   std::shared_ptr<pnga::io::IByteSource> source_;
   pnga::png_format::ChunkIndex index_;
   pnga::analysis_engine::DocumentValidationReport result_;
+};
+
+// Bounded APNG metadata scan. The worker publishes only an immutable index;
+// capability decisions remain outside the GUI thread's parsing path.
+class AnimationIndexWorker final : public QThread {
+  Q_OBJECT
+ public:
+  AnimationIndexWorker(
+      std::uint64_t generation,
+      std::shared_ptr<pnga::io::IByteSource> source,
+      pnga::png_format::AnimationLimits limits = {},
+      QObject* parent = nullptr);
+
+  void cancel() noexcept { cancelled_.store(true); }
+  std::uint64_t generation() const noexcept { return generation_; }
+  std::shared_ptr<const pnga::png_format::AnimationIndex> result() const {
+    return result_;
+  }
+
+ signals:
+  void animationDone(std::uint64_t generation);
+
+ protected:
+  void run() override;
+
+ private:
+  std::uint64_t generation_ = 0;
+  std::shared_ptr<pnga::io::IByteSource> source_;
+  pnga::png_format::AnimationLimits limits_;
+  std::atomic_bool cancelled_{false};
+  std::shared_ptr<pnga::png_format::AnimationIndex> result_;
 };
 
 class ChunkDetailWorker final : public QThread {
