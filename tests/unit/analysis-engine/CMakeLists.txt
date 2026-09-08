@@ -3,6 +3,7 @@
 add_executable(pnga_analysis_engine_tests
   artifact_store_test.cpp
   block_inspector_test.cpp
+  frame_analysis_test.cpp
   coordinate_query_test.cpp
   decode_trace_inspector_test.cpp
   document_fingerprint_test.cpp
