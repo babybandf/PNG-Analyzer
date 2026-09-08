@@ -156,6 +156,8 @@ add_test(NAME gui_compression_selection_store_tests
 # test executables so extraction tasks keep source parity. Do not compile
 # src/main.cpp into tests.
 set(PNGA_GUI_APP_TEST_SOURCES
+  ../../apps/png-analyzer-gui/src/animation_controller.cpp
+  ../../apps/png-analyzer-gui/src/animation_worker.cpp
   ../../apps/png-analyzer-gui/src/main_window.cpp
   ../../apps/png-analyzer-gui/src/document_workers.cpp
   ../../apps/png-analyzer-gui/src/main_window_ui.cpp
@@ -177,6 +179,7 @@ function(add_pnga_gui_app_test target source test_name)
   set_target_properties(${target} PROPERTIES AUTOMOC ON)
   target_include_directories(${target} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../../apps/png-analyzer-gui/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common
   )
   target_link_libraries(${target} PRIVATE
     pnga::ui_qt
@@ -189,6 +192,9 @@ function(add_pnga_gui_app_test target source test_name)
   target_compile_features(${target} PRIVATE cxx_std_20)
   add_test(NAME ${test_name} COMMAND ${target})
 endfunction()
+
+add_pnga_gui_app_test(pnga_gui_apng_controller_tests
+  animation_controller_test.cpp gui_apng_controller_tests)
 
 add_pnga_gui_app_test(pnga_gui_document_workers_tests
   document_workers_test.cpp gui_document_workers_tests)

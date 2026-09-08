@@ -28,6 +28,8 @@ endif()
 # WP-5U15: one application-source list shared by the executable and the
 # MainWindow test executables so extraction tasks keep source parity.
 set(PNGA_GUI_APP_SOURCES
+  src/animation_controller.cpp
+  src/animation_worker.cpp
   src/main_window.cpp
   src/document_workers.cpp
   src/main_window_ui.cpp
