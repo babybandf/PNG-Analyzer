@@ -6,6 +6,7 @@
 add_executable(pnga_png_reconstruction_tests
   native_samples_test.cpp
   pass_reconstruction_test.cpp
+  rgba_delivery_test.cpp
   reverse_filter_test.cpp
   scanline_layout_test.cpp
 )

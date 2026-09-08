@@ -3,6 +3,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <zlib.h>
+
 #include <array>
 #include <cstdint>
 #include <vector>
@@ -94,4 +96,41 @@ TEST_CASE("Animation index stops scanning when cancellation is requested",
   REQUIRE(result.status == AnimationStatus::kCancelled);
   REQUIRE(result.stop == AnimationStop::kCancelled);
   REQUIRE(checks == 2);
+}
+
+TEST_CASE("Animation index retains bounded global palette metadata",
+          "[png-format][apng][wp702]") {
+  auto bytes = pnga_test::make_apng(false, two_frames());
+  std::vector<std::byte> palette_chunk;
+  const std::vector<std::byte> palette = {
+      std::byte{0xff}, std::byte{0x00}, std::byte{0x00},
+      std::byte{0x00}, std::byte{0xff}, std::byte{0x00}};
+  pnga_test::append_apng_chunk(palette_chunk, "PLTE", palette);
+  const std::vector<std::byte> transparency = {
+      std::byte{0x00}, std::byte{0x80}, std::byte{0x00},
+      std::byte{0xff}, std::byte{0x00}, std::byte{0x00}};
+  pnga_test::append_apng_chunk(palette_chunk, "tRNS", transparency);
+  const std::size_t after_ihdr = pnga::png_format::kPngSignature.size() + 12 + 13;
+  bytes.insert(bytes.begin() + static_cast<std::ptrdiff_t>(after_ihdr),
+               palette_chunk.begin(), palette_chunk.end());
+  const std::size_t ihdr_data = pnga::png_format::kPngSignature.size() + 8;
+  bytes[ihdr_data + 9] = std::byte{2};  // RGB, so tRNS has six bytes.
+  const std::size_t ihdr_crc = ihdr_data + 13;
+  uLong crc = crc32(0, Z_NULL, 0);
+  crc = crc32(crc, reinterpret_cast<const Bytef*>(bytes.data() + ihdr_data - 4),
+             4);
+  crc = crc32(crc, reinterpret_cast<const Bytef*>(bytes.data() + ihdr_data),
+             13);
+  bytes[ihdr_crc] = static_cast<std::byte>(crc >> 24);
+  bytes[ihdr_crc + 1] = static_cast<std::byte>(crc >> 16);
+  bytes[ihdr_crc + 2] = static_cast<std::byte>(crc >> 8);
+  bytes[ihdr_crc + 3] = static_cast<std::byte>(crc);
+
+  MemoryByteSource source(std::move(bytes));
+  const auto result = index_animation(source, AnimationLimits{}, [] {
+    return false;
+  });
+  REQUIRE(result.status == AnimationStatus::kComplete);
+  REQUIRE(result.palette_bytes == palette);
+  REQUIRE(result.transparency_bytes == transparency);
 }

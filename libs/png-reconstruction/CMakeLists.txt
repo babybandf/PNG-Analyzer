@@ -6,6 +6,7 @@
 add_library(pnga_png_reconstruction
   src/native_samples.cpp
   src/pass_reconstruction.cpp
+  src/rgba_delivery.cpp
   src/reverse_filter.cpp
   src/scanline_layout.cpp
 )

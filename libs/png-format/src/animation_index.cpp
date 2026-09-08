@@ -198,9 +198,12 @@ AnimationIndex index_animation(
   bool saw_idat = false;
   bool saw_fctl = false;
   bool saw_iend = false;
+  bool saw_plte = false;
+  bool saw_trns = false;
   bool canvas_known = false;
   std::uint32_t canvas_width = 0;
   std::uint32_t canvas_height = 0;
+  std::uint8_t color_type = 0;
   std::uint64_t animation_chunk_count = 0;
   std::uint32_t expected_sequence = 0;
   bool sequence_exhausted = false;
@@ -259,9 +262,43 @@ AnimationIndex index_animation(
       }
       canvas_width = u32(data->data);
       canvas_height = u32(data->data + 4);
+      color_type = std::to_integer<std::uint8_t>(data->data[9]);
       index.canvas_width = canvas_width;
       index.canvas_height = canvas_height;
       canvas_known = true;
+    } else if (type_is(type, "PLTE")) {
+      if (saw_plte || saw_idat || length == 0 || length > 768 ||
+          length % 3 != 0) {
+        stop_format(index, limits, "apng.frame.data", pos);
+        return index;
+      }
+      const auto data = source.view(data_offset, static_cast<std::size_t>(length));
+      if (!data.has_value() || !account(index, limits, length)) {
+        index.status = AnimationStatus::kPartial;
+        index.stop = AnimationStop::kBudget;
+        return index;
+      }
+      index.palette_bytes.assign(data->data,
+                                data->data + static_cast<std::size_t>(length));
+      saw_plte = true;
+    } else if (type_is(type, "tRNS")) {
+      const bool valid_length =
+          (color_type == 0 && length == 2) ||
+          (color_type == 2 && length == 6) ||
+          (color_type == 3 && length <= 256);
+      if (saw_trns || saw_idat || !valid_length) {
+        stop_format(index, limits, "apng.frame.data", pos);
+        return index;
+      }
+      const auto data = source.view(data_offset, static_cast<std::size_t>(length));
+      if (!data.has_value() || !account(index, limits, length)) {
+        index.status = AnimationStatus::kPartial;
+        index.stop = AnimationStop::kBudget;
+        return index;
+      }
+      index.transparency_bytes.assign(
+          data->data, data->data + static_cast<std::size_t>(length));
+      saw_trns = true;
     } else if (type_is(type, "acTL")) {
       if (saw_actl || saw_idat || length != 8) {
         stop_format(index, limits, "apng.actl.order", pos);

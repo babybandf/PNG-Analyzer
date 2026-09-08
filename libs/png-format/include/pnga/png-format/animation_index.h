@@ -60,6 +60,8 @@ struct AnimationIndex {
   std::optional<AnimationControl> control;
   std::uint32_t canvas_width = 0;
   std::uint32_t canvas_height = 0;
+  std::vector<std::byte> palette_bytes;
+  std::vector<std::byte> transparency_bytes;
   bool default_is_frame = false;
   std::vector<FrameRecord> frames;
   std::vector<AnimationIssue> issues;
