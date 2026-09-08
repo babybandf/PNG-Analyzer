@@ -1,5 +1,7 @@
 #include "pnga/ui/qt/animation_inspector.h"
 
+#include <pnga/ui/qt/application_theme.h>
+
 #include <QLabel>
 #include <QVBoxLayout>
 
@@ -8,6 +10,9 @@ namespace pnga::ui::qt {
 AnimationInspector::AnimationInspector(QWidget* parent) : QWidget(parent) {
   summary_ = new QLabel(this);
   summary_->setWordWrap(true);
+  // Match the Reconstruction inspector's monospace presentation so both
+  // inspector tabs read as the same data-territory typography.
+  summary_->setFont(ApplicationTheme::applicationMonospaceFont());
   auto* layout = new QVBoxLayout(this);
   // Keep the summary text clear of the dock borders; word wrap absorbs the
   // reduced text width at narrow inspector widths.
