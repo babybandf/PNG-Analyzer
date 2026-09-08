@@ -6,7 +6,9 @@
 #include <pnga/analysis-engine/animation_playback.h>
 
 #include <QObject>
+#include <QElapsedTimer>
 #include <QMetaType>
+#include <QTimer>
 
 #include <cstdint>
 #include <memory>
@@ -41,6 +43,7 @@ class AnimationController final : public QObject {
   // Test seam for delivering a deliberately reordered worker completion.
   void publishWorkerResultForTesting(
       std::shared_ptr<const pnga::analysis_engine::ReplayResult> result);
+  void advancePlaybackForTesting(std::uint64_t now_ns);
 
  signals:
   void capabilityChanged(int capability);
@@ -55,10 +58,15 @@ class AnimationController final : public QObject {
  private:
   void cancelWorker();
   void startFrameWorker(std::uint32_t ordinal);
+  void advancePlayback();
+  void advancePlaybackAt(std::uint64_t now_ns);
+  std::uint64_t nowNs() const noexcept;
 
   pnga::analysis_engine::FrameRequest document_context_;
   AnimationWorker* worker_ = nullptr;
   std::unique_ptr<pnga::analysis_engine::AnimationPlayback> playback_;
+  QElapsedTimer clock_;
+  QTimer playback_timer_;
   Capability capability_ = Capability::kDetecting;
   std::uint64_t generation_ = 0;
   std::uint64_t request_serial_ = 0;

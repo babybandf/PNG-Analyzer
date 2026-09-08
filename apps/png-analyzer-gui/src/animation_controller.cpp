@@ -4,15 +4,22 @@
 #include "main_window_ui.h"
 #include "selection_navigation_controller.h"
 
+#include <pnga/ui/qt/animation_inspector.h>
+
 #include <pnga/png-format/animation_index.h>
 #include <pnga/png-format/virtual_frame_stream.h>
 
 #include <variant>
 #include <utility>
 
-AnimationController::AnimationController(QObject* parent) : QObject(parent) {
+AnimationController::AnimationController(QObject* parent)
+    : QObject(parent), playback_timer_(this) {
   qRegisterMetaType<
       std::shared_ptr<const pnga::analysis_engine::ReplayResult>>();
+  clock_.start();
+  playback_timer_.setInterval(10);
+  connect(&playback_timer_, &QTimer::timeout, this,
+          &AnimationController::advancePlayback);
 }
 
 AnimationController::~AnimationController() {
@@ -71,6 +78,11 @@ void AnimationController::selectFrame(std::uint32_t ordinal) {
   if (capability_ == Capability::kPartial) {
     pause();
   }
+  if (playback_) {
+    playback_->pause();
+    playback_->seek(ordinal, nowNs());
+    playback_timer_.stop();
+  }
   selected_ordinal_ = ordinal;
   startFrameWorker(ordinal);
 }
@@ -85,25 +97,29 @@ void AnimationController::selectStaticFallback() {
 
 void AnimationController::play() {
   if (playback_) {
-    playback_->play(0);
+    playback_->play(nowNs());
+    advancePlayback();
+    playback_timer_.start();
   }
 }
 
 void AnimationController::pause() {
   if (playback_) {
     playback_->pause();
+    playback_timer_.stop();
   }
 }
 
 void AnimationController::setSpeed(
     pnga::analysis_engine::PlaybackSpeed speed) {
   if (playback_) {
-    playback_->set_speed(speed, 0);
+    playback_->set_speed(speed, nowNs());
   }
 }
 
 void AnimationController::close() {
   cancelWorker();
+  playback_timer_.stop();
   ++generation_;
   document_context_ = {};
   playback_.reset();
@@ -115,6 +131,10 @@ void AnimationController::close() {
 void AnimationController::publishWorkerResultForTesting(
     std::shared_ptr<const pnga::analysis_engine::ReplayResult> result) {
   onWorkerResult(std::move(result));
+}
+
+void AnimationController::advancePlaybackForTesting(std::uint64_t now_ns) {
+  advancePlaybackAt(now_ns);
 }
 
 void AnimationController::cancelWorker() {
@@ -131,6 +151,7 @@ void AnimationController::cancelWorker() {
 
 void AnimationController::startFrameWorker(std::uint32_t ordinal) {
   cancelWorker();
+  selected_ordinal_ = ordinal;
   ++request_serial_;
   document_context_.request_serial = request_serial_;
   document_context_.ordinal = ordinal;
@@ -150,6 +171,25 @@ void AnimationController::startFrameWorker(std::uint32_t ordinal) {
   worker->start();
 }
 
+void AnimationController::advancePlayback() { advancePlaybackAt(nowNs()); }
+
+void AnimationController::advancePlaybackAt(std::uint64_t now_ns) {
+  if (!playback_ || !document_context_.index) return;
+  const auto ordinal = playback_->tick(now_ns);
+  if (ordinal.has_value()) {
+    startFrameWorker(*ordinal);
+  }
+  if (playback_->state() == pnga::analysis_engine::PlaybackState::kEnded ||
+      playback_->state() == pnga::analysis_engine::PlaybackState::kError ||
+      playback_->state() == pnga::analysis_engine::PlaybackState::kPaused) {
+    playback_timer_.stop();
+  }
+}
+
+std::uint64_t AnimationController::nowNs() const noexcept {
+  return static_cast<std::uint64_t>(clock_.nsecsElapsed());
+}
+
 void AnimationController::onWorkerResult(
     std::shared_ptr<const pnga::analysis_engine::ReplayResult> result) {
   if (!result || result->generation != generation_ ||
@@ -158,6 +198,13 @@ void AnimationController::onWorkerResult(
                                   pnga::trace_model::AnimationFrame{
                                       selected_ordinal_}}) {
     return;
+  }
+  if (playback_ &&
+      playback_->state() ==
+          pnga::analysis_engine::PlaybackState::kWaitingForFrame &&
+      playback_->current_ordinal() == selected_ordinal_) {
+    playback_->frame_ready(selected_ordinal_, playback_->request_serial(),
+                           nowNs());
   }
   emit framePublished(std::move(result));
 }
@@ -209,6 +256,11 @@ void bindAnimationUi(AnimationController& controller, DocumentSession& session,
           selection.setAnimationFrameStream(
               pnga::png_format::make_frame_stream(
                   session.source(), session.animationIndex(), frame->index));
+          if (widgets.animation_inspector &&
+              frame->index < session.animationIndex()->frames.size()) {
+            widgets.animation_inspector->setFrameControl(
+                session.animationIndex()->frames[frame->index].control);
+          }
         }
       });
   QObject::connect(&controller, &AnimationController::staticFallbackSelected,

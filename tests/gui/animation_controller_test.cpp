@@ -16,6 +16,7 @@ class AnimationControllerTest final : public QObject {
  private slots:
   void publishesOnlyTheCurrentSerial();
   void classifiesStaticAndPartialDocuments();
+  void playbackRequestsTheNextFrameAfterTheCurrentFrameIsReady();
 };
 
 namespace {
@@ -72,6 +73,30 @@ void AnimationControllerTest::classifiesStaticAndPartialDocuments() {
   QCOMPARE(static_cast<int>(controller.capability()),
            static_cast<int>(AnimationController::Capability::kError));
   Q_UNUSED(capabilities);
+}
+
+void AnimationControllerTest::
+    playbackRequestsTheNextFrameAfterTheCurrentFrameIsReady() {
+  AnimationController controller;
+  QSignalSpy published(&controller, &AnimationController::framePublished);
+  controller.setDocument(
+      request_for(pnga_test::make_apng(false, controls())));
+  controller.play();
+
+  auto first = std::make_shared<pnga::analysis_engine::ReplayResult>();
+  first->generation = controller.generation();
+  first->request_serial = controller.requestSerial();
+  first->identity = pnga::trace_model::AnimationFrame{0};
+  controller.publishWorkerResultForTesting(first);
+  QCOMPARE(published.count(), 1);
+
+  controller.advancePlaybackForTesting(20'000'000);
+  auto second = std::make_shared<pnga::analysis_engine::ReplayResult>();
+  second->generation = controller.generation();
+  second->request_serial = controller.requestSerial();
+  second->identity = pnga::trace_model::AnimationFrame{1};
+  controller.publishWorkerResultForTesting(second);
+  QCOMPARE(published.count(), 2);
 }
 
 QTEST_MAIN(AnimationControllerTest)

@@ -1,6 +1,6 @@
 # WP-699–706 — APNG First Release
 
-Status: **design approved; pending written-package review** (2026-09-01)
+Status: **implementation complete; PASS** (2026-09-08)
 
 Normative reference: W3C PNG Specification, Third Edition, sections 4.9,
 11.3.6 and 13 error handling. Compare remains deferred.
