@@ -3,6 +3,7 @@
 #include "pnga/analysis-engine/validation.h"
 
 #include <pnga/validation/decode.h>
+#include <pnga/validation/animation.h>
 #include <pnga/validation/integrity.h>
 #include <pnga/validation/resource.h>
 #include <pnga/validation/semantic.h>
@@ -24,6 +25,18 @@ DocumentValidationReport validate_document(
   append(pnga::validation::validate_semantics(source, index));
   append(pnga::validation::validate_resources(source, index));
   append(pnga::validation::validate_decode_preflight(source, index));
+  return result;
+}
+
+DocumentValidationReport validate_document(
+    const pnga::io::IByteSource& source,
+    const pnga::png_format::ChunkIndex& index,
+    const pnga::png_format::AnimationIndex& animation) {
+  auto result = validate_document(source, index);
+  const auto animation_report =
+      pnga::validation::validate_animation(animation);
+  result.issues.insert(result.issues.end(), animation_report.issues.begin(),
+                       animation_report.issues.end());
   return result;
 }
 

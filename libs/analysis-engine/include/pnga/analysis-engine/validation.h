@@ -6,6 +6,7 @@
 // rule order or accidentally omit a category.
 
 #include <pnga/io/byte_source.h>
+#include <pnga/png-format/animation_index.h>
 #include <pnga/png-format/chunk_index.h>
 #include <pnga/validation/structural.h>
 
@@ -16,6 +17,11 @@ using DocumentValidationReport = pnga::validation::ValidationReport;
 DocumentValidationReport validate_document(
     const pnga::io::IByteSource& source,
     const pnga::png_format::ChunkIndex& index);
+
+DocumentValidationReport validate_document(
+    const pnga::io::IByteSource& source,
+    const pnga::png_format::ChunkIndex& index,
+    const pnga::png_format::AnimationIndex& animation);
 
 }  // namespace pnga::analysis_engine
 

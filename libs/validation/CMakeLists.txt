@@ -3,6 +3,7 @@
 # rule batch. ADR-0003: this target must never link Qt.
 
 add_library(pnga_validation
+  src/animation.cpp
   src/decode.cpp
   src/integrity.cpp
   src/resource.cpp

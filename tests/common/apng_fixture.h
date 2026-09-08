@@ -112,6 +112,49 @@ inline std::vector<std::byte> make_apng(
   return png;
 }
 
+inline std::uint32_t fixture_u32(const std::byte* data) {
+  return (static_cast<std::uint32_t>(std::to_integer<unsigned int>(data[0]))
+          << 24) |
+         (static_cast<std::uint32_t>(std::to_integer<unsigned int>(data[1]))
+          << 16) |
+         (static_cast<std::uint32_t>(std::to_integer<unsigned int>(data[2]))
+          << 8) |
+         static_cast<std::uint32_t>(std::to_integer<unsigned int>(data[3]));
+}
+
+inline void set_sequence(std::vector<std::byte>& png, std::size_t chunk_ordinal,
+                         std::uint32_t sequence) {
+  std::uint64_t pos = pnga::png_format::kPngSignature.size();
+  for (std::size_t ordinal = 0; pos + 12 <= png.size(); ++ordinal) {
+    const std::uint32_t length = fixture_u32(png.data() + pos);
+    const std::uint64_t data_offset = pos + 8;
+    const std::uint64_t crc_offset = data_offset + length;
+    if (crc_offset + 4 > png.size()) {
+      return;
+    }
+    if (ordinal == chunk_ordinal) {
+      if (length < 4) {
+        return;
+      }
+      png[data_offset] = apng_byte(sequence >> 24);
+      png[data_offset + 1] = apng_byte(sequence >> 16);
+      png[data_offset + 2] = apng_byte(sequence >> 8);
+      png[data_offset + 3] = apng_byte(sequence);
+      uLong crc = crc32(0, Z_NULL, 0);
+      crc = crc32(crc, reinterpret_cast<const Bytef*>(png.data() + pos + 4),
+                  4);
+      crc = crc32(crc, reinterpret_cast<const Bytef*>(png.data() + data_offset),
+                  length);
+      png[crc_offset] = apng_byte(crc >> 24);
+      png[crc_offset + 1] = apng_byte(crc >> 16);
+      png[crc_offset + 2] = apng_byte(crc >> 8);
+      png[crc_offset + 3] = apng_byte(crc);
+      return;
+    }
+    pos = crc_offset + 4;
+  }
+}
+
 }  // namespace pnga_test
 
 #endif  // PNGA_TESTS_COMMON_APNG_FIXTURE_H

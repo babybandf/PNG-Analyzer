@@ -46,6 +46,15 @@ ValidationReport validate_structure(const ChunkIndex& index) {
         add_issue(report, "data_after_iend", Severity::kError,
                   "bytes appear after the IEND chunk", issue.offset, "PNG:5.2");
         break;
+      case ChunkIssueKind::kResourceLimit:
+        add_issue(report, "resource_limit", Severity::kError,
+                  "chunk index resource limit reached", issue.offset,
+                  "PNG:13");
+        break;
+      case ChunkIssueKind::kCancelled:
+        add_issue(report, "scan_cancelled", Severity::kWarning,
+                  "chunk index scan was cancelled", issue.offset, "PNG:13");
+        break;
     }
   }
 

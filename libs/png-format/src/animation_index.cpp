@@ -108,6 +108,13 @@ bool has_payload(const FrameRecord& frame) {
   return false;
 }
 
+void discard_current(AnimationIndex& index, FrameRecord* current) {
+  if (current != nullptr &&
+      !index.frames.empty() && &index.frames.back() == current) {
+    index.frames.pop_back();
+  }
+}
+
 bool append_issue(AnimationIndex& index, const AnimationLimits& limits,
                   const char* rule_id, std::uint64_t offset) {
   const std::size_t rule_size = std::char_traits<char>::length(rule_id);
@@ -252,6 +259,8 @@ AnimationIndex index_animation(
       }
       canvas_width = u32(data->data);
       canvas_height = u32(data->data + 4);
+      index.canvas_width = canvas_width;
+      index.canvas_height = canvas_height;
       canvas_known = true;
     } else if (type_is(type, "acTL")) {
       if (saw_actl || saw_idat || length != 8) {
@@ -284,6 +293,12 @@ AnimationIndex index_animation(
           u32(data->data + 12),  u32(data->data + 16), u16(data->data + 20),
           u16(data->data + 22),  std::to_integer<std::uint8_t>(data->data[24]),
           std::to_integer<std::uint8_t>(data->data[25])};
+      if (current != nullptr && !has_payload(*current)) {
+        discard_current(index, current);
+        current = nullptr;
+        stop_format(index, limits, "apng.frame.data", pos);
+        return index;
+      }
       if (!check_sequence(index, limits, control.sequence, pos,
                           &expected_sequence, &sequence_exhausted)) {
         return index;
@@ -300,10 +315,10 @@ AnimationIndex index_animation(
         stop_format(index, limits, "apng.frame.geometry", pos);
         return index;
       }
-      if (current != nullptr && !has_payload(*current)) {
-        index.frames.pop_back();
-        current = nullptr;
-        stop_format(index, limits, "apng.frame.data", pos);
+      if (!saw_idat && index.frames.empty() &&
+          (control.x != 0 || control.y != 0 || control.width != canvas_width ||
+           control.height != canvas_height)) {
+        stop_format(index, limits, "apng.frame.geometry", pos);
         return index;
       }
       if (!grow_frames(index, limits)) {
@@ -330,19 +345,27 @@ AnimationIndex index_animation(
       }
     } else if (type_is(type, "fdAT")) {
       if (!saw_actl || !saw_fctl || current == nullptr || length < 4) {
+        discard_current(index, current);
+        current = nullptr;
         stop_format(index, limits, "apng.frame.data", pos);
         return index;
       }
       const auto data = source.view(data_offset, 4);
       if (!data.has_value()) {
+        discard_current(index, current);
+        current = nullptr;
         stop_format(index, limits, "apng.envelope", data_offset);
         return index;
       }
       if (!check_sequence(index, limits, u32(data->data), pos,
                           &expected_sequence, &sequence_exhausted)) {
+        discard_current(index, current);
+        current = nullptr;
         return index;
       }
       if (!append_span(index, limits, *current, data_offset + 4, length - 4)) {
+        discard_current(index, current);
+        current = nullptr;
         return index;
       }
     } else if (type_is(type, "IEND")) {
@@ -363,6 +386,10 @@ AnimationIndex index_animation(
   }
 
   if (!saw_iend) {
+    if (current != nullptr) {
+      discard_current(index, current);
+      current = nullptr;
+    }
     stop_format(index, limits, "apng.envelope", pos);
     return index;
   }
@@ -374,6 +401,12 @@ AnimationIndex index_animation(
   if (!index.control.has_value() ||
       index.frames.size() != index.control->num_frames) {
     stop_format(index, limits, "apng.frame.count", file_size);
+    return index;
+  }
+  if (current != nullptr && !has_payload(*current)) {
+    discard_current(index, current);
+    current = nullptr;
+    stop_format(index, limits, "apng.frame.data", file_size);
     return index;
   }
   for (const auto& frame : index.frames) {
