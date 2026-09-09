@@ -1,6 +1,6 @@
 # WP-APNG-INSPECT 完成记录
 
-状态：IN PROGRESS（T00–T06 完成；T07–T12 未开始）。
+状态：IN PROGRESS（T00–T07 完成；T08–T12 未开始）。
 
 ## T00：静态基线与验收 runner
 
@@ -322,3 +322,57 @@ occurrence 静态路径行为不变；layout/dependencies/diff-check 通过。
 G-static 全套：构建无错误；`ctest --preset dev` 仅剩 3 个已归因基线失败，无新增失败
 （animation_replay/pixel_provenance 既有测试全部通过，compositor 算法零改动）；
 layout/dependencies/diff-check 通过。
+
+## T07：APNG 分析会话、预算与后台生命周期
+
+日期：2026-09-09。
+
+### 产出
+
+- 新增 `apps/png-analyzer-gui/src/frame_inspection_session.h/.cpp`：
+  `FrameInspectionSession`（QObject）持有 C1 目标与 C5 调度/缓存：
+  - `selectTarget(target, ticket)`：采纳后台构建的不可变目标并重置发布门；旧上下文的
+    队列/在途请求取消、retained 释放；仍在运行的旧 worker 线程后台自然结束
+    （finished→deleteLater），UI 线程不 join。
+  - `clear(next_generation)`：全部取消 + 状态清零 + generation 推进。
+  - `accepts(ticket, scope)`：统一使用 C1 `accepts_publication`（mutex 保护）。
+  - `requestFrameAnalysis` / `requestFrameStatistics`：C5 固定额度
+    （retained 64MiB、在途 reservation 64MiB、单执行 worker、队列上限 8、优先级
+    kSelection→kViewport→kBackground）；同帧重复请求合并（保留最新、取消被替换者）；
+    满队列丢弃最低优先级最旧请求并报告取消，后台请求自身被弃、不挤占用户选择；
+    单项 reservation 超预算直接拒绝。
+  - 每次分析入口先记 reservation，完成/失败/取消/关闭全部路径恰好释放一次；
+    完成后经 `accepts(ticket, kTarget)` 门发布（shared immutable model+ticket），
+    generation 不符的迟到结果直接丢弃。
+  - 帧分析复用公开内核 `analyze_stages` + `deliver_rgba8`（以 target 的流/格式/交付
+    上下文为准，无需重扫文件）。
+  - 测试 seam：`setExecutorForTesting` 注入确定性 executor（Jobs 手动逐个执行），
+    completion 永不在持锁状态调用；生产路径为一次性 QThread worker。
+- `animation_controller.h`：新增 `replayRetainedBytes()`（C5 共享预算报告可见性，
+  播放路径零行为变化）。`animation_worker.*`/`document_session.*` 本任务无需修改
+  （会话接入在 T08/T09 接线时进行）——最小改动原则。
+- 静态文档不创建该会话：当前无任何静态路径构造 `FrameInspectionSession`（结构上保证）。
+- 新增 `tests/gui/frame_inspection_session_test.cpp`（QtTest + QSignalSpy + 注入
+  executor，无 sleep；注册 `gui_frame_inspection_session_tests` 与 `pnga_gui_tests`
+  依赖）。
+
+### red/green 证据
+
+- red：新增测试先于实现（类不存在时编译失败记录后实现）。
+- 实现过程修正：executor 同步运行 completion 与会话互斥锁重入的死锁风险（改为
+  deferred completion + 解锁后派发）；删除 debug 输出时误删闭括号（编译失败立即修复）；
+  `analyze_frame` 需要 AnimationIndex 而 AnalysisTarget 不携带——改为经 target 字段
+  复用公开内核；早期取消返回补 `stop=kCancelled`。测试侧修正三处场景语义：
+  A1→B→A2 序列按 C1 epoch 递增建模（同帧身份、epoch 1/2/3）、队列容量测试用不同帧
+  key 避免去重折叠、重复请求合并断言对齐"在途之外合并"语义（在途第一个完成、最新
+  合并者随后运行、中间者取消）。
+- green：`ctest --preset dev -R "gui_frame_inspection_session_tests"` → 1/1（7 个
+  用例全过）：C1 门双 scope（hover 不改 ticket 则同帧 kTarget 统计可接受）、A1→B→A2
+  迟到结果不发布、reservation 全路径释放（含 1 字节超配额拒绝）、关闭后不发布、
+  满队列弃低优先级不丢选择、同 key 合并、retained 记账与清理。
+
+### 静态门槛
+
+G-static 全套：构建无错误；`ctest --preset dev` 仅剩 3 个已归因基线失败，无新增失败
+（静态会话/worker 新增计数为 0——静态路径未构造本会话；document_session 既有测试
+全部通过）；layout/dependencies/diff-check 通过。

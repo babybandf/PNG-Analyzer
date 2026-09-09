@@ -176,6 +176,7 @@ set(PNGA_GUI_APP_TEST_SOURCES
   ../../apps/png-analyzer-gui/src/main_window_ui.cpp
   ../../apps/png-analyzer-gui/src/workspace_controller.cpp
   ../../apps/png-analyzer-gui/src/document_session.cpp
+  ../../apps/png-analyzer-gui/src/frame_inspection_session.cpp
   ../../apps/png-analyzer-gui/src/selection_navigation_controller.cpp
   ../../apps/png-analyzer-gui/src/statistics_controller.cpp
   ../../apps/png-analyzer-gui/src/statistics_worker.cpp
@@ -232,6 +233,8 @@ add_pnga_gui_app_test(pnga_gui_workspace_controller_tests
 
 add_pnga_gui_app_test(pnga_gui_document_session_tests
   document_session_test.cpp gui_document_session_tests)
+add_pnga_gui_app_test(pnga_gui_frame_inspection_session_tests
+  frame_inspection_session_test.cpp gui_frame_inspection_session_tests)
 
 add_pnga_gui_app_test(pnga_gui_statistics_controller_tests
   statistics_controller_test.cpp gui_statistics_controller_tests)

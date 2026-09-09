@@ -1,0 +1,406 @@
+#include "frame_inspection_session.h"
+
+#include <pnga/analysis-engine/stage_analysis.h>
+#include <pnga/png-format/animation_index.h>
+#include <pnga/png-reconstruction/rgba_delivery.h>
+
+#include <QThread>
+
+#include <algorithm>
+#include <utility>
+
+namespace pnga::gui {
+
+namespace {
+
+// One-shot worker thread for a single queued completion. The session never
+// waits on the UI thread: the thread finishes in the background and destroys
+// itself through deleteLater.
+class FrameInspectionWorker final : public QThread {
+ public:
+  FrameInspectionWorker(std::function<void()> job, QObject* parent)
+      : QThread(parent), job_(std::move(job)) {}
+  void run() override {
+    if (job_) {
+      job_();
+    }
+  }
+
+ private:
+  std::function<void()> job_;
+};
+
+}  // namespace
+
+FrameInspectionSession::FrameInspectionSession(QObject* parent)
+    : QObject(parent) {}
+
+FrameInspectionSession::~FrameInspectionSession() {
+  // In-flight jobs hold shared state through the executor or worker thread;
+  // completions are generation-gated, so nothing touches this object after
+  // the mutex dies. Background threads are joined by Qt's child cleanup in
+  // the QObject destructor chain — the session never waits on the UI thread.
+}
+
+void FrameInspectionSession::selectTarget(
+    std::shared_ptr<const pnga::analysis_engine::AnalysisTarget> target,
+    pnga::trace_model::InspectionTicket ticket) {
+  std::vector<pnga::trace_model::InspectionTicket> dropped;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    // A new target supersedes every queued and in-flight request of the
+    // previous context; the old artifacts are released here (shared_ptr
+    // drops) and any still-running worker finishes in the background.
+    for (const auto& job : queue_) {
+      dropped.push_back(job.ticket);
+    }
+    for (const auto& job : in_flight_) {
+      dropped.push_back(job.ticket);
+    }
+    queue_.clear();
+    in_flight_.clear();
+    retained_bytes_ = 0;  // the previous context's retained artifacts drop
+    current_target_ = std::move(target);
+    current_ticket_ = ticket;
+  }
+  for (const auto& ticket_to_drop : dropped) {
+    emit requestCancelled(ticket_to_drop);
+  }
+  emit targetSelected(target, ticket);
+}
+
+void FrameInspectionSession::clear(std::uint64_t next_generation) {
+  std::vector<pnga::trace_model::InspectionTicket> dropped;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (const auto& job : queue_) {
+      dropped.push_back(job.ticket);
+    }
+    for (const auto& job : in_flight_) {
+      dropped.push_back(job.ticket);
+    }
+    queue_.clear();
+    in_flight_.clear();
+    current_target_.reset();
+    current_ticket_ = pnga::trace_model::InspectionTicket{};
+    retained_bytes_ = 0;
+    generation_ = next_generation;
+  }
+  for (const auto& ticket_to_drop : dropped) {
+    emit requestCancelled(ticket_to_drop);
+  }
+}
+
+bool FrameInspectionSession::accepts(
+    const pnga::trace_model::InspectionTicket& ticket,
+    pnga::trace_model::PublicationScope scope) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (current_target_ == nullptr) {
+    return false;
+  }
+  return pnga::trace_model::accepts_publication(current_ticket_, ticket,
+                                                scope);
+}
+
+std::uint64_t FrameInspectionSession::retainedBytes() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return retained_bytes_;
+}
+
+std::uint64_t FrameInspectionSession::reservedBytes() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  std::uint64_t total = 0;
+  for (const auto& job : queue_) {
+    total += job.reservation;
+  }
+  for (const auto& job : in_flight_) {
+    total += job.reservation;
+  }
+  return total;
+}
+
+void FrameInspectionSession::requestFrameAnalysis(
+    pnga::trace_model::InspectionTicket ticket,
+    pnga::analysis_engine::JobPriority priority, std::uint64_t reservation) {
+  QueuedJob job;
+  job.kind = JobKind::kFrameAnalysis;
+  job.ticket = ticket;
+  job.priority = priority;
+  job.reservation = reservation;
+  enqueue(std::move(job));
+}
+
+void FrameInspectionSession::requestFrameStatistics(
+    pnga::trace_model::InspectionTicket ticket,
+    pnga::statistics::DocumentIdentity document,
+    pnga::analysis_engine::JobPriority priority, std::uint64_t reservation) {
+  QueuedJob job;
+  job.kind = JobKind::kFrameStatistics;
+  job.ticket = ticket;
+  job.document = std::move(document);
+  job.priority = priority;
+  job.reservation = reservation;
+  enqueue(std::move(job));
+}
+
+void FrameInspectionSession::setExecutorForTesting(
+    std::function<void(std::function<void()>)> executor) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  executor_ = std::move(executor);
+}
+
+void FrameInspectionSession::enqueue(QueuedJob job) {
+  std::vector<pnga::trace_model::InspectionTicket> dropped;
+  bool pending_pump = false;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (current_target_ == nullptr) {
+      dropped.push_back(job.ticket);
+    } else if (job.reservation > kReservationBudget) {
+      // A single job larger than the whole in-flight budget is rejected
+      // up front; nothing else is disturbed.
+      dropped.push_back(job.ticket);
+    } else {
+      // Duplicate requests for the same frame merge into the newest one.
+      const pnga::trace_model::AnimationFrame* frame =
+          std::get_if<pnga::trace_model::AnimationFrame>(
+              &job.ticket.key.identity);
+      const auto same_key = [&](const QueuedJob& queued) {
+        if (queued.kind != job.kind) {
+          return false;
+        }
+        const auto* queued_frame =
+            std::get_if<pnga::trace_model::AnimationFrame>(
+                &queued.ticket.key.identity);
+        return frame != nullptr && queued_frame != nullptr &&
+               queued_frame->index == frame->index;
+      };
+      const auto merge = std::find_if(queue_.begin(), queue_.end(), same_key);
+      if (merge != queue_.end()) {
+        dropped.push_back(merge->ticket);
+        queue_.erase(merge);
+      }
+      if (queue_.size() >= kQueueCap) {
+        // Full queue: drop the lowest-priority oldest queued request and
+        // report its cancellation; the incoming user selection itself is
+        // only dropped when the queue holds nothing lower-priority and the
+        // incoming job is background work.
+        const auto lower = [&](const QueuedJob& queued) {
+          return static_cast<int>(queued.priority) <
+                 static_cast<int>(job.priority);
+        };
+        auto victim = std::find_if(queue_.begin(), queue_.end(), lower);
+        if (victim == queue_.end() &&
+            job.priority != pnga::analysis_engine::JobPriority::kSelection) {
+          // Background work never displaces user selections.
+          dropped.push_back(job.ticket);
+          pending_pump = false;
+        } else {
+          if (victim == queue_.end()) {
+            // All queued jobs are selection priority: the oldest selection
+            // is superseded by the newest user choice and never blocks it.
+            victim = queue_.begin();
+          }
+          dropped.push_back(victim->ticket);
+          queue_.erase(victim);
+          job.arrival = ++arrival_counter_;
+          queue_.push_back(std::move(job));
+          pending_pump = true;
+        }
+      } else {
+        job.arrival = ++arrival_counter_;
+        queue_.push_back(std::move(job));
+        pending_pump = true;
+      }
+      if (pending_pump) {
+        pumpLocked();
+      }
+    }
+  }
+  for (const auto& entry : dropped) {
+    emit requestCancelled(entry);
+  }
+  dispatchPumped();
+}
+
+// Priority order: current pixel (kSelection) first, then the visible panel
+// (kViewport), then statistics (kBackground); FIFO within a priority.
+void FrameInspectionSession::pumpLocked() {
+  if (in_flight_.size() >= 1 || queue_.empty()) {
+    return;
+  }
+  const auto order = [](const QueuedJob& left, const QueuedJob& right) {
+    if (left.priority != right.priority) {
+      return static_cast<int>(left.priority) >
+             static_cast<int>(right.priority);
+    }
+    return left.arrival < right.arrival;
+  };
+  auto next = std::min_element(queue_.begin(), queue_.end(), order);
+  QueuedJob job = *next;
+  queue_.erase(next);
+  in_flight_.push_back(
+      InFlight{job.ticket, job.kind, job.reservation});
+  const pnga::trace_model::InspectionTicket ticket = job.ticket;
+  const JobKind kind = job.kind;
+  const pnga::statistics::DocumentIdentity document = job.document;
+  const pnga::analysis_engine::AnalysisTarget* target = current_target_.get();
+  const std::uint64_t generation = generation_;
+  const std::uint64_t reservation = job.reservation;
+  std::shared_ptr<const pnga::analysis_engine::AnalysisTarget> kept_alive =
+      current_target_;
+  auto completion = [this, ticket, kind, document, target, generation,
+                     reservation, kept_alive]() {
+    // Every exit path releases the in-flight reservation exactly once.
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      auto& active = in_flight_;
+      const auto entry = std::find_if(
+          active.begin(), active.end(),
+          [&](const InFlight& job_in_flight) {
+            return job_in_flight.ticket == ticket;
+          });
+      if (entry != active.end()) {
+        active.erase(entry);
+      }
+    }
+    if (generation != generation_) {
+      return;  // closed or replaced: never touch the current context
+    }
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      pumpLocked();  // keep the single execution worker fed
+    }
+    dispatchPumped();
+    // C1 publication gate: stale results of superseded targets are dropped
+    // after their reservation was already released.
+    if (!accepts(ticket, pnga::trace_model::PublicationScope::kTarget)) {
+      return;
+    }
+    if (kind == JobKind::kFrameAnalysis) {
+      const auto* frame =
+          std::get_if<pnga::trace_model::AnimationFrame>(
+              &ticket.key.identity);
+      if (target == nullptr || frame == nullptr) {
+        emit frameAnalysisFailed(ticket,
+                                 QStringLiteral("frame analysis has no target"));
+        return;
+      }
+      // The AnalysisTarget carries the frame stream and delivery context,
+      // so the analysis reuses the same public kernels analyze_frame uses
+      // (analyze_stages + deliver_rgba8) without re-indexing the file.
+      auto stages = pnga::analysis_engine::analyze_stages(
+          *target->stream, target->header,
+          pnga::analysis_engine::DecodeLimits{}, nullptr);
+      if (!stages.success) {
+        emit frameAnalysisFailed(
+            ticket,
+            QString::fromStdString(
+                stages.error.empty() ? "frame analysis failed"
+                                     : stages.error));
+        return;
+      }
+      auto delivered = pnga::png_reconstruction::deliver_rgba8(
+          stages.native, target->delivery, 64ull << 20, [] { return false; });
+      if (!delivered.success) {
+        emit frameAnalysisFailed(
+            ticket,
+            QString::fromStdString(
+                delivered.error.empty() ? "frame delivery failed"
+                                        : delivered.error));
+        return;
+      }
+      auto frame_set = std::make_shared<pnga::analysis_engine::FrameStageSet>();
+      frame_set->identity = ticket.key.identity;
+      frame_set->control = target->control.value_or(
+          pnga::png_format::FrameControl{});
+      frame_set->stages = std::move(stages);
+      frame_set->delivered = std::move(delivered.image);
+      publishAnalysis(*frame_set, ticket);
+      return;
+    }
+    pnga::analysis_engine::FrameStatisticsRequest stats_request;
+    stats_request.target = kept_alive;
+    const auto* frame =
+        std::get_if<pnga::trace_model::AnimationFrame>(
+            &ticket.key.identity);
+    if (target == nullptr || frame == nullptr) {
+      emit frameStatisticsFailed(ticket,
+                                 QStringLiteral("frame statistics has no target"));
+      return;
+    }
+    stats_request.document = document;
+    const auto result =
+        pnga::analysis_engine::collect_frame_statistics(stats_request, nullptr);
+    auto shared = std::make_shared<const pnga::analysis_engine::FrameStatisticsResult>(
+        std::move(result));
+    if (!shared->error.empty()) {
+      emit frameStatisticsFailed(ticket,
+                                 QString::fromStdString(shared->error));
+      return;
+    }
+    publishStatistics(std::move(shared), ticket);
+  };
+  if (executor_) {
+    // The test executor may run the completion synchronously on the calling
+    // thread; never invoke it while holding the session mutex.
+    deferred_completion_ = std::move(completion);
+    return;
+  }
+  auto* worker = new FrameInspectionWorker(std::move(completion), this);
+  connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+  worker->start();
+}
+
+void FrameInspectionSession::dispatchPumped() {
+  std::function<void()> to_run;
+  std::function<void(std::function<void()>)> executor;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    to_run = std::move(deferred_completion_);
+    deferred_completion_ = nullptr;
+    executor = executor_;
+  }
+  if (to_run && executor) {
+    executor(std::move(to_run));
+  }
+}
+
+void FrameInspectionSession::publishAnalysis(
+    const pnga::analysis_engine::FrameStageSet& frame,
+    const pnga::trace_model::InspectionTicket& ticket) {
+  std::uint64_t bytes = 0;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    bytes = frame_stage_set_bytes(frame);
+    // Retained budget: keep the newest artifacts; a frame that would exceed
+    // the frozen budget replaces the retained context entirely rather than
+    // growing without bound.
+    if (bytes > kRetainedBudget) {
+      retained_bytes_ = 0;
+    } else {
+      retained_bytes_ = bytes;
+    }
+  }
+  emit frameAnalysisReady(
+      std::make_shared<const pnga::analysis_engine::FrameStageSet>(frame),
+      ticket);
+}
+
+void FrameInspectionSession::publishStatistics(
+    std::shared_ptr<const pnga::analysis_engine::FrameStatisticsResult> result,
+    const pnga::trace_model::InspectionTicket& ticket) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  retained_bytes_ = std::min<std::uint64_t>(
+      kRetainedBudget,
+      retained_bytes_ + result->value.snapshot.chunks.data.data_bytes);
+  emit frameStatisticsReady(std::move(result), ticket);
+}
+
+std::uint64_t FrameInspectionSession::frame_stage_set_bytes(
+    const pnga::analysis_engine::FrameStageSet& frame) {
+  return frame.stages.filtered.size() + frame.stages.unfiltered.size() +
+         frame.delivered.pixels.size();
+}
+
+}  // namespace pnga::gui

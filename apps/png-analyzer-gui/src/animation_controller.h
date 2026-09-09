@@ -44,6 +44,12 @@ class AnimationController final : public QObject {
   Capability capability() const noexcept { return capability_; }
   std::uint64_t generation() const noexcept { return generation_; }
   std::uint64_t requestSerial() const noexcept { return request_serial_; }
+  // Retained replay-cache bytes of the shared animation budget (C5: the
+  // playback worker keeps its own 64 MiB; the inspection session reads this
+  // for shared budget reporting, WP-APNG-INSPECT).
+  std::uint64_t replayRetainedBytes() const noexcept {
+    return replay_ ? replay_->retained_bytes() : 0;
+  }
 
   // Test seam for delivering a deliberately reordered worker completion.
   void publishWorkerResultForTesting(
