@@ -3,6 +3,7 @@
 add_executable(pnga_statistics_tests
   statistics_test.cpp
   serialization_test.cpp
+  frame_statistics_test.cpp
 )
 target_link_libraries(pnga_statistics_tests PRIVATE
   pnga::statistics
@@ -14,3 +15,4 @@ target_compile_definitions(pnga_statistics_tests PRIVATE
 )
 
 add_test(NAME statistics_engine_tests COMMAND pnga_statistics_tests)
+add_test(NAME apng_inspection_statistics_tests COMMAND pnga_statistics_tests "[apng-inspect]")

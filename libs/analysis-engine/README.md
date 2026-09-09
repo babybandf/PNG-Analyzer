@@ -27,6 +27,16 @@ Orchestration rather than codec algorithms (REPOSITORY_LAYOUT.md §5.10, ADR-000
   the document generation adopts `target->key.generation` and trace submit
   rejects selections whose image identity differs from the open target
   (WP-APNG-INSPECT).
+- `collect_frame_statistics` (WP-APNG-INSPECT): frame-scoped scalar
+  statistics through the shared accumulator — chunk coverage is the owning
+  fcTL plus the frame's own data chunks only; byte accounting follows the
+  frozen C3 formulas; progress reuses the 100 ms throttle and monotonic
+  clock seam; cancellation keeps the verified prefix.
+- `query_frame_statistics_occurrence` (WP-APNG-INSPECT contract C7):
+  occurrence navigation over the target's frame stream; chunk-domain
+  results cover the frame's own data chunks and the derived fcTL position,
+  whole-file chunk navigation keeps using `query_statistics_occurrence`,
+  and every returned image coordinate carries `target.key.identity`.
 - A bounded, Qt-free Trace Query Contract that composes associated Deflate
   blocks, token/table summaries and logical/physical bit provenance without
   starting a worker or retaining a whole-file token trace (WP-5T0A).

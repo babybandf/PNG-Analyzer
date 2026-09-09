@@ -11,6 +11,7 @@ add_library(pnga_analysis_engine
   src/decode_trace_inspector.cpp
   src/document_fingerprint.cpp
   src/frame_analysis.cpp
+  src/frame_statistics.cpp
   src/filtered_scanlines.cpp
   src/huffman_inspector.cpp
   src/job_scheduler.cpp

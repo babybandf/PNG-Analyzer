@@ -12,6 +12,11 @@ length/distance aggregation for WP-602A.
   token buckets.
 - Keep compression totals as integers; callers can format the per-mille rate
   without locale-dependent floating-point text.
+- `FrameStatistics` and the independent `pnga.frame-statistics` v1 JSON/CSV
+  export schema (WP-APNG-INSPECT): frame identity, geometry, payload/overhead/
+  inflated byte accounting and the shared section encoding. Static v1 output
+  (`pnga.statistics`) is byte-identical and the section emitters are shared
+  verbatim (serialization_sections.*). Static-image input is rejected.
 
 ## Non-goals
 

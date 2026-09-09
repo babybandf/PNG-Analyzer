@@ -1,6 +1,6 @@
 # WP-APNG-INSPECT 完成记录
 
-状态：IN PROGRESS（T00–T04 完成；T05–T12 未开始）。
+状态：IN PROGRESS（T00–T05 完成；T06–T12 未开始）。
 
 ## T00：静态基线与验收 runner
 
@@ -216,3 +216,58 @@ G-static 全套：构建无错误；`ctest --preset dev` 仅剩 3 个已归因�
 G-static 全套：构建无错误；`ctest --preset dev` 仅剩 3 个已归因基线失败，无新增失败
 （trace_query/trace_orchestrator/block_inspector/pixel_provenance 既有测试全部通过，
 静态 open 与 serialize_trace_query 字节不变）；layout/dependencies/diff-check 通过。
+
+## T05：帧统计与独立导出 schema
+
+日期：2026-09-09。
+
+### 产出
+
+- `libs/statistics`：新增 `frame_statistics.h/.cpp`（`FrameStatistics` +
+  `serialize_frame_statistics_json/csv`，schema `pnga.frame-statistics` v1，字段顺序
+  schema/schema_version/document/identity/geometry/bytes/sections；ratio 仅在 snapshot
+  complete 且分母>0 时输出 "payload/inflated"，否则 JSON null/CSV 留空；StaticImage 输入
+  返回 error）。section 编码从 `serialization.cpp` 机械提取到共享的
+  `serialization_sections.h/.cpp`（envelope 各自保留；提取为纯搬移，v1 golden 逐字节不变，
+  由既有 `statistics_engine_tests` golden 对比验证）。
+- `libs/analysis-engine`：新增 `frame_statistics.h/.cpp`（`collect_frame_statistics`，
+  C3）：复用 `StatisticsAccumulator`；payload_bytes=stream.size；chunk_overhead=38(fcTL)
+  + 每 IDAT 12 / 每 fdAT 16（由 span 前的字节窗口读取物理 chunk type 验证）；
+  inflated=各非空 pass height*(1+row_bytes) checked sum，且与 filtered.size() 互验后才计入
+  overview totals；chunks 统计仅含 fcTL(26)+帧自身数据块（fdAT data 含 4 字节序列号）；
+  进度沿用 100ms 节流 + monotonic_millis seam；每 256 样本与阶段边界检查取消，取消保留
+  verified prefix。不修改 `collect_document_statistics` 语义。
+- C7：`statistics_occurrence_query.h/.cpp` 新增 `query_frame_statistics_occurrence`；
+  `map_logical_bits`/`run_block_occurrence`/`run_filter_occurrence`/token 扫描内核模板化，
+  静态路径行为不变（segment 回退经 `if constexpr` 保留，帧流经零长映射锚定）；帧模式
+  chunk 域仅覆盖帧自身数据块 + 推导定位的 fcTL（38 字节固定布局，位置经 type 读取验证），
+  其余 key kNotFound；`attach_frame_identity` 使所有帧模式结果的 image 坐标携带
+  `target.key.identity`，filter 行提示转为画布全局行；File chunk 域不转换。全文件 chunk
+  跳转继续走原 `query_statistics_occurrence`。
+- 模块 README 更新；`tests/unit/statistics/frame_statistics_test.cpp`（4 用例）与
+  `tests/unit/analysis-engine/frame_statistics_test.cpp`（5 用例）；CMake 注册
+  `apng_inspection_statistics_tests`。
+
+### red/green 证据
+
+- red：新增测试先于实现——`serialize_frame_statistics_json`、`collect_frame_statistics`、
+  `query_frame_statistics_occurrence` 符号缺失（编译失败记录后实现）。
+- 实现过程修正（测试侧为主）：CSV 行写入器 leading cells 后补逗号（该错误曾破坏 v1
+  golden，修复后 golden 恢复逐字节一致）；fdAT 数据 span 从序列号后开始，chunk type 位
+  置按 IDAT(-4)/fdAT(-8) 双候选窗口读取；fcTL 锚定算术按 fdAT 完整 chunk 布局（-12-38）
+  修正并由测试固定；注入时钟测试改为每次查询 +60ms 才能跨过 100ms 节流阈值；静态侧
+  token 对比改用 `scan_tokens`（`decode_stored_and_fixed` 不解 dynamic）；共享编码
+  提取的机械搬移曾两次误删相邻函数（`trace_query_status_text`、token 域解析段），链接
+  /编译失败后从 git diff 恢复。
+- green：`ctest --preset dev -R "apng_inspection_|statistics_engine"` → 4/4 通过。
+  statistics 新增 4 用例：envelope 字段顺序、ratio 可用性规则（complete+分母>0，零与
+  不可用均 null/留空但 inflated 行可区分）、CSV 固定列、StaticImage/fingerprint 拒绝。
+  analysis-engine 新增 5 用例：字节账目（payload/inflated=27/overhead=54）+ 全 section
+  ready + complete()、身份/预算/取消拒绝、时钟 seam 节流、双包装 token/block/filter
+  计数一致、帧 occurrence 四域 + fcTL 锚定 + 非帧 key kNotFound。
+
+### 静态门槛
+
+G-static 全套：构建无错误；`ctest --preset dev` 仅剩 3 个已归因基线失败，无新增失败；
+`statistics_engine_tests`（v1 golden 逐字节）通过，`collect_document_statistics` 及
+occurrence 静态路径行为不变；layout/dependencies/diff-check 通过。
