@@ -120,8 +120,9 @@ std::optional<PixelLocation> locate_pixel(
   return std::nullopt;
 }
 
+template <typename MappingStream>
 bool map_token_bits(
-    const pnga::png_format::VirtualIDATStream& stream,
+    const MappingStream& stream,
     const pnga::deflate_trace::TokenDecodeResult& trace,
     const pnga::deflate_trace::TokenEvent& token,
     PixelProvenanceResult* out) {
@@ -258,12 +259,10 @@ bool append_filter_dependency(
   return true;
 }
 
-}  // namespace
-
-PixelProvenanceResult query_pixel_provenance(
-    const StageSet& stages,
-    const pnga::png_format::VirtualIDATStream& stream,
-    const pnga::io::IByteSource& source, std::uint64_t x, std::uint64_t y,
+template <typename MappingStream>
+PixelProvenanceResult query_pixel_provenance_impl(
+    const StageSet& stages, const pnga::io::IByteSource& stream_bytes,
+    const MappingStream& mapping_stream, std::uint64_t x, std::uint64_t y,
     std::uint64_t channel, std::uint64_t max_trace_output) {
   PixelProvenanceResult out;
   out.x = x;
@@ -296,9 +295,8 @@ PixelProvenanceResult query_pixel_provenance(
     return out;
   }
 
-  pnga::analysis_engine::VirtualIdatSource adapter(stream, source);
   const auto trace = pnga::deflate_trace::decode_stored_and_fixed(
-      adapter, max_trace_output);
+      stream_bytes, max_trace_output);
   if (!trace.success) {
     out.error = "deflate trace: " + trace.error;
     return out;
@@ -433,8 +431,8 @@ PixelProvenanceResult query_pixel_provenance(
       for (const auto& range : token_ranges) {
         append_unique(&out.token_output_ranges, range);
         if (range.token_index >= trace.tokens.size() ||
-            !map_token_bits(stream, trace, trace.tokens[range.token_index],
-                            &out)) {
+            !map_token_bits(mapping_stream, trace,
+                            trace.tokens[range.token_index], &out)) {
           out.error = "token input provenance unavailable";
           return out;
         }
@@ -448,6 +446,27 @@ PixelProvenanceResult query_pixel_provenance(
 
   out.success = true;
   return out;
+}
+
+}  // namespace
+
+PixelProvenanceResult query_pixel_provenance(
+    const StageSet& stages,
+    const pnga::png_format::VirtualIDATStream& stream,
+    const pnga::io::IByteSource& source, std::uint64_t x, std::uint64_t y,
+    std::uint64_t channel, std::uint64_t max_trace_output) {
+  pnga::analysis_engine::VirtualIdatSource adapter(stream, source);
+  return query_pixel_provenance_impl(stages, adapter, stream, x, y, channel,
+                                     max_trace_output);
+}
+
+PixelProvenanceResult query_pixel_provenance(
+    const StageSet& stages,
+    const pnga::png_format::IVirtualCompressedStream& stream,
+    std::uint64_t x, std::uint64_t y, std::uint64_t channel,
+    std::uint64_t max_trace_output) {
+  return query_pixel_provenance_impl(stages, stream, stream, x, y, channel,
+                                     max_trace_output);
 }
 
 }  // namespace pnga::analysis_engine

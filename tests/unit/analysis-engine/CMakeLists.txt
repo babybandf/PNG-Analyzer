@@ -11,6 +11,7 @@ add_executable(pnga_analysis_engine_tests
   animation_replay_test.cpp
   animation_playback_test.cpp
   filtered_scanlines_test.cpp
+  frame_query_test.cpp
   huffman_inspector_test.cpp
   job_scheduler_test.cpp
   pixel_provenance_test.cpp

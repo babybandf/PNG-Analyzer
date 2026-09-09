@@ -42,9 +42,10 @@ std::uint64_t point_at_or_before(
 
 }  // namespace
 
-ScanlineAnchorIndexResult build_scanline_anchors(
-    const pnga::png_format::VirtualIDATStream& stream,
-    const pnga::io::IByteSource& source,
+namespace {
+
+ScanlineAnchorIndexResult build_scanline_anchors_impl(
+    const pnga::io::IByteSource& stream_bytes,
     const pnga::png_reconstruction::ImageHeader& header,
     std::uint64_t interval_bytes, std::uint64_t max_output_bytes) {
   ScanlineAnchorIndexResult out;
@@ -59,18 +60,17 @@ ScanlineAnchorIndexResult build_scanline_anchors(
   out.layout = *layout;
   const std::uint64_t expected = layout->total_bytes.value_or(0);
 
-  VirtualIdatSource adapter(stream, source);
-
   // 1. Deflate access points for random access into the inflated stream.
   out.access = pnga::deflate_index::build_access_index(
-      adapter, max_output_bytes, std::max<std::uint64_t>(1, interval_bytes));
+      stream_bytes, max_output_bytes, std::max<std::uint64_t>(1, interval_bytes));
   if (!out.access.success) {
     out.error = "access index: " + out.access.error;
     return out;
   }
 
   // 2. Filtered scanlines (WP-301) provide the row spans and flat bytes.
-  const FilteredOutcome filtered = inflate_filtered(stream, source, *layout);
+  const FilteredOutcome filtered = inflate_filtered(stream_bytes, *layout,
+                                                    expected, {});
   if (!filtered.success) {
     out.error = filtered.error;
     return out;
@@ -137,30 +137,9 @@ ScanlineAnchorIndexResult build_scanline_anchors(
   return out;
 }
 
-std::optional<std::uint64_t> stream_row_for_pixel(
-    const pnga::png_reconstruction::ScanlineLayout& layout, std::uint64_t x,
-    std::uint64_t y) {
-  std::uint64_t cursor = 0;
-  for (std::size_t p = 0; p < layout.pass_count; ++p) {
-    const auto& pass = layout.passes[p];
-    if (pass.height == 0) {
-      continue;
-    }
-    if (x >= pass.x_start && (x - pass.x_start) % pass.x_step == 0 &&
-        (x - pass.x_start) / pass.x_step < pass.width &&
-        y >= pass.y_start && (y - pass.y_start) % pass.y_step == 0 &&
-        (y - pass.y_start) / pass.y_step < pass.height) {
-      return cursor + (y - pass.y_start) / pass.y_step;
-    }
-    cursor += pass.height;
-  }
-  return std::nullopt;
-}
-
-RowRestoreResult restore_scanline(
+RowRestoreResult restore_scanline_impl(
     const ScanlineAnchorIndexResult& index,
-    const pnga::png_format::VirtualIDATStream& stream,
-    const pnga::io::IByteSource& source, std::uint64_t stream_row) {
+    const pnga::io::IByteSource& stream_bytes, std::uint64_t stream_row) {
   RowRestoreResult out;
   if (!index.success || index.anchors.empty()) {
     out.error = "no scanline anchor index";
@@ -195,9 +174,8 @@ RowRestoreResult restore_scanline(
       point_at_or_before(index.access, anchor.inflated_offset);
   out.replay_bytes = anchor.inflated_offset - point;
 
-  VirtualIdatSource adapter(stream, source);
   const auto extracted = pnga::deflate_index::extract_output(
-      index.access, adapter, anchor.inflated_offset, needed);
+      index.access, stream_bytes, anchor.inflated_offset, needed);
   if (!extracted.success) {
     out.error = "extract: " + extracted.error;
     return out;
@@ -235,6 +213,61 @@ RowRestoreResult restore_scanline(
   out.unfiltered = std::move(prev);
   out.success = true;
   return out;
+}
+
+}  // namespace
+
+ScanlineAnchorIndexResult build_scanline_anchors(
+    const pnga::png_format::VirtualIDATStream& stream,
+    const pnga::io::IByteSource& source,
+    const pnga::png_reconstruction::ImageHeader& header,
+    std::uint64_t interval_bytes, std::uint64_t max_output_bytes) {
+  VirtualIdatSource adapter(stream, source);
+  return build_scanline_anchors_impl(adapter, header, interval_bytes,
+                                     max_output_bytes);
+}
+
+ScanlineAnchorIndexResult build_scanline_anchors(
+    const pnga::png_format::IVirtualCompressedStream& stream,
+    const pnga::png_reconstruction::ImageHeader& header,
+    std::uint64_t interval_bytes, std::uint64_t max_output_bytes) {
+  return build_scanline_anchors_impl(stream, header, interval_bytes,
+                                     max_output_bytes);
+}
+
+std::optional<std::uint64_t> stream_row_for_pixel(
+    const pnga::png_reconstruction::ScanlineLayout& layout, std::uint64_t x,
+    std::uint64_t y) {
+  std::uint64_t cursor = 0;
+  for (std::size_t p = 0; p < layout.pass_count; ++p) {
+    const auto& pass = layout.passes[p];
+    if (pass.height == 0) {
+      continue;
+    }
+    if (x >= pass.x_start && (x - pass.x_start) % pass.x_step == 0 &&
+        (x - pass.x_start) / pass.x_step < pass.width &&
+        y >= pass.y_start && (y - pass.y_start) % pass.y_step == 0 &&
+        (y - pass.y_start) / pass.y_step < pass.height) {
+      return cursor + (y - pass.y_start) / pass.y_step;
+    }
+    cursor += pass.height;
+  }
+  return std::nullopt;
+}
+
+RowRestoreResult restore_scanline(
+    const ScanlineAnchorIndexResult& index,
+    const pnga::png_format::VirtualIDATStream& stream,
+    const pnga::io::IByteSource& source, std::uint64_t stream_row) {
+  VirtualIdatSource adapter(stream, source);
+  return restore_scanline_impl(index, adapter, stream_row);
+}
+
+RowRestoreResult restore_scanline(
+    const ScanlineAnchorIndexResult& index,
+    const pnga::png_format::IVirtualCompressedStream& stream,
+    std::uint64_t stream_row) {
+  return restore_scanline_impl(index, stream, stream_row);
 }
 
 }  // namespace pnga::analysis_engine

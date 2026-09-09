@@ -26,6 +26,8 @@
 
 namespace pnga::analysis_engine {
 
+struct AnalysisTarget;
+
 enum class QueryStatus { kIndexed = 0, kReplaying = 1, kReady = 2, kError = 3 };
 
 const char* query_status_text(QueryStatus status) noexcept;
@@ -54,6 +56,14 @@ class QueryCoordinator {
   // the document is "indexed".
   bool open(std::shared_ptr<const pnga::io::IByteSource> source,
             const pnga::png_reconstruction::ImageHeader& header,
+            std::uint64_t anchor_interval_bytes);
+
+  // APNG inspection entry (WP-APNG-INSPECT contract C2): builds the anchor
+  // index over the target's virtual compressed stream. Shares ownership of
+  // the target so its source stays alive for replay jobs. The document
+  // generation adopts target->key.generation; re-open rules and the static
+  // open() semantics are unchanged.
+  bool open(std::shared_ptr<const AnalysisTarget> target,
             std::uint64_t anchor_interval_bytes);
 
   // Requests scanline `row` at `priority`. A not-yet-ready row has a replay job
@@ -88,6 +98,8 @@ class QueryCoordinator {
 
   JobScheduler scheduler_;
   std::shared_ptr<const pnga::io::IByteSource> source_;
+  std::shared_ptr<const pnga::png_format::IVirtualCompressedStream>
+      target_stream_;  // set by the AnalysisTarget open overload
   pnga::png_format::ChunkIndex index_;
   std::unique_ptr<pnga::png_format::VirtualIDATStream> stream_;  // borrows index_
   pnga::png_reconstruction::ImageHeader header_;

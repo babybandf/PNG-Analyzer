@@ -9,6 +9,7 @@
 
 #include <pnga/deflate-index/access_points.h>
 #include <pnga/io/byte_source.h>
+#include <pnga/png-format/virtual_compressed_stream.h>
 #include <pnga/png-format/virtual_idat_stream.h>
 #include <pnga/png-reconstruction/scanline_layout.h>
 
@@ -52,6 +53,14 @@ ScanlineAnchorIndexResult build_scanline_anchors(
     const pnga::png_reconstruction::ImageHeader& header,
     std::uint64_t interval_bytes, std::uint64_t max_output_bytes);
 
+// Same anchor index over any virtual compressed stream (WP-APNG-INSPECT
+// contract C2): the stream is its own byte source, so no separate file
+// source is needed. Frame streams expose the identical logical bytes.
+ScanlineAnchorIndexResult build_scanline_anchors(
+    const pnga::png_format::IVirtualCompressedStream& stream,
+    const pnga::png_reconstruction::ImageHeader& header,
+    std::uint64_t interval_bytes, std::uint64_t max_output_bytes);
+
 // Restores the unfiltered (reconstructed) bytes of scanline `stream_row`
 // (stream order: Adam7 pass-major, row-minor). `replay_bytes` reports how many
 // inflated bytes had to be re-decoded for this restore.
@@ -65,6 +74,12 @@ RowRestoreResult restore_scanline(
     const ScanlineAnchorIndexResult& index,
     const pnga::png_format::VirtualIDATStream& stream,
     const pnga::io::IByteSource& source, std::uint64_t stream_row);
+
+// Restore over any virtual compressed stream (WP-APNG-INSPECT contract C2).
+RowRestoreResult restore_scanline(
+    const ScanlineAnchorIndexResult& index,
+    const pnga::png_format::IVirtualCompressedStream& stream,
+    std::uint64_t stream_row);
 
 // Maps an image pixel (x, y) to its scanline in stream order (the Adam7 pass
 // that contains it, or y for non-interlaced images). std::nullopt when the

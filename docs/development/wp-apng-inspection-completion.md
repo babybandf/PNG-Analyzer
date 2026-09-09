@@ -1,6 +1,6 @@
 # WP-APNG-INSPECT 完成记录
 
-状态：IN PROGRESS（T00–T02 完成；T03–T12 未开始）。
+状态：IN PROGRESS（T00–T03 完成；T04–T12 未开始）。
 
 ## T00：静态基线与验收 runner
 
@@ -124,3 +124,50 @@ gui_statistics_inspector），与基线一致，无新增失败；`trace_model_s
 G-static 全套：构建无错误；`ctest --preset dev` 仅剩 3 个已归因基线失败，无新增失败；
 layout/dependencies/diff-check 全部通过。helper 预算边界（64KiB 测试上限）与生产预算
 （C5 retained/reservation）分属测试与产品两套约束，互不替代。
+
+## T03：虚拟流行索引和逐帧重建
+
+日期：2026-09-09。
+
+### 产出
+
+- C2 通用流重载（原 (VirtualIDATStream, IByteSource) 对重载全部保留，内核复用）：
+  - `scanline_anchor.h/.cpp`：`build_scanline_anchors`、`restore_scanline` 新增
+    `(const IVirtualCompressedStream&, ...)` 重载；实现重构为内部 `*_impl` 内核
+    （直接以流为 IByteSource），对偶重载经 `VirtualIdatSource` adapter 桥接。
+  - `filtered_scanlines.h/.cpp`：`inflate_filtered` 新增接口重载（薄 shim 复用内核）。
+  - `pixel_provenance.h/.cpp`：`query_pixel_provenance` 新增接口重载；内部
+    `map_token_bits` 模板化（仅用 `logical_to_physical`），trace 解码走流自身。
+  - `stage_analysis` 已有接口重载（无需修改）。
+  - `block_inspector.h` 中无接收 (stream, source) 成对参数的函数（核实），本任务不改。
+- `QueryCoordinator`：新增 `open(std::shared_ptr<const AnalysisTarget>, interval)`；
+  共享 target 所有权，generation 采用 `target->key.generation`；重建 lambda 按
+  target_stream_/静态流分派 restore；re-open 拒绝规则与静态 open 语义不变。
+- `libs/analysis-engine/README.md` 列出全部新增声明。
+- 新增 `tests/unit/analysis-engine/frame_query_test.cpp`（注册 `[apng-inspect]`）。
+
+### red/green 证据
+
+- red：新增测试首次编译失败精确符号：`build_scanline_anchors` 接口重载参数不足
+  （frame_query_test.cpp:68）、`restore_scanline` 接口重载缺失（:80），
+  以及 `QueryCoordinator::open(const AnalysisTarget&, u64)` 缺失。
+- 实现期测试修正（不涉及生产行为）：
+  1. 行查询为异步 replay，首查返回 kReplaying；按既有 `wait_status`（条件变量回调）
+     模式等待 kReady 后再断言，与 query_coordinator_test 同模式。
+  2. 矩阵用例对灰度/RGB 误传 256 字节 tRNS 触发索引 kInvalid（tRNS 长度校验为生产
+     行为，测试改为仅 palette 类型附带 PLTE/tRNS）。
+  3. 测试 helper `frame_request` 硬编码 RGBA8 canvas_header 导致 1-bit 用例
+     "inflate size mismatch"；改为按格式参数构造 canvas_header。
+- green：`ctest --preset dev -R "apng_inspection_"` → 2/2 通过。新增 5 个用例：
+  coordinator 打开帧 target（scanline_count=3、anchors header 2×3）、帧行 replay 与
+  analyze_frame unfiltered 一致 + 越界 kError、同 payload 双包装 filtered/spans/anchor
+  restore 全等且物理 offset 不同、11 项色型/位深/Adam7 矩阵（含 1/16-bit、palette/tRNS、
+  Adam7 pass 边界，scanline_count 与 analyze_stages 交叉一致）、预算拒绝与 shared owner
+  寿命（请求/源释放后行查询仍 kReady）。所有 Filter 经既有 all_none=false 静态 fixture
+  与共享内核覆盖（Sub/Up/Average/Paeth 路径同核），帧矩阵不重复造 filter fixture。
+
+### 静态门槛
+
+G-static 全套：构建无错误；`ctest --preset dev` 仅剩 3 个已归因基线失败，无新增失败
+（query_coordinator/scanline_anchor/pixel_provenance/filtered_scanlines 既有测试全部
+通过，静态 open 与原 query_coordinate 行为不变）；layout/dependencies/diff-check 通过。

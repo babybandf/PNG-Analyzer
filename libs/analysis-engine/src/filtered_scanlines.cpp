@@ -24,6 +24,13 @@ FilteredOutcome inflate_filtered(
 }
 
 FilteredOutcome inflate_filtered(
+    const pnga::png_format::IVirtualCompressedStream& stream,
+    const pnga::png_reconstruction::ScanlineLayout& layout) {
+  const std::uint64_t expected = layout.total_bytes.value_or(0);
+  return inflate_filtered(stream, layout, expected, {});
+}
+
+FilteredOutcome inflate_filtered(
     const pnga::io::IByteSource& stream,
     const pnga::png_reconstruction::ScanlineLayout& layout,
     std::uint64_t max_output, const std::function<bool()>& cancelled) {

@@ -9,6 +9,7 @@
 
 #include <pnga/deflate-trace/token_decoder.h>
 #include <pnga/io/byte_source.h>
+#include <pnga/png-format/virtual_compressed_stream.h>
 #include <pnga/png-format/virtual_idat_stream.h>
 #include <pnga/trace-model/provenance.h>
 
@@ -45,6 +46,15 @@ PixelProvenanceResult query_pixel_provenance(
     const pnga::png_format::VirtualIDATStream& stream,
     const pnga::io::IByteSource& source, std::uint64_t x, std::uint64_t y,
     std::uint64_t channel, std::uint64_t max_trace_output);
+
+// Same query over any virtual compressed stream (WP-APNG-INSPECT contract
+// C2): the stream is its own byte source and provides logical/physical
+// mapping for frame payload spans.
+PixelProvenanceResult query_pixel_provenance(
+    const StageSet& stages,
+    const pnga::png_format::IVirtualCompressedStream& stream,
+    std::uint64_t x, std::uint64_t y, std::uint64_t channel,
+    std::uint64_t max_trace_output);
 
 }  // namespace pnga::analysis_engine
 
