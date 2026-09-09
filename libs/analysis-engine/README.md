@@ -37,6 +37,13 @@ Orchestration rather than codec algorithms (REPOSITORY_LAYOUT.md §5.10, ADR-000
   results cover the frame's own data chunks and the derived fcTL position,
   whole-file chunk navigation keeps using `query_statistics_occurrence`,
   and every returned image coordinate carries `target.key.identity`.
+- `query_canvas_pixel` (WP-APNG-INSPECT contract C4): bounded canvas-pixel
+  provenance as a page-local DAG of FrameSample/BlendSource/BlendOver/
+  Carry/Clear/Restore operations. Numeric RGBA checkpoints reuse the
+  production compositor (`blend_into` on 1x1 images); the walk follows the
+  animation control records; fixed page budgets (4096 nodes, 1024
+  history-frame steps, 4 MiB node memory) paginate through a validated
+  cursor instead of growing the working set.
 - A bounded, Qt-free Trace Query Contract that composes associated Deflate
   blocks, token/table summaries and logical/physical bit provenance without
   starting a worker or retaining a whole-file token trace (WP-5T0A).

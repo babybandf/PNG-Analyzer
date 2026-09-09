@@ -4,6 +4,7 @@ add_executable(pnga_analysis_engine_tests
   analysis_target_test.cpp
   artifact_store_test.cpp
   block_inspector_test.cpp
+  canvas_pixel_query_test.cpp
   frame_analysis_test.cpp
   frame_statistics_test.cpp
   frame_trace_test.cpp

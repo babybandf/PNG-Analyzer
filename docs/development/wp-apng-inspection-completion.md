@@ -1,6 +1,6 @@
 # WP-APNG-INSPECT 完成记录
 
-状态：IN PROGRESS（T00–T05 完成；T06–T12 未开始）。
+状态：IN PROGRESS（T00–T06 完成；T07–T12 未开始）。
 
 ## T00：静态基线与验收 runner
 
@@ -271,3 +271,54 @@ G-static 全套：构建无错误；`ctest --preset dev` 仅剩 3 个已归因�
 G-static 全套：构建无错误；`ctest --preset dev` 仅剩 3 个已归因基线失败，无新增失败；
 `statistics_engine_tests`（v1 golden 逐字节）通过，`collect_document_statistics` 及
 occurrence 静态路径行为不变；layout/dependencies/diff-check 通过。
+
+## T06：有界 canvas 像素来源
+
+日期：2026-09-09。
+
+### 产出
+
+- 新增 `libs/analysis-engine/include/pnga/analysis-engine/canvas_pixel_query.h` +
+  `src/canvas_pixel_query.cpp`（C4 全接口）：`CanvasOperation`、`CanvasPixelNode`、
+  `CanvasPixelPending`、`CanvasPixelCursor`、`CanvasPixelRequest`、`CanvasPixelResult`、
+  `query_canvas_pixel`。
+- 语义实现：
+  - 阶段解释：PostBlend（矩形内 blend 节点/矩形外 kCarry→PreBlend）、PreBlend(0)=kClear 叶、
+    PreBlend(N>0)=alias→PostDispose(N-1)（历史帧步计费）、PostDispose（dispose 1=kClear 叶、
+    2=kRestore→本帧 PreBlend、0 或矩形外=alias→PostBlend）、FrameOutput（矩形内
+    kFrameSample 叶——经 `analyze_frame` 解码；矩形外 kCarry 叶无贡献）。
+  - 数值 RGBA 复用生产 compositor：`blend_into` 以 1×1 图像逐位复用整数公式（SOURCE 复制/
+    OVER 舍入）；测试预期用测试内独立 oracle（APNG 规范公式重实现），不调用被测路径。
+  - 每页闭合局部 DAG：显式 child-slot 记录，边只引用本页较小索引；先当前帧源、再
+    destination 历史的确定性 DFS；自环经 in-flight 集检测报 error。
+  - 预算（C5 固定值）：每页 ≤4096 节点、≤1024 历史帧步、≤4MiB 节点内存、pending ≤1024；
+    超限把未展开状态截断为 kCarry 叶（页保持闭合），状态按 DFS 序进入 next.pending；
+    继续时整个 pending 栈作为新页初始工作栈，不重遍历已完成前缀、不跨页引用。
+  - cursor 校验：version/ticket/x/y 一致、非空 pending、非法 stage、超出 verified prefix
+    或晚于目标帧均拒绝；visited_steps checked 递增，溢出按预算截断。
+- `animation_replay.h/.cpp` 未修改：混合公式在 `png-reconstruction/canvas_composition`
+  （公开 API）与 `analyze_frame`（公开 API）中已可复用，无需暴露新接口——这是满足
+  "仅暴露/复用已有数值回放" 的最小改动。
+- README 新增条目；新增 `tests/unit/analysis-engine/canvas_pixel_query_test.cpp`。
+
+### red/green 证据
+
+- red：新增测试先于实现——`CanvasPixelRequest/Result/query_canvas_pixel` 符号缺失
+  （编译失败记录后实现）。
+- 实现过程修正：第一版以"末尾 N 个节点=子节点"假设计算 DAG 边，在混合子树非连续发射时
+  产生错误输入边（SEGVEV 暴露），改为显式 child-slot 记录；早期取消返回补上
+  `stop=kCancelled`；测试侧两次坐标口径修正（fixture pattern 以帧局部坐标取样）与
+  矩形外链路/目标节点断言按实际闭合 DAG 语义修正（root 为 kCarry、frame1 目的地为
+  frame0 的 kRestore）。
+- green：`ctest --preset dev -R "apng_inspection_"` → 3/3 通过。新增 8 个用例：
+  首帧 PreBlend=kClear 叶（计划最小测试）、SOURCE 替换、OVER+BACKGROUND+首帧 PREVIOUS+
+  NONE alias+多帧 OVER（独立 oracle 值）、矩形外跨帧 Carry 链到 kClear、与
+  AnimationReplay 数值一致、请求校验（缺源/静态身份/非法 stage/越界坐标/取消）、
+  2000 帧 PREVIOUS 链分页（partial→继续推进→ready，边全部指向较小索引、pending≤1024）、
+  cursor 六类拒绝。
+
+### 静态门槛
+
+G-static 全套：构建无错误；`ctest --preset dev` 仅剩 3 个已归因基线失败，无新增失败
+（animation_replay/pixel_provenance 既有测试全部通过，compositor 算法零改动）；
+layout/dependencies/diff-check 通过。
