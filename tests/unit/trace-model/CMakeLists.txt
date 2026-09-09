@@ -3,6 +3,7 @@
 add_executable(pnga_trace_model_tests
   offset_range_test.cpp
   compression_navigation_test.cpp
+  inspection_context_test.cpp
   selection_test.cpp
   stage_artifact_test.cpp
 )
@@ -13,3 +14,4 @@ target_link_libraries(pnga_trace_model_tests PRIVATE
 target_compile_features(pnga_trace_model_tests PRIVATE cxx_std_20)
 
 add_test(NAME trace_model_selection_tests COMMAND pnga_trace_model_tests)
+add_test(NAME apng_inspection_identity_tests COMMAND pnga_trace_model_tests "[apng-inspect]")

@@ -1,6 +1,6 @@
 # WP-APNG-INSPECT 完成记录
 
-状态：IN PROGRESS（T00 完成；T01–T12 未开始）。
+状态：IN PROGRESS（T00、T01 完成；T02–T12 未开始）。
 
 ## T00：静态基线与验收 runner
 
@@ -47,3 +47,42 @@
 ### Exit 判定
 
 T00 Exit 条件满足：基线证据存在，runner 能拒绝空测试/缺失必需测试；本包生产代码尚未开始。
+
+## T01：身份、ticket 与坐标契约
+
+日期：2026-09-09。
+
+### 产出
+
+- `libs/trace-model/include/pnga/trace-model/inspection_context.h` + `src/inspection_context.cpp`：
+  `AnalysisKey`、`InspectionTicket`、`PublicationScope`、`accepts_publication`（C1）。
+- `libs/analysis-engine/include/pnga/analysis-engine/analysis_target.h` + `src/analysis_target.cpp`：
+  `LocalPoint`、`AnalysisTarget`、`TargetResult`、`make_frame_target`（仅声明，T02 实现）、
+  `frame_local_point`、`query_frame_coordinate`（C1 坐标与 publication 部分）。
+- 模块 README 新增对应 Responsibility 条目；两模块 CMake 加入新源文件。
+- 测试：`tests/unit/trace-model/inspection_context_test.cpp`、
+  `tests/unit/analysis-engine/analysis_target_test.cpp`；`apng_inspection_identity_tests`、
+  `apng_inspection_engine_tests`（`[apng-inspect]` 标签过滤）注册进既有测试可执行程序。
+- 实现说明：`query_frame_coordinate` 先检 identity（不匹配 → kNotApplicable）与矩形（越界 →
+  kOutOfRange），内部以中性 StaticImage 身份调用既有 `query_coordinate`（其内核仅接受静态身份），
+  输出坐标恢复全局并恢复帧身份；pass-local 字段（local_x/row_in_pass/stream_row）保留帧局部语义。
+  `frame_local_point` 全程 checked 比较/减法，拒绝零尺寸矩形，无溢出路径。
+
+### red/green 证据
+
+- red：新增测试先于实现构建，首次编译失败精确符号为
+  `pnga/trace-model/inspection_context.h: file not found` 与
+  `pnga/analysis-engine/analysis_target.h: file not found`；随后修复一次实现期编译错误
+  （`analysis_target.cpp:30` ImageCoordinate 与 ImageIdentity 误比较）。
+- green：`ctest --preset dev -R "apng_inspection_"` → 2/2 通过。新增 6 个用例：
+  trace-model 3 个（Target scope 按 key/epoch 接受、Pixel scope 额外要求同 stage、相同 ticket
+  双 scope 接受）；analysis-engine 3 个（frame_local_point 矩形映射含 uint64 极值、
+  query_frame_coordinate 全局恢复、身份不匹配与矩形外拒绝）。
+
+### 静态门槛
+
+G-static：`cmake --build --preset dev --parallel 4` 无错误；`ctest --preset dev` 仅剩 3 个
+T00 已归因的既有环境性失败（gui_main_window_layout / gui_wp607a_native_gui_gate /
+gui_statistics_inspector），与基线一致，无新增失败；`trace_model_selection_tests` 通过，
+旧 Selection 持久格式未变；`verify_repository_layout.py`、`verify_dependencies.py`、
+`git diff --check` 全部通过。

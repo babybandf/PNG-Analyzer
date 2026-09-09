@@ -4,6 +4,7 @@
 
 add_library(pnga_trace_model
   src/compression_navigation.cpp
+  src/inspection_context.cpp
   src/selection.cpp
   src/stage_artifact.cpp
 )

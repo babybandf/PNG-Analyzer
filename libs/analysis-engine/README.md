@@ -9,6 +9,12 @@ Orchestration rather than codec algorithms (REPOSITORY_LAYOUT.md §5.10, ADR-000
   IDAT bit spans (WP-504).
 - Qt-free coordinate summaries that resolve image-global coordinates to
   pass-local rows, stage byte/bit offsets and native sample indices (WP-5U1).
+- Immutable per-frame `AnalysisTarget` contexts for APNG inspection:
+  `make_frame_target` builds the frame-scoped virtual stream, delivery
+  context and header; `frame_local_point` maps canvas-global points into the
+  frame rectangle with checked arithmetic; `query_frame_coordinate` resolves
+  canvas-global selections against analyzed frame stages and restores
+  canvas-global coordinates in its output (WP-APNG-INSPECT).
 - A bounded, Qt-free Trace Query Contract that composes associated Deflate
   blocks, token/table summaries and logical/physical bit provenance without
   starting a worker or retaining a whole-file token trace (WP-5T0A).

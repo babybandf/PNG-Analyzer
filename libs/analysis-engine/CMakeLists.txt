@@ -2,6 +2,7 @@
 # §5.10, ADR-0006). WP-203 provides the budgeted ArtifactStore. No Qt (ADR-0003).
 
 add_library(pnga_analysis_engine
+  src/analysis_target.cpp
   src/artifact_store.cpp
   src/animation_replay.cpp
   src/animation_playback.cpp
