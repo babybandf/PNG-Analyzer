@@ -584,6 +584,12 @@ void SelectionNavigationController::setImageIdentity(
   if (std::holds_alternative<pnga::trace_model::StaticImage>(identity)) animation_view_.clear();
 }
 
+void SelectionNavigationController::setFrameStageContext(
+    std::shared_ptr<const pnga::analysis_engine::FrameStageSet> frame) {
+  frame_stage_ = std::move(frame);
+  updateHexSource();
+}
+
 void SelectionNavigationController::setAnimationFrameStream(
     std::shared_ptr<const pnga::png_format::IVirtualCompressedStream> stream) {
   frame_stream_ = std::move(stream);
@@ -608,10 +614,21 @@ void SelectionNavigationController::updateHexSource() {
     const pnga::png_format::VirtualIDATStream stream(*index_);
     w_.hex->setSource(pnga::ui::qt::make_idat_hex_source(source_, stream));
   } else if (view_state_.hex_source == pnga::ui::qt::HexSource::kInflated) {
-    w_.hex->setSource(pnga::ui::qt::make_inflated_hex_source(stage_set_));
+    // Frame identity active: the Inflated bytes come from the analyzed
+    // frame (T08); the static document otherwise.
+    if (frame_stage_ != nullptr) {
+      w_.hex->setSource(pnga::ui::qt::make_frame_inflated_hex_source(frame_stage_));
+    } else {
+      w_.hex->setSource(pnga::ui::qt::make_inflated_hex_source(stage_set_));
+    }
   } else if (view_state_.hex_source ==
              pnga::ui::qt::HexSource::kDefiltered) {
-    w_.hex->setSource(pnga::ui::qt::make_defiltered_hex_source(stage_set_));
+    if (frame_stage_ != nullptr) {
+      w_.hex->setSource(
+          pnga::ui::qt::make_frame_defiltered_hex_source(frame_stage_));
+    } else {
+      w_.hex->setSource(pnga::ui::qt::make_defiltered_hex_source(stage_set_));
+    }
   } else {
     w_.hex->setSource(pnga::ui::qt::make_file_hex_source(source_));
   }

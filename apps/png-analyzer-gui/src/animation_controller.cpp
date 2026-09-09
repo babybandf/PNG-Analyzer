@@ -268,7 +268,9 @@ void AnimationController::onWorkerResult(
 
 void bindAnimationUi(AnimationController& controller, DocumentSession& session,
                      MainWindowWidgets& widgets,
-                     SelectionNavigationController& selection) {
+                     SelectionNavigationController& selection,
+                     pnga::gui::FrameInspectionSession& frame_inspection,
+                     TraceController& trace) {
   QObject::connect(widgets.x_spin, &QSpinBox::valueChanged, &controller, &AnimationController::pause);
   QObject::connect(widgets.y_spin, &QSpinBox::valueChanged, &controller, &AnimationController::pause);
   QObject::connect(
@@ -327,10 +329,47 @@ void bindAnimationUi(AnimationController& controller, DocumentSession& session,
           }
         }
       });
+  // WP-APNG-INSPECT live wiring (D5): frame analyses flow through the
+  // inspection session into the Reconstruction panel and the frame-scoped
+  // Hex sources; the Compression panel opens the frame target stream.
+  std::uint64_t frame_selection_serial = 0;
+  std::shared_ptr<const pnga::analysis_engine::AnalysisTarget> active_target;
+  QObject::connect(
+      &frame_inspection, &pnga::gui::FrameInspectionSession::frameAnalysisReady,
+      &controller,
+      [&](std::shared_ptr<const pnga::analysis_engine::FrameStageSet> frame,
+          const pnga::trace_model::InspectionTicket& ticket) {
+        widgets.inspector->setFrameContext(frame);
+        selection.setFrameStageContext(frame);
+        selection.setImageIdentity(ticket.key.identity);
+        if (active_target != nullptr) {
+          trace.setFrameContext(active_target, frame);
+        }
+      });
+  QObject::connect(
+      &frame_inspection, &pnga::gui::FrameInspectionSession::frameAnalysisFailed,
+      &controller,
+      [&widgets](const pnga::trace_model::InspectionTicket&,
+                 const QString& error) {
+        widgets.inspector->setRowQueryStatus(
+            QObject::tr("frame analysis unavailable: %1").arg(error));
+      });
+  QObject::connect(
+      &frame_inspection, &pnga::gui::FrameInspectionSession::targetSelected,
+      &controller,
+      [&, active_target =
+              std::shared_ptr<const pnga::analysis_engine::AnalysisTarget>()](
+          const std::shared_ptr<const pnga::analysis_engine::AnalysisTarget>&
+              target,
+          const pnga::trace_model::InspectionTicket&) mutable {
+        active_target = target;
+        // The frame stage set arrives with the analysis result.
+        trace.setFrameContext(target, nullptr);
+      });
+
   QObject::connect(
       &controller, &AnimationController::framePublished, &controller,
-      [&session, &widgets, &selection](
-          std::shared_ptr<const pnga::analysis_engine::ReplayResult> result) {
+      [&](std::shared_ptr<const pnga::analysis_engine::ReplayResult> result) {
         if (!result || result->generation != session.generation()) return;
         presentAnimationFrame(widgets, *result);
         const auto* frame = std::get_if<pnga::trace_model::AnimationFrame>(
@@ -378,15 +417,42 @@ void bindAnimationUi(AnimationController& controller, DocumentSession& session,
             widgets.animation_inspector->setFrameControl(
                 session.animationIndex()->frames[frame->index].control);
           }
+          // Route the frame analysis through the inspection session (all
+          // decode work happens in its background worker; the UI thread
+          // never reads or decodes).
+          pnga::analysis_engine::FrameRequest frame_request;
+          frame_request.generation = session.generation();
+          frame_request.request_serial = result->request_serial;
+          frame_request.ordinal = frame->index;
+          frame_request.source = session.source();
+          frame_request.index = session.animationIndex();
+          if (session.stageSet() != nullptr) {
+            frame_request.canvas_header = session.stageSet()->header;
+            frame_request.delivery = pnga::analysis_engine::delivery_context_from(
+                *session.animationIndex(), session.stageSet()->header);
+          }
+          const pnga::trace_model::InspectionTicket ticket{
+              {session.generation(), *frame},
+              result->stage, 1, ++frame_selection_serial};
+          frame_inspection.openFrame(frame_request, ticket);
         }
       });
   QObject::connect(&controller, &AnimationController::staticFallbackSelected,
-                   &controller, [&selection, &session, &widgets] {
+                   &controller, [&selection, &session, &widgets, &frame_inspection,
+                                 &trace] {
                      const auto& decoded = session.decodeResult();
                      if (decoded.success) widgets.inspector->setDeliveredPixels(
                          decoded.image.width, decoded.image.height, decoded.image.rgba);
+                     // Restore the complete static context (C6: the default
+                     // image returns to the document analysis).
+                     if (session.stageSet() != nullptr) {
+                       widgets.inspector->setStageSet(session.stageSet());
+                     }
+                     selection.setFrameStageContext(nullptr);
                      selection.setImageIdentity(
                          pnga::trace_model::StaticImage{});
                      selection.setAnimationFrameStream(nullptr);
+                     trace.setFrameContext(nullptr, nullptr);
+                     frame_inspection.clearEvidenceFocus();
                    });
 }

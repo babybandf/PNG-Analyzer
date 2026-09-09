@@ -210,6 +210,42 @@ void TraceController::clearDocument(std::uint64_t generation) {
   }
 }
 
+void TraceController::setFrameContext(
+    std::shared_ptr<const pnga::analysis_engine::AnalysisTarget> target,
+    std::shared_ptr<const pnga::analysis_engine::FrameStageSet> frame) {
+  if (trace_ == nullptr) {
+    return;
+  }
+  frame_stage_ = std::move(frame);
+  if (target == nullptr) {
+    if (frame_target_ == nullptr) {
+      return;  // already on the static document stream
+    }
+    frame_target_.reset();
+    trace_handle_.reset();
+    trace_result_.reset();
+    trace_interval_.reset();
+    pending_trace_coordinate_.reset();
+    if (static_source_ != nullptr) {
+      // Reopen the static document stream; the generation stays the
+      // document's so stale frame results fail the request gate.
+      trace_->open(static_source_, kTraceIndexOutputBytes);
+      trace_->setDocumentGeneration(generation_);
+    }
+    w_.trace_binding->setPublicationGate({});
+    return;
+  }
+  frame_target_ = std::move(target);
+  trace_handle_.reset();
+  trace_result_.reset();
+  trace_interval_.reset();
+  pending_trace_coordinate_.reset();
+  if (trace_->open(frame_target_, kTraceIndexOutputBytes)) {
+    trace_->setDocumentGeneration(generation_);
+    w_.trace_binding->setPublicationGate(publication_gate_);
+  }
+}
+
 void TraceController::setQueryCoordinator(
     pnga::analysis_engine::QueryCoordinator* query) {
   query_ = query;
@@ -276,28 +312,69 @@ void TraceController::requestFor(
     return;
   }
   w_.trace_binding->setNotIndexed(false);
-  const auto row = pnga::analysis_engine::stream_row_for_pixel(
-      query_->anchors().layout, coordinate.x, coordinate.y);
-  if (!row.has_value()) {
-    return;
+  std::uint64_t begin = 0;
+  std::uint64_t end = 0;
+  if (frame_target_ != nullptr && frame_stage_ != nullptr) {
+    // Frame context (WP-APNG-INSPECT D5 wiring): resolve the canvas-global
+    // coordinate through the frame's own stage data (C1
+    // query_frame_coordinate); the offsets are frame-stream inflated
+    // offsets and the request goes to the orchestrator opened on the frame
+    // target.
+    pnga::trace_model::Selection frame_selection;
+    pnga::trace_model::ImageCoordinate image;
+    image.identity = frame_target_->key.identity;
+    image.x = coordinate.x;
+    image.y = coordinate.y;
+    frame_selection.image = image;
+    frame_selection.stage = pnga::trace_model::Stage::kFiltered;
+    const auto summary = pnga::analysis_engine::query_frame_coordinate(
+        *frame_stage_, frame_selection);
+    if (summary.status !=
+        pnga::analysis_engine::CoordinateQueryStatus::kReady) {
+      return;
+    }
+    const std::uint64_t row_bytes =
+        frame_stage_->stages.scanlines.empty()
+            ? 0
+            : frame_stage_->stages.scanlines[summary.stream_row].length;
+    const std::uint64_t bytes_per_pixel = std::max<std::uint64_t>(
+        1, frame_stage_->stages.native.channels != 0
+               ? frame_stage_->stages.native.channels *
+                     frame_stage_->stages.header.bit_depth / 8
+               : 1);
+    if (row_bytes <= 1 ||
+        summary.filtered_data_offset < summary.local_x * bytes_per_pixel) {
+      return;
+    }
+    begin = summary.filtered_data_offset - summary.local_x * bytes_per_pixel;
+    end = begin + row_bytes - 1;
+    trace_scanline_ = summary.stream_row;
+    trace_selected_output_offset_ = summary.filtered_data_offset;
+  } else {
+    const auto row = pnga::analysis_engine::stream_row_for_pixel(
+        query_->anchors().layout, coordinate.x, coordinate.y);
+    if (!row.has_value()) {
+      return;
+    }
+    const auto& scanlines = query_->anchors().scanlines;
+    if (*row >= scanlines.size()) {
+      return;
+    }
+    begin = scanlines[*row].offset;
+    if (scanlines[*row].length >
+        std::numeric_limits<std::uint64_t>::max() - begin) {
+      trace_selected_output_offset_.reset();
+      return;
+    }
+    end = begin + scanlines[*row].length;
+    if (end <= begin) {
+      trace_selected_output_offset_.reset();
+      return;
+    }
+    trace_scanline_ = *row;
+    trace_selected_output_offset_ = filtered_output_offset_for_pixel(
+        query_->anchors(), coordinate, *row);
   }
-  const auto& scanlines = query_->anchors().scanlines;
-  if (*row >= scanlines.size()) {
-    return;
-  }
-  const std::uint64_t begin = scanlines[*row].offset;
-  if (scanlines[*row].length >
-      std::numeric_limits<std::uint64_t>::max() - begin) {
-    trace_selected_output_offset_.reset();
-    return;
-  }
-  const std::uint64_t end = begin + scanlines[*row].length;
-  if (end <= begin) {
-    trace_selected_output_offset_.reset();
-    return;
-  }
-  trace_selected_output_offset_ = filtered_output_offset_for_pixel(
-      query_->anchors(), coordinate, *row);
   if (trace_interval_.has_value() && trace_request_generation_ == generation_ &&
       trace_interval_->first == begin && trace_interval_->second == end) {
     if (trace_result_ != nullptr) {
@@ -313,7 +390,6 @@ void TraceController::requestFor(
   }
   pending_trace_coordinate_.reset();
   trace_interval_ = std::make_pair(begin, end);
-  trace_scanline_ = *row;
   trace_request_generation_ = generation_;
   if (trace_handle_ != nullptr && trace_handle_->accepted()) {
     trace_->cancel(*trace_handle_);

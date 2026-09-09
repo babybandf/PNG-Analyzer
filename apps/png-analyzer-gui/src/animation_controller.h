@@ -2,6 +2,8 @@
 #define PNG_ANALYZER_GUI_ANIMATION_CONTROLLER_H
 
 #include "animation_worker.h"
+#include "frame_inspection_session.h"
+#include "trace_controller.h"
 
 #include <pnga/analysis-engine/animation_playback.h>
 
@@ -100,6 +102,8 @@ class AnimationController final : public QObject {
 
 void bindAnimationUi(AnimationController& controller, DocumentSession& session,
                      MainWindowWidgets& widgets,
-                     SelectionNavigationController& selection);
+                     SelectionNavigationController& selection,
+                     pnga::gui::FrameInspectionSession& frame_inspection,
+                     TraceController& trace);
 
 #endif  // PNG_ANALYZER_GUI_ANIMATION_CONTROLLER_H

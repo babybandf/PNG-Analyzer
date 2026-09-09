@@ -62,6 +62,16 @@ class FrameInspectionSession final : public QObject {
   // requests for the same frame merge into the newest one. `reservation`
   // defaults to the kind's frozen budget share and is rejectable (a job
   // whose reservation exceeds the in-flight budget is cancelled, never run).
+  // WP-APNG-INSPECT live wiring (T08/D5): builds the AnalysisTarget in the
+  // background (contract C1: make_frame_target runs off the UI thread),
+  // adopts it as the current context (monotonic serial guard) and runs the
+  // frame analysis in the same job. Duplicate requests for the same frame
+  // merge like every other job kind.
+  void openFrame(const pnga::analysis_engine::FrameRequest& request,
+                 pnga::trace_model::InspectionTicket ticket,
+                 pnga::analysis_engine::JobPriority priority =
+                     pnga::analysis_engine::JobPriority::kSelection);
+
   void requestFrameAnalysis(
       pnga::trace_model::InspectionTicket ticket,
       pnga::analysis_engine::JobPriority priority =
@@ -129,11 +139,12 @@ class FrameInspectionSession final : public QObject {
   void requestCancelled(pnga::trace_model::InspectionTicket ticket);
 
  private:
-  enum class JobKind { kFrameAnalysis, kFrameStatistics };
+  enum class JobKind { kFrameOpenAnalysis, kFrameAnalysis, kFrameStatistics };
 
   struct QueuedJob {
     JobKind kind = JobKind::kFrameAnalysis;
     pnga::trace_model::InspectionTicket ticket;
+    pnga::analysis_engine::FrameRequest open_request;
     pnga::statistics::DocumentIdentity document;
     pnga::analysis_engine::JobPriority priority =
         pnga::analysis_engine::JobPriority::kSelection;
@@ -150,6 +161,10 @@ class FrameInspectionSession final : public QObject {
   void enqueue(QueuedJob job);
   void pumpLocked();
   void dispatchPumped();
+  void analyze_target_frame(
+      const pnga::trace_model::InspectionTicket& ticket,
+      const std::shared_ptr<const pnga::analysis_engine::AnalysisTarget>&
+          target);
   void publishAnalysis(const pnga::analysis_engine::FrameStageSet& frame,
                        const pnga::trace_model::InspectionTicket& ticket);
   void publishStatistics(

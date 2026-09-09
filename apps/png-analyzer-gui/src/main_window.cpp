@@ -78,6 +78,7 @@ MainWindow::MainWindow(QWidget* parent,
       [this](const QString& path) { openRecentFile(path); });
   session_ = std::make_unique<DocumentSession>(this);
   animation_ = std::make_unique<AnimationController>(this);
+  frame_inspection_ = std::make_unique<pnga::gui::FrameInspectionSession>(this);
   connect(session_.get(), &DocumentSession::decodePublished, this,
           &MainWindow::onDecodeDone);
   connect(session_.get(), &DocumentSession::stagesPublished, this,
@@ -111,8 +112,9 @@ MainWindow::MainWindow(QWidget* parent,
             session_->requestChunkDetail(node, selection_serial);
           }},
       this, &workspace_->viewState(), &compression_store_);
-  bindAnimationUi(*animation_, *session_, widgets_, *selection_);
   trace_ = std::make_unique<TraceController>(widgets_, this);
+  bindAnimationUi(*animation_, *session_, widgets_, *selection_,
+                  *frame_inspection_, *trace_);
   // WP-602G: the lazy Statistics controller wires its own widget actions,
   // tab activation and session-signal subscriptions.
   statistics_ = std::make_unique<StatisticsController>(widgets_, *session_, this);

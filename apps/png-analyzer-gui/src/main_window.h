@@ -30,6 +30,7 @@ class ApplicationTheme;
 #include "animation_controller.h"
 #include "main_window_ui.h"
 #include "selection_navigation_controller.h"
+#include "frame_inspection_session.h"
 #include "statistics_controller.h"
 #include "trace_controller.h"
 #include "workspace_controller.h"
@@ -76,6 +77,7 @@ class MainWindow final : public QMainWindow {
   std::unique_ptr<AnimationController> animation_;
   std::unique_ptr<SelectionNavigationController> selection_;
   std::unique_ptr<TraceController> trace_;
+  std::unique_ptr<pnga::gui::FrameInspectionSession> frame_inspection_;
   std::unique_ptr<StatisticsController> statistics_;
 };
 

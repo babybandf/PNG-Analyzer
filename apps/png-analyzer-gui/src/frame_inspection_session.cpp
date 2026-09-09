@@ -126,6 +126,19 @@ std::uint64_t FrameInspectionSession::reservedBytes() const {
   return total;
 }
 
+void FrameInspectionSession::openFrame(
+    const pnga::analysis_engine::FrameRequest& request,
+    pnga::trace_model::InspectionTicket ticket,
+    pnga::analysis_engine::JobPriority priority) {
+  QueuedJob job;
+  job.kind = JobKind::kFrameOpenAnalysis;
+  job.ticket = ticket;
+  job.open_request = request;
+  job.priority = priority;
+  job.reservation = kFrameAnalysisReservation;
+  enqueue(std::move(job));
+}
+
 void FrameInspectionSession::requestFrameAnalysis(
     pnga::trace_model::InspectionTicket ticket,
     pnga::analysis_engine::JobPriority priority, std::uint64_t reservation) {
@@ -316,14 +329,15 @@ void FrameInspectionSession::pumpLocked() {
       InFlight{job.ticket, job.kind, job.reservation});
   const pnga::trace_model::InspectionTicket ticket = job.ticket;
   const JobKind kind = job.kind;
+  const pnga::analysis_engine::FrameRequest open_request = job.open_request;
   const pnga::statistics::DocumentIdentity document = job.document;
   const pnga::analysis_engine::AnalysisTarget* target = current_target_.get();
   const std::uint64_t generation = generation_;
   const std::uint64_t reservation = job.reservation;
   std::shared_ptr<const pnga::analysis_engine::AnalysisTarget> kept_alive =
       current_target_;
-  auto completion = [this, ticket, kind, document, target, generation,
-                     reservation, kept_alive]() {
+  auto completion = [this, ticket, kind, open_request, document, target,
+                     generation, reservation, kept_alive]() {
     // Every exit path releases the in-flight reservation exactly once.
     {
       std::lock_guard<std::mutex> lock(mutex_);
@@ -345,6 +359,41 @@ void FrameInspectionSession::pumpLocked() {
       pumpLocked();  // keep the single execution worker fed
     }
     dispatchPumped();
+    if (kind == JobKind::kFrameOpenAnalysis) {
+      // Build the target off the UI thread (contract C1), adopt it under
+      // the monotonic selection-serial guard and analyze in this job. The
+      // adoption makes the ticket current, so the C1 gate below accepts it.
+      auto built = pnga::analysis_engine::make_frame_target(open_request);
+      if (!built.target) {
+        emit frameAnalysisFailed(
+            ticket,
+            QString::fromStdString(
+                built.error.empty() ? "frame target unavailable"
+                                    : built.error));
+        return;
+      }
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        const auto* incoming = std::get_if<pnga::trace_model::AnimationFrame>(
+            &ticket.key.identity);
+        const bool newer = current_ticket_.key.identity !=
+                               pnga::trace_model::ImageIdentity{} &&
+                           incoming == nullptr;
+        (void)newer;
+        const auto* current =
+            std::get_if<pnga::trace_model::AnimationFrame>(
+                &current_ticket_.key.identity);
+        const bool adopt = current == nullptr ||
+                           ticket.selection_serial >=
+                               current_ticket_.selection_serial;
+        if (adopt) {
+          current_target_ = built.target;
+          current_ticket_ = ticket;
+        }
+      }
+      analyze_target_frame(ticket, built.target);
+      return;
+    }
     // C1 publication gate: stale results of superseded targets are dropped
     // after their reservation was already released.
     if (!accepts(ticket, pnga::trace_model::PublicationScope::kTarget)) {
@@ -359,37 +408,7 @@ void FrameInspectionSession::pumpLocked() {
                                  QStringLiteral("frame analysis has no target"));
         return;
       }
-      // The AnalysisTarget carries the frame stream and delivery context,
-      // so the analysis reuses the same public kernels analyze_frame uses
-      // (analyze_stages + deliver_rgba8) without re-indexing the file.
-      auto stages = pnga::analysis_engine::analyze_stages(
-          *target->stream, target->header,
-          pnga::analysis_engine::DecodeLimits{}, nullptr);
-      if (!stages.success) {
-        emit frameAnalysisFailed(
-            ticket,
-            QString::fromStdString(
-                stages.error.empty() ? "frame analysis failed"
-                                     : stages.error));
-        return;
-      }
-      auto delivered = pnga::png_reconstruction::deliver_rgba8(
-          stages.native, target->delivery, 64ull << 20, [] { return false; });
-      if (!delivered.success) {
-        emit frameAnalysisFailed(
-            ticket,
-            QString::fromStdString(
-                delivered.error.empty() ? "frame delivery failed"
-                                        : delivered.error));
-        return;
-      }
-      auto frame_set = std::make_shared<pnga::analysis_engine::FrameStageSet>();
-      frame_set->identity = ticket.key.identity;
-      frame_set->control = target->control.value_or(
-          pnga::png_format::FrameControl{});
-      frame_set->stages = std::move(stages);
-      frame_set->delivered = std::move(delivered.image);
-      publishAnalysis(*frame_set, ticket);
+      analyze_target_frame(ticket, kept_alive);
       return;
     }
     pnga::analysis_engine::FrameStatisticsRequest stats_request;
@@ -437,6 +456,44 @@ void FrameInspectionSession::dispatchPumped() {
   if (to_run && executor) {
     executor(std::move(to_run));
   }
+}
+
+void FrameInspectionSession::analyze_target_frame(
+    const pnga::trace_model::InspectionTicket& ticket,
+    const std::shared_ptr<const pnga::analysis_engine::AnalysisTarget>&
+        target) {
+  if (target == nullptr) {
+    emit frameAnalysisFailed(ticket,
+                             QStringLiteral("frame analysis has no target"));
+    return;
+  }
+  auto stages = pnga::analysis_engine::analyze_stages(
+      *target->stream, target->header,
+      pnga::analysis_engine::DecodeLimits{}, nullptr);
+  if (!stages.success) {
+    emit frameAnalysisFailed(
+        ticket,
+        QString::fromStdString(
+            stages.error.empty() ? "frame analysis failed" : stages.error));
+    return;
+  }
+  auto delivered = pnga::png_reconstruction::deliver_rgba8(
+      stages.native, target->delivery, 64ull << 20, [] { return false; });
+  if (!delivered.success) {
+    emit frameAnalysisFailed(
+        ticket,
+        QString::fromStdString(
+            delivered.error.empty() ? "frame delivery failed"
+                                    : delivered.error));
+    return;
+  }
+  auto frame_set = std::make_shared<pnga::analysis_engine::FrameStageSet>();
+  frame_set->identity = ticket.key.identity;
+  frame_set->control = target->control.value_or(
+      pnga::png_format::FrameControl{});
+  frame_set->stages = std::move(stages);
+  frame_set->delivered = std::move(delivered.image);
+  publishAnalysis(*frame_set, ticket);
 }
 
 void FrameInspectionSession::publishAnalysis(

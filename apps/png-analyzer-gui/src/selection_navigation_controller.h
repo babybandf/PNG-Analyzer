@@ -80,6 +80,11 @@ class SelectionNavigationController final : public QObject {
   void onAnimationFrameHovered(int x, int y);
   void setAnimationFrameStream(
       std::shared_ptr<const pnga::png_format::IVirtualCompressedStream> stream);
+  // WP-APNG-INSPECT live wiring (T08/D5): the analyzed frame context for
+  // the frame-scoped Inflated/Defiltered Hex sources. Null restores the
+  // static document context.
+  void setFrameStageContext(
+      std::shared_ptr<const pnga::analysis_engine::FrameStageSet> frame);
 
   pnga::ui::qt::SelectionViewState& viewState() noexcept;
   const pnga::ui::qt::SelectionViewState& viewState() const noexcept;
@@ -128,6 +133,7 @@ class SelectionNavigationController final : public QObject {
   const pnga::png_format::ChunkIndex* index_ = nullptr;
   pnga::analysis_engine::QueryCoordinator* query_ = nullptr;
   std::shared_ptr<const pnga::analysis_engine::StageSet> stage_set_;
+  std::shared_ptr<const pnga::analysis_engine::FrameStageSet> frame_stage_;
   std::shared_ptr<const pnga::png_format::IVirtualCompressedStream>
       frame_stream_;
   pnga::trace_model::ImageIdentity image_identity_ =
