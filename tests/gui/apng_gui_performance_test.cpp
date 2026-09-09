@@ -142,30 +142,68 @@ void ApngGuiPerformanceTest::timelineModelScrollBaseline() {
 
   auto* list = widget.findChild<QListView*>(QStringLiteral("animationThumbnails"));
   QVERIFY(list != nullptr);
-  auto* bar = list->verticalScrollBar();
+  // The timeline lays its thumbnails out left-to-right without wrapping, so
+  // the horizontal scrollbar is the real navigation axis; the vertical one
+  // is inert.
+  auto* bar = list->horizontalScrollBar();
   QVERIFY(bar != nullptr);
-  bar->setRange(0, 100000);
+  QVERIFY(bar->maximum() > 0);
+  const auto first_visible = [&]() {
+    // IconMode grid spacing leaves the exact corner empty; sample several
+    // points along the viewport's horizontal mid-line.
+    const int mid_y = list->viewport()->rect().height() / 2;
+    for (const int dx : {6, 20, 50, 100}) {
+      const auto row = list->indexAt(QPoint(dx, mid_y)).row();
+      if (row >= 0) {
+        return row;
+      }
+    }
+    return -1;
+  };
+  QTRY_COMPARE_WITH_TIMEOUT(first_visible(), 0, 4000);
 
   std::vector<std::uint64_t> step_us;
   step_us.reserve(1000);
   const int steps = 1000;
+  int previous_first_visible = first_visible();
+  int distinct_visible_positions = 1;
+  // Production navigation scrolls via scrollTo (setPlayback), not raw
+  // scrollbar values; driving scrollTo also avoids the view's delayed
+  // relayout resetting the raw scrollbar position on 11M-pixel contents.
   timer.restart();
   for (int i = 0; i < steps; ++i) {
+    const auto ordinal = (static_cast<qint64>(i) * (kEntries - 1)) / (steps - 1);
     const auto step_start = timer.nsecsElapsed();
-    bar->setValue(bar->minimum() +
-                  (bar->maximum() - bar->minimum()) * i / (steps - 1));
+    list->scrollTo(list->model()->index(static_cast<int>(ordinal), 0),
+                   QAbstractItemView::PositionAtTop);
     // Force the event loop to service the scroll and paint scheduled work.
     QCoreApplication::processEvents();
     step_us.push_back(
         static_cast<std::uint64_t>((timer.nsecsElapsed() - step_start) / 1000));
+    const auto visible = first_visible();
+    if (visible != previous_first_visible) {
+      ++distinct_visible_positions;
+      previous_first_visible = visible;
+    }
   }
   const auto sweep_us = static_cast<std::uint64_t>(timer.nsecsElapsed() / 1000);
+  // The sweep must have moved the visible frame window across the model.
+  qInfo() << "scroll end state: value" << bar->value() << "max" << bar->maximum()
+          << "first_visible" << first_visible()
+          << "distinct" << distinct_visible_positions
+          << "viewport" << list->viewport()->rect()
+          << "list" << list->rect();
+  QVERIFY(distinct_visible_positions > 100);
+  QVERIFY(first_visible() > 0);
 
   QJsonObject cell{
       {QStringLiteral("cell"), QStringLiteral("timeline-scroll")},
       {QStringLiteral("entries"), kEntries},
       {QStringLiteral("populate_us"), double(populate_us)},
       {QStringLiteral("scroll_steps"), steps},
+      {QStringLiteral("axis"), QStringLiteral("horizontal")},
+      {QStringLiteral("distinct_visible_positions"),
+       distinct_visible_positions},
       {QStringLiteral("sweep_us"), double(sweep_us)},
       {QStringLiteral("step_p50_us"), double(percentile(step_us, 50))},
       {QStringLiteral("step_p95_us"), double(percentile(step_us, 95))},
@@ -189,7 +227,7 @@ void ApngGuiPerformanceTest::playbackMainThreadBlockingBaseline() {
   std::vector<std::array<std::byte, 4>> colors(kFrames);
   for (std::size_t i = 0; i < kFrames; ++i) {
     controls[i] = pnga::png_format::FrameControl{
-        0, 96, 64, 0, 0, 1, 1, 0, 0};  // 10 ms effective delay at 1x
+        0, 96, 64, 0, 0, 1, 100, 0, 0};  // raw 1/100 s = 10 ms at 1x
     const auto r = static_cast<unsigned char>((i * 29 + 40) % 256);
     const auto g = static_cast<unsigned char>((i * 53 + 80) % 256);
     const auto b = static_cast<unsigned char>((i * 7 + 160) % 256);

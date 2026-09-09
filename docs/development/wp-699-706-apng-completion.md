@@ -1,7 +1,16 @@
 # WP-699–706 — APNG First Release Completion
 
-Status: **PASS** (2026-09-08, verified on the final tree at commit recorded
-below)
+Status: **FAIL** (2026-09-09 merge review of `c1d7af2`: GUI performance
+evidence corrections remain; historical verification results follow below).
+
+The latest review found that `timelineModelScrollBaseline` manipulates the
+vertical scrollbar and forces its range, whereas the production timeline is
+left-to-right without wrapping. Re-run using the actual horizontal range and
+verify that visible frame indices advance. Also, the playback fixture's
+delay fraction is 1/1 second, not the commented 10 ms: correct the intended
+load and refresh the baseline before attributing eight publications in eight
+seconds to worker throughput. These evidence issues remain separate from the
+explicitly accepted Qt exception and deferred Compression issue below.
 
 The 2026-09-08 completion claim in this file was previously withdrawn: the
 earlier checks had not verified actual APNG playback or stage presentation.
@@ -80,14 +89,27 @@ package.
 GUI-side baselines are recorded by
 `tests/gui/apng_gui_performance_test.cpp` (CTest
 `gui_apng_gui_performance_tests`; `PNGA_APNG_PERF_OUT` emits
-`build/evidence/wp-699-706/apng-gui-performance.json` at the recorded tip
-`0a70b13`, native cocoa window): timeline model population of 100,000
-entries took 9.1 ms and a 1,000-step scroll sweep 231 ms (step P95 188 us;
-step max 65 ms on the first scroll, which includes view initialization).
-During real playback of the 100-frame document, a 1 ms event-loop probe
-measured tick-gap P50 4.2 ms / P95 12.5 ms / max 77 ms — no long
-main-thread freeze. The publication rate inside the window (8 publications)
-is worker-throughput-bound on the first replay pass, not UI-bound.
+`build/evidence/wp-699-706/apng-gui-performance.json` with the environment
+and git commit). An earlier revision of this test drove the inert vertical
+scrollbar (the timeline is a left-to-right, no-wrap view) and paced the
+playback fixture at one second per frame while commenting 10 ms; both
+measurement errors were corrected per review — the sweep now drives
+`QListView::scrollTo` across the real horizontal axis and verifies that the
+leftmost visible frame index advances (1,000 distinct positions over the
+100,000-entry model), and the playback fixture paces at the corrected
+10 ms/frame.
+
+Corrected baselines (offscreen run): timeline model population of 100,000
+entries 7.1 ms; 1,000-step full-range scroll sweep 617 ms total, step P50
+605 us / P95 669 us / max 4.8 ms; the leftmost visible frame index reaches
+99,990 at the end of the sweep. During real playback of the 100-frame
+document at 10 ms/frame pacing, a 1 ms event-loop probe measured tick-gap
+P50 15.1 ms / P95 23.6 ms / max 24.5 ms — no long main-thread freeze. The
+publication rate inside the window was 91 publications (about 11 fps,
+i.e. one displayed frame per ~90 ms end to end against the 100 fps pacing
+target — the pipeline drops frames rather than blocking the UI thread;
+the per-publication cost splits between the replay materialize on the
+worker and the publication handlers on the main thread).
 
 ## Native macOS evidence (cocoa, not offscreen)
 
@@ -168,6 +190,11 @@ closes that gap.
 
 ## Environment note: Qt provenance
 
+On 2026-09-09 the user explicitly approved deferring the official Qt installer
+migration for this merge and accepting the existing Homebrew Qt 6.11.1
+verification environment. This is a scoped acceptance for WP-699–706, not a
+general replacement of the repository dependency policy.
+
 The local verification builds resolve Qt through
 `/opt/homebrew/lib/cmake/Qt6` (Homebrew `qt` 6.11.1), not the official Qt
 installer the repository dependency contract names. This is a pre-existing
@@ -177,6 +204,29 @@ native theme evidence at Qt 6.11.1), not something this branch introduced.
 It is recorded here for honesty; switching the host to the official
 installer Qt is a repository-level infrastructure task outside this work
 package's allowed paths.
+
+## Deferred issue: Compression retains static fallback data
+
+- Recorded and explicitly deferred by the user on 2026-09-09; accepted as a
+  known limitation for this merge. No behavior change is included here.
+- Reproduction: open the user-provided local sample
+  `/Users/lijiangbo/project/png_overview/examples/apng/support/027.png`
+  (static fallback plus two animation frames), then select an animation frame
+  while viewing Compression. The panel continues to show fallback IDAT data,
+  which can be mistaken for the selected frame's compressed data. The sample
+  is referenced only; it has not been copied into the repository corpus.
+- Cause: TraceOrchestrator builds a VirtualIDATStream for the static image;
+  animation selection updates preview/Frame Stream Hex without replacing the
+  Compression analysis context.
+- Agreed future interaction: hide Compression when an animation frame is
+  selected; if it was active, select Animation. Restore Compression for
+  Static Fallback without stealing focus. Keep it hidden during playback and
+  preserve ordinary static PNG behavior.
+- Follow-up must also suppress stale Compression results and navigation while
+  animation frames are selected. Test fallback -> frame -> fallback, active
+  tab transitions, playback, late results and static PNG non-regression.
+- Per-frame Compression support is a separate future capability; the present
+  implementation must not be described as providing it.
 
 ## Changed paths since the withdrawn claim
 
