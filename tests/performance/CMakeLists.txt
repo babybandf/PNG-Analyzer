@@ -28,6 +28,21 @@ if(WIN32)
 endif()
 
 add_test(NAME performance_corpus_runner COMMAND pnga_performance_runner)
+
+# WP-APNG-INSPECT T11: per-frame inspection performance record (machine-shaped
+# JSON; the candidate gate compares it against the T00 baseline).
+add_executable(pnga_apng_inspection_perf
+  apng_inspection_test.cpp
+)
+target_link_libraries(pnga_apng_inspection_perf PRIVATE
+  pnga::analysis_engine
+  pnga::png_format
+  pnga::io
+)
+target_compile_features(pnga_apng_inspection_perf PRIVATE cxx_std_20)
+target_include_directories(pnga_apng_inspection_perf PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common
+)
 set_tests_properties(performance_corpus_runner PROPERTIES
   LABELS "performance;corpus"
 )

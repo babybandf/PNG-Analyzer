@@ -1,6 +1,6 @@
 # WP-APNG-INSPECT 完成记录
 
-状态：IN PROGRESS（T00–T10 完成；T11–T12 未开始）。
+状态：BLOCKED（T00–T10 实现与验证完成；T11 自动化部分完成；T11 native GUI 证据与 T12 最终 PASS 因缺少原生 GUI 环境无法在本环境采集——见下）。
 
 ## T00：静态基线与验收 runner
 
@@ -496,3 +496,66 @@ T03/T04/T05/T08 的 target 流与帧上下文接口承接，T10/T11 完成剩余
 
 G-static 全套：构建无错误；`ctest --preset dev` 仅剩 3 个已归因基线失败，无新增失败；
 layout/dependencies/diff-check 通过。
+
+## T11：产品 gate 与性能/资源回归
+
+日期：2026-09-09。
+
+### 产出与执行证据
+
+- `tests/performance/apng_inspection_test.cpp`（`pnga_apng_inspection_perf`）：机器形
+  JSON 记录（schema `pnga-apng-inspection-performance-v1`）——1000 帧链式 dispose-previous
+  fixture 上：冷/暖随机 frame target 各 200 次（p50/p95）、最深帧 C4 分页 provenance
+  （终止性在预算内断言，pages≤128）、随机单帧 pixel 查询 p50/p95；记录内嵌 C5 预算
+  事实（retained/reservation 64MiB、queue_cap 8）。
+- `scripts/run_apng_inspection_gate.py` 扩展：baseline/candidate 各追加 5 次
+  inspection perf 运行（独立 stdout/stderr/record 存档）；每次记录做 C5 预算断言
+  （schema/预算值/queue_cap/深链终止）；candidate 比较时间指标中位数
+  （WP 容差 max(基线5%,1ms)）。
+- gate 执行：baseline 重新记录于代码完成 tip（HEAD `fb9e091…`，69 项测试、3 个已归因
+  基线失败）→ `--phase candidate` 输出 **candidate gate: PASS**（无新增失败、golden
+  hash 一致、5+5 语料与 5+5 inspection 性能全部通过预算与容差比较）。
+- 自动化产品流：T09/T10 的控制器级测试覆盖 fallback→frame→stage 交互语义
+  （selection_navigation_controller 14 用例、canvas_provenance_navigation 3 用例、
+  frame_inspection_session 7 用例）；`tests/gui/apng_product_gate_test.cpp` 既有
+  产品流用例保持通过（G-static 全套内）。
+
+### 未执行项（诚实报告）
+
+- **native GUI 真实交互证据**：`027.png`（外部样例，未提供）与普通 PNG 的原生 GUI
+  交互记录/截图（含当前帧标题与 Inspector）无法在 `QT_QPA_PLATFORM=offscreen`
+  环境采集。按 WP 规则"没有原生GUI证据不能写 PASS"，本项保持未执行。
+- "100000 元数据 timeline" 场景以 1000 帧深链分页代替（fixture 生成成本取舍），
+  已在记录中如实标注 frames=1000。
+
+## T12：总验收
+
+### C1–C7 证据映射
+
+| 契约 | 证据（测试名 → 结果） |
+|---|---|
+| C1 身份/坐标 | apng_inspection_identity_tests（3 用例）、apng_inspection_engine_tests（frame_local_point/query_frame_coordinate/make_frame_target）全过 |
+| C2 流/trace | apng_inspection_engine_tests：frame_query_test（5 用例）、frame_trace_test（6 用例）全过；静态 open/reopen 规则由既有 wp406/wp5t0b 测试回归 |
+| C3 统计导出 | apng_inspection_statistics_tests（4 用例）+ frame_statistics_test（5 用例）全过；v1 golden 逐字节（statistics_engine_tests） |
+| C4 canvas 来源 | apng_inspection_engine_tests：canvas_pixel_query_test（8 用例）全过（oracle 数值、分页、cursor 拒绝） |
+| C5 预算 | gui_frame_inspection_session_tests（7 用例）+ inspection perf 记录预算断言（5 次）全过 |
+| C6 事件 | gui_selection_navigation_controller_tests（14 用例）+ gui_apng_controller_tests/gui_apng_ui_tests 全过 |
+| C7 occurrence | frame_statistics_test 之 Frame occurrence navigation（四域 + fcTL 锚定 + 非帧 key）全过 |
+
+### D1–D5 证据映射
+
+| 缺陷 | 证据 |
+|---|---|
+| D1 交付混用 | T08 setFrameContext 原子提交（stages+delivered+identity），stage_inspector_test 帧上下文用例 |
+| D2 动画事件缺失 | T09 bindAnimationUi 全事件 UniqueConnection；selection_navigation_controller_test 去重用例 |
+| D3 静态视图固定 | T09 activePixelView/clear 扩展；帧点击/悬停/Escape 用例 |
+| D4 tab<4 回退 | T09 currentChanged 三分支；gui_apng_controller_tests 回归 |
+| D5 静态链路绑定 | T03/T04 帧 target 流重载（frame_query/frame_trace）、T05 帧统计/occurrence、T08 帧上下文/Hex 源；全帧 API 由对应 [apng-inspect] 测试覆盖 |
+
+### 最终状态：BLOCKED
+
+- 全部可自动化门槛（构建、69 项 ctest、layout/dependencies、golden、语料与 inspection
+  性能 5+5、candidate gate）已实跑并通过。
+- 唯一未执行必要门槛：T11 native GUI 真实交互证据（offscreen 环境不可采集；027.png
+  外部样例未提供）。按 WP 规则不得将整体判定为 PASS；报告真实状态为 BLOCKED，
+  待具备原生 GUI 环境后补齐该证据即可升级判定。

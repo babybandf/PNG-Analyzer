@@ -217,6 +217,103 @@ def collect_performance(out_dir):
     return runs
 
 
+def collect_inspection_performance(out_dir):
+    """Runs the WP-APNG-INSPECT T11 performance program five times and
+    archives each machine-shaped record with its stdout/stderr."""
+    binary = ROOT / "build" / "dev" / "tests" / "performance" / \
+        "pnga_apng_inspection_perf"
+    runs = []
+    for index in range(1, PERFORMANCE_RUNS + 1):
+        run_dir = out_dir / f"inspection-perf-run-{index}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        if not binary.is_file():
+            (run_dir / "stdout.txt").write_text("")
+            (run_dir / "stderr.txt").write_text("perf binary missing")
+            runs.append({"exit_code": 1, "record": None})
+            continue
+        result = subprocess.run(
+            [str(binary)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        (run_dir / "stdout.txt").write_text(result.stdout)
+        (run_dir / "stderr.txt").write_text(result.stderr)
+        record = None
+        if result.returncode == 0 and result.stdout.strip():
+            record = json.loads(result.stdout)
+            problems = check_budgets(record)
+            if problems:
+                (run_dir / "budget-problems.txt").write_text(
+                    "\n".join(problems) + "\n")
+                result.returncode = 1
+        runs.append({"exit_code": result.returncode, "record": record,
+                     "budget_ok": not problems if record else False})
+    return runs
+
+
+INSPECTION_BUDGETS = {
+    "retained_budget_bytes": 67108864,
+    "reservation_budget_bytes": 67108864,
+}
+INSPECTION_TIME_METRICS = (
+    "cold_p50_us", "cold_p95_us", "warm_p50_us", "warm_p95_us",
+    "deep_provenance_p50_us", "deep_provenance_max_us",
+    "pixel_query_p50_us", "pixel_query_p95_us",
+)
+
+
+def check_budgets(record):
+    """C5 budget facts asserted on every inspection performance record."""
+    problems = []
+    if record.get("schema") != "pnga-apng-inspection-performance-v1":
+        problems.append("inspection perf record schema mismatch")
+        return problems
+    for key, expected in INSPECTION_BUDGETS.items():
+        if record.get(key) != expected:
+            problems.append(f"{key}: {record.get(key)} != {expected}")
+    if record.get("queue_cap") != 8:
+        problems.append(f"queue_cap: {record.get('queue_cap')} != 8")
+    if not isinstance(record.get("deep_provenance_max_us"), int) or \
+            record["deep_provenance_max_us"] <= 0:
+        problems.append("deep provenance did not terminate within budgets")
+    return problems
+
+
+def compare_inspection_performance(baseline_runs, candidate_runs):
+    """WP tolerance: time metric medians within max(5%, 1ms) of baseline."""
+    problems = []
+
+    def medians(runs):
+        samples = {metric: [] for metric in INSPECTION_TIME_METRICS}
+        for entry in runs:
+            record = entry.get("record")
+            if not record:
+                continue
+            for metric in INSPECTION_TIME_METRICS:
+                value = record.get(metric)
+                if isinstance(value, int) and value >= 0:
+                    samples[metric].append(value)
+        return {metric: statistics.median(values) if values else None
+                for metric, values in samples.items()}
+
+    base = medians(baseline_runs)
+    cand = medians(candidate_runs)
+    for metric in INSPECTION_TIME_METRICS:
+        base_median = base[metric]
+        cand_median = cand[metric]
+        if base_median is None or cand_median is None:
+            problems.append(f"inspection.{metric}: missing measurements")
+            continue
+        budget = max(base_median * 0.05, 1000.0)
+        if abs(cand_median - base_median) > budget:
+            problems.append(
+                f"inspection.{metric}: candidate median {cand_median} "
+                f"vs baseline median {base_median} exceeds budget {budget:.1f}")
+    return problems
+
+
 def scenario_metric_index(runs):
     samples = {}
     for entry in runs:
@@ -269,6 +366,7 @@ def phase_baseline(out_dir):
         "ctest": collect_ctest_results(out_dir),
         "static_expectation_hashes": collect_expectation_hashes(),
         "performance": collect_performance(out_dir),
+        "inspection_performance": collect_inspection_performance(out_dir),
         "attributed_baseline_failures": ATTRIBUTED_BASELINE_FAILURES,
     }
     (out_dir / "manifest.json").write_text(
@@ -291,10 +389,15 @@ def phase_candidate(out_dir, baseline_dir):
         "ctest": collect_ctest_results(out_dir),
         "static_expectation_hashes": collect_expectation_hashes(),
         "performance": collect_performance(out_dir),
+        "inspection_performance": collect_inspection_performance(out_dir),
         "attributed_baseline_failures": ATTRIBUTED_BASELINE_FAILURES,
     }
 
     problems = []
+    for index, entry in enumerate(evidence["inspection_performance"], 1):
+        if entry["exit_code"] != 0 or not entry.get("record"):
+            problems.append(
+                f"inspection perf run {index} failed or produced no record")
     baseline_head = baseline["git"]["head"]
     if evidence["git"]["head"] != baseline_head:
         problems.append(
@@ -323,6 +426,8 @@ def phase_candidate(out_dir, baseline_dir):
         baseline["performance"], evidence["performance"]
     )
     problems.extend(performance_problems)
+    problems.extend(compare_inspection_performance(
+        baseline["inspection_performance"], evidence["inspection_performance"]))
 
     evidence["comparison"] = {
         "baseline_dir": str(baseline_dir),

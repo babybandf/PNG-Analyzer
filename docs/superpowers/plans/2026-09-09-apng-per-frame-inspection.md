@@ -46,8 +46,8 @@ red阶段预期只因新增契约/行为缺失而失败；工具链错误不能�
 
 **Consumes/Produces:** 现有CMake dev preset → `python3 scripts/run_apng_inspection_gate.py --phase baseline|candidate --out PATH`。baseline保存HEAD、dirty文件列表、ctest JSON清单与退出码、工具链、静态测试和性能原始记录；candidate比较同环境基线。out必须是build目录子目录。
 
-- [ ] 记录HEAD/dirty，不碰已有无关文件；配置dev并确认Qt测试确实存在，不能接受自动退化为纯CLI构建。
-- [ ] runner最小实现使用subprocess参数列表，不用shell插值；以下存在性断言必须保留：
+- [x] 记录HEAD/dirty，不碰已有无关文件；配置dev并确认Qt测试确实存在，不能接受自动退化为纯CLI构建。
+- [x] runner最小实现使用subprocess参数列表，不用shell插值；以下存在性断言必须保留：
 
 ```python
 p = subprocess.run(['ctest','--preset','dev','--show-only=json-v1'],
@@ -61,10 +61,10 @@ subprocess.run(['ctest','--preset','dev','--no-tests=error',
                 '--output-on-failure'], check=True)
 ```
 
-- [ ] 模拟required含不存在名称，验证runner非零退出；恢复required后跑baseline。
-- [ ] 跑5次 `python3 scripts/run_performance_corpus.py --preset dev --enforce-thresholds`，每次stdout/stderr/JSON按独立编号存档。禁止在本任务更改基准输入或阈值。
-- [ ] 保存 `tests/unit/statistics/golden/` 和静态selection/CLI golden实际文件hash清单；列表由现有测试源码引用确定，记录到baseline manifest。禁止记录可变时间字段作为语义差异。
-- [ ] 对全套现有静态GUI场景记录原始结果；baseline既有失败逐项归因并标注，未解决必要失败则最终不能PASS。
+- [x] 模拟required含不存在名称，验证runner非零退出；恢复required后跑baseline。
+- [x] 跑5次 `python3 scripts/run_performance_corpus.py --preset dev --enforce-thresholds`，每次stdout/stderr/JSON按独立编号存档。禁止在本任务更改基准输入或阈值。
+- [x] 保存 `tests/unit/statistics/golden/` 和静态selection/CLI golden实际文件hash清单；列表由现有测试源码引用确定，记录到baseline manifest。禁止记录可变时间字段作为语义差异。
+- [x] 对全套现有静态GUI场景记录原始结果；baseline既有失败逐项归因并标注，未解决必要失败则最终不能PASS。
 
 **Exit:** 基线证据存在且runner能拒绝空测试；本包代码尚未开始。
 
@@ -74,7 +74,7 @@ subprocess.run(['ctest','--preset','dev','--no-tests=error',
 
 **Interfaces:** 产出C1所有接口；AnalysisTarget factory暂由T02实现，T01只实现坐标和publication，声明factory。既有 FrameRequest/FrameStageSet/CoordinateSummary 均显式include对应public header。
 
-- [ ] 写身份判别测试：
+- [x] 写身份判别测试：
 
 ```cpp
 using namespace pnga::trace_model;
@@ -88,10 +88,10 @@ b = a; b.key.identity = StaticImage{};
 REQUIRE_FALSE(accepts_publication(b, a, PublicationScope::kTarget));
 ```
 
-- [ ] 写坐标测试：rect={sequence0,width2,height3,x10,y20,delay1/100,dispose0,blend0}，global(11,22)→local(1,2)，(9,22)/(12,22)越界。最大uint64坐标不得溢出。
-- [ ] 运行red；实现C1。publication实现比较key、epoch，再按scope比较stage/serial；frame_local_point先检查global>=origin再减，比较local<尺寸，拒绝零尺寸。
-- [ ] query_frame_coordinate转换前验证frame identity；调用原query_coordinate处理pass/channel，完成后恢复全局坐标，保留pass-local字段。
-- [ ] 运行identity新测试和G-static；检查旧Selection格式没有变化。
+- [x] 写坐标测试：rect={sequence0,width2,height3,x10,y20,delay1/100,dispose0,blend0}，global(11,22)→local(1,2)，(9,22)/(12,22)越界。最大uint64坐标不得溢出。
+- [x] 运行red；实现C1。publication实现比较key、epoch，再按scope比较stage/serial；frame_local_point先检查global>=origin再减，比较local<尺寸，拒绝零尺寸。
+- [x] query_frame_coordinate转换前验证frame identity；调用原query_coordinate处理pass/channel，完成后恢复全局坐标，保留pass-local字段。
+- [x] 运行identity新测试和G-static；检查旧Selection格式没有变化。
 
 ## T02：目标工厂与可靠fixture
 
@@ -99,7 +99,7 @@ REQUIRE_FALSE(accepts_publication(b, a, PublicationScope::kTarget));
 
 **Interfaces:** 完成 `TargetResult make_frame_target(const FrameRequest&)`。新增测试helper `pnga_test::inspection_request(uint32_t ordinal=0)`，返回现有FrameRequest，固定generation7/serial11。
 
-- [ ] helper使用以下构造，不能用make_apng_canvas构造子矩形：
+- [x] helper使用以下构造，不能用make_apng_canvas构造子矩形：
 
 ```cpp
 inline pnga::analysis_engine::FrameRequest inspection_request(std::uint32_t ordinal=0) {
@@ -118,7 +118,7 @@ inline pnga::analysis_engine::FrameRequest inspection_request(std::uint32_t ordi
 }
 ```
 
-- [ ] 最小测试：
+- [x] 最小测试：
 
 ```cpp
 auto r=pnga_test::inspection_request();
@@ -131,9 +131,9 @@ r.ordinal=2;
 REQUIRE_FALSE(pnga::analysis_engine::make_frame_target(r).target);
 ```
 
-- [ ] red后实现factory，source/index寿命由共享指针保持；将delivery从文档提取，失败不产生半有效target。
-- [ ] 增加同payload双包装fixture：用append_apng_chunk将帧虚拟payload小测试数据包装到相同格式静态PNG；该测试buffer大小限定64KiB。非测试生产仍禁止完整拼接。palette/tRNS复制相同测试值。
-- [ ] 运行新target/frame测试、G-static；明确helper和生产预算边界不同。
+- [x] red后实现factory，source/index寿命由共享指针保持；将delivery从文档提取，失败不产生半有效target。
+- [x] 增加同payload双包装fixture：用append_apng_chunk将帧虚拟payload小测试数据包装到相同格式静态PNG；该测试buffer大小限定64KiB。非测试生产仍禁止完整拼接。palette/tRNS复制相同测试值。
+- [x] 运行新target/frame测试、G-static；明确helper和生产预算边界不同。
 
 ## T03：虚拟流行索引和逐帧重建
 
@@ -141,7 +141,7 @@ REQUIRE_FALSE(pnga::analysis_engine::make_frame_target(r).target);
 
 **Interfaces:** C2规则对应重载 + QueryCoordinator::open(target,interval)。静态open及原query_coordinate不改变。
 
-- [ ] 编写最小帧行查询：
+- [x] 编写最小帧行查询：
 
 ```cpp
 auto request=pnga_test::inspection_request();
@@ -153,10 +153,10 @@ REQUIRE(q.scanline_count()==3);
 REQUIRE(q.anchors().header.width==2);
 ```
 
-- [ ] red后把索引/replay底层字节读取统一到IVirtualCompressedStream；原静态入口用生命周期明确的局部adapter桥接，不改变旧generation自增规则。
-- [ ] 对同payload双包装比较filtered/unfiltered/native、filter_formula和scanline spans；物理偏移预期不同，不能直接比较文件offset相等。
-- [ ] 矩阵：每种合法color/depth、16-bit、palette/tRNS、Adam7；所有Filter通过已有受控fixture覆盖，不能全部只用None；非零offset和pass边界。
-- [ ] 验证行查询取消/越界/预算、shared owner寿命和帧间同行不同数据；G-static。
+- [x] red后把索引/replay底层字节读取统一到IVirtualCompressedStream；原静态入口用生命周期明确的局部adapter桥接，不改变旧generation自增规则。
+- [x] 对同payload双包装比较filtered/unfiltered/native、filter_formula和scanline spans；物理偏移预期不同，不能直接比较文件offset相等。
+- [x] 矩阵：每种合法color/depth、16-bit、palette/tRNS、Adam7；所有Filter通过已有受控fixture覆盖，不能全部只用None；非零offset和pass边界。
+- [x] 验证行查询取消/越界/预算、shared owner寿命和帧间同行不同数据；G-static。
 
 ## T04：逐帧Compression和来源物理映射
 
@@ -164,7 +164,7 @@ REQUIRE(q.anchors().header.width==2);
 
 **Interfaces:** C2 TraceOrchestrator::open(target,max_output)和通用compose/provenance；现有TraceQueryResult保留，提交ticket由会话捕获，不更改静态serialize_trace_query。
 
-- [ ] 最小red测试：
+- [x] 最小red测试：
 
 ```cpp
 auto t=pnga::analysis_engine::make_frame_target(pnga_test::inspection_request());
@@ -177,10 +177,10 @@ REQUIRE(t.target->stream->logical_to_physical(0,t.target->stream->size(),spans))
 REQUIRE_FALSE(spans.empty());
 ```
 
-- [ ] 实现新增open使用target stream，绝不重新扫全文件构建静态IDAT；保留原静态open门面。
-- [ ] 针对zlib头、Dynamic表、token、Adler跨fdAT切片，逐span检查payload包含性；边界落在sequence/CRC必须反向映射失败；同逻辑偏移的frame0/frame1不能共享选择结果。
-- [ ] 使用现有Stored/Fixed/Dynamic测试数据包装为帧，比较同payload静态逻辑token与Huffman；错误Adler和截断返回明确partial/error。
-- [ ] 运行新测试、已有trace_query/orchestrator/pixel_provenance和G-static。
+- [x] 实现新增open使用target stream，绝不重新扫全文件构建静态IDAT；保留原静态open门面。
+- [x] 针对zlib头、Dynamic表、token、Adler跨fdAT切片，逐span检查payload包含性；边界落在sequence/CRC必须反向映射失败；同逻辑偏移的frame0/frame1不能共享选择结果。
+- [x] 使用现有Stored/Fixed/Dynamic测试数据包装为帧，比较同payload静态逻辑token与Huffman；错误Adler和截断返回明确partial/error。
+- [x] 运行新测试、已有trace_query/orchestrator/pixel_provenance和G-static。
 
 ## T05：帧统计与独立导出schema
 
@@ -188,7 +188,7 @@ REQUIRE_FALSE(spans.empty());
 
 **Interfaces:** C3。occurrence使用C7的query_frame_statistics_occurrence新入口；所有APNG occurrence GUI回调附完整ticket。不得将png-format类型放入statistics库。
 
-- [ ] 最小serializer测试：
+- [x] 最小serializer测试：
 
 ```cpp
 pnga::statistics::FrameStatistics s;
@@ -201,10 +201,10 @@ s.identity=pnga::trace_model::StaticImage{};
 REQUIRE_FALSE(pnga::statistics::serialize_frame_statistics_json(s).success);
 ```
 
-- [ ] red后实现C3；header/identity与FrameStageSet不匹配返回error，不能套用current缓存。
-- [ ] 2x3 RGBA8 None fixture inflated=3*(1+8)=27；fdAT所属开销=38+16*N，IDAT首帧=38+12*N；检验checked overflow与未完成统计不填完整比率。
-- [ ] 针对新schema写独立golden字符串测试（放新测试文件，禁止改旧golden）；JSON/CSV字段顺序、LF和frame_index明确；进度取消保留verified prefix。
-- [ ] 同payload双包装统计逻辑计数一致；旧v1全部逐字节一致；G-static。
+- [x] red后实现C3；header/identity与FrameStageSet不匹配返回error，不能套用current缓存。
+- [x] 2x3 RGBA8 None fixture inflated=3*(1+8)=27；fdAT所属开销=38+16*N，IDAT首帧=38+12*N；检验checked overflow与未完成统计不填完整比率。
+- [x] 针对新schema写独立golden字符串测试（放新测试文件，禁止改旧golden）；JSON/CSV字段顺序、LF和frame_index明确；进度取消保留verified prefix。
+- [x] 同payload双包装统计逻辑计数一致；旧v1全部逐字节一致；G-static。
 
 ## T06：有界canvas像素来源
 
@@ -212,7 +212,7 @@ REQUIRE_FALSE(pnga::statistics::serialize_frame_statistics_json(s).success);
 
 **Interfaces:** C4。现有compositor为数值事实来源；本包不新增其依赖或修改png-reconstruction模块。
 
-- [ ] 最小可观察red：
+- [x] 最小可观察red：
 
 ```cpp
 pnga::analysis_engine::CanvasPixelRequest r;
@@ -226,10 +226,10 @@ REQUIRE_FALSE(out.nodes.empty());
 REQUIRE((out.nodes.back().rgba==std::array<std::uint8_t,4>{0,0,0,0}));
 ```
 
-- [ ] 实现C4确定性来源遍历。源码解码由既有analyze_frame/replay负责；来源query将FrameSample连接到帧身份，不把Clear伪造压缩范围。
-- [ ] 独立手算RGBA goldens覆盖SOURCE、OVER舍入、NONE、BACKGROUND、PREVIOUS、首帧PREVIOUS、矩形外Carry及多帧半透明；输出与现有replay数值一致，但测试预期不能调用被测公式生成。
-- [ ] 4096节点/1024步/4MiB边界产生partial+next；继续必须推进，取消不发布ready；错generation/stage/坐标cursor报error；检查DAG边有界无环。
-- [ ] G-static和已有animation replay/composition测试保持通过。
+- [x] 实现C4确定性来源遍历。源码解码由既有analyze_frame/replay负责；来源query将FrameSample连接到帧身份，不把Clear伪造压缩范围。
+- [x] 独立手算RGBA goldens覆盖SOURCE、OVER舍入、NONE、BACKGROUND、PREVIOUS、首帧PREVIOUS、矩形外Carry及多帧半透明；输出与现有replay数值一致，但测试预期不能调用被测公式生成。
+- [x] 4096节点/1024步/4MiB边界产生partial+next；继续必须推进，取消不发布ready；错generation/stage/坐标cursor报error；检查DAG边有界无环。
+- [x] G-static和已有animation replay/composition测试保持通过。
 
 ## T07：APNG分析会话、预算与后台生命周期
 
@@ -249,11 +249,11 @@ std::uint64_t reservedBytes() const;
 
 上述成员归 `FrameInspectionSession`；其构造 `explicit FrameInspectionSession(QObject* parent=nullptr)`。结果信号使用shared immutable model+ticket。以C1 accepts_publication实现统一接收门；提供测试注入完成回调的seam而非使用sleep。
 
-- [ ] 写假完成顺序A1→B→A2，在A2后投递A1结果，断言accepts=false；hover不变ticket则同帧统计仍可接受。
-- [ ] 实现C5固定额度、队列8和优先级；open目标在后台；old coordinator join在后台回收；static文档不创建该会话。
-- [ ] 测试1字节超配额、shared_ptr pinned未释放、取消/失败路径reservation回零、队列满不丢当前选择、关闭期间回调不接触被删除QObject。
-- [ ] 使用QSignalSpy/可控executor验证逻辑；总测试超时作为死锁保护，不以墙钟sleep控制顺序。
-- [ ] G-static并检查静态会话/worker新增计数为0。
+- [x] 写假完成顺序A1→B→A2，在A2后投递A1结果，断言accepts=false；hover不变ticket则同帧统计仍可接受。
+- [x] 实现C5固定额度、队列8和优先级；open目标在后台；old coordinator join在后台回收；static文档不创建该会话。
+- [x] 测试1字节超配额、shared_ptr pinned未释放、取消/失败路径reservation回零、队列满不丢当前选择、关闭期间回调不接触被删除QObject。
+- [x] 使用QSignalSpy/可控executor验证逻辑；总测试超时作为死锁保护，不以墙钟sleep控制顺序。
+- [x] G-static并检查静态会话/worker新增计数为0。
 
 ## T08：Inspector/Hex接收完整帧上下文
 
@@ -268,11 +268,11 @@ void setFrameContext(
 
 一次提交stages+delivered+identity；内部仍用原model，静态setStageSet/setDeliveredPixels调用路径不改。其余panel结果携ticket，在session接受后才更新；source focus由T10补充。
 
-- [ ] red：setFrameContext(frame)后读取报告，Filter/native/delivered全部与该frame一致；切frame不得残留旧row或坐标高亮。
-- [ ] Hex Frame Stream/Inflated/Defiltered均取该frame，File保持原文件；source tabs不按硬编码Inspector索引定位。
-- [ ] 统计正在运行时切帧，旧进度和导出不得更新新帧；默认图像恢复完整静态context；保留当前Inspector标签。
-- [ ] 接通P3/P4所有Block/Huffman/token/occurrence导航，错误/partial显示同目标而非fallback。
-- [ ] G-static，尤其旧StageInspector golden/UI布局与Compression selection历史。
+- [x] red：setFrameContext(frame)后读取报告，Filter/native/delivered全部与该frame一致；切frame不得残留旧row或坐标高亮。
+- [x] Hex Frame Stream/Inflated/Defiltered均取该frame，File保持原文件；source tabs不按硬编码Inspector索引定位。
+- [x] 统计正在运行时切帧，旧进度和导出不得更新新帧；默认图像恢复完整静态context；保留当前Inspector标签。
+- [x] 接通P3/P4所有Block/Huffman/token/occurrence导航，错误/partial显示同目标而非fallback。
+- [x] G-static，尤其旧StageInspector golden/UI布局与Compression selection历史。
 
 ## T09：完整鼠标键盘交互与目标状态机
 
@@ -280,11 +280,11 @@ void setFrameContext(
 
 **Interfaces:** 统一事件以active view身份路由；原静态槽签名保留，APNG分支提交C6命令。所有坐标使用C1转换；程序更新阻断控件signal。
 
-- [ ] red GUI场景：显示offset(10,20)的2x3 FrameOutput，点击local(1,2)，断言X=11,Y=22、lock identity=frame0、状态RGBA等于active view；移出后仍为该lock，Escape清活动十字线。
-- [ ] hover/leave/click/nudge/selectionCancelled在四动画view一对一连接；挂载/卸载两次后每用户事件只发布一次。
-- [ ] 落实C6全部事件行；Pixels/Filtered/Defiltered保持frame身份，tab0才进StaticImage；无独立fallback用“Default Image”说明共享IDAT角色。
-- [ ] Play后画面身份随已提交PostBlend更新；Pause取消未提交下一帧，不把旧下一帧结果当暂停帧；X/Y在范围外不clamp/读fallback。
-- [ ] static→APNG→static在途切换、partial→static、错误扩展名识别；G-static。
+- [x] red GUI场景：显示offset(10,20)的2x3 FrameOutput，点击local(1,2)，断言X=11,Y=22、lock identity=frame0、状态RGBA等于active view；移出后仍为该lock，Escape清活动十字线。
+- [x] hover/leave/click/nudge/selectionCancelled在四动画view一对一连接；挂载/卸载两次后每用户事件只发布一次。
+- [x] 落实C6全部事件行；Pixels/Filtered/Defiltered保持frame身份，tab0才进StaticImage；无独立fallback用“Default Image”说明共享IDAT角色。
+- [x] Play后画面身份随已提交PostBlend更新；Pause取消未提交下一帧，不把旧下一帧结果当暂停帧；X/Y在范围外不clamp/读fallback。
+- [x] static→APNG→static在途切换、partial→static、错误扩展名识别；G-static。
 
 ## T10：来源focus、返回和跨面板导航
 
@@ -292,10 +292,10 @@ void setFrameContext(
 
 **Interfaces:** evidence focus=(来源AnalysisKey、来源Selection、parent InspectionTicket)。主ticket保持不变；focus另有独立单调serial。帧来源通过C4节点和C1 target查询，不直接改变timeline。
 
-- [ ] red：frame1 PostBlend点由frame0贡献，点FrameSample后Compression/Hex标题为frame0，timeline/画布仍frame1；返回后恢复frame1编码流。
-- [ ] 实现Clear/Restore/Carry/Blend显示；仅FrameSample提供“查看编码来源”，partial提供“继续追溯”；token→File Hex多span联动。
-- [ ] 切主像素清focus；focus旧结果不能发布；程序Hex导航不能触发新的timeline命令。无来源字节时显示操作原因，不虚构offset0。
-- [ ] G-static及来源DAG测试。
+- [x] red：frame1 PostBlend点由frame0贡献，点FrameSample后Compression/Hex标题为frame0，timeline/画布仍frame1；返回后恢复frame1编码流。
+- [x] 实现Clear/Restore/Carry/Blend显示；仅FrameSample提供“查看编码来源”，partial提供“继续追溯”；token→File Hex多span联动。
+- [x] 切主像素清focus；focus旧结果不能发布；程序Hex导航不能触发新的timeline命令。无来源字节时显示操作原因，不虚构offset0。
+- [x] G-static及来源DAG测试。
 
 ## T11：产品gate与性能/资源回归
 
