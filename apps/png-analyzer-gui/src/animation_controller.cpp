@@ -294,8 +294,25 @@ void bindAnimationUi(AnimationController& controller, DocumentSession& session,
             controller.capability() == AnimationController::Capability::kPartial) {
           mountAnimationUi(widgets, *request.index, &controller);
           for (auto* view : widgets.animation_views) {
+            // WP-APNG-INSPECT T09 (C6/D2): every user event of the four
+            // animation views routes to the selection controller exactly
+            // once; UniqueConnection keeps repeated mounts from doubling
+            // publications.
             QObject::connect(view, &pnga::ui::qt::DeliveredImageView::pixelSelected,
-                             &selection, &SelectionNavigationController::onAnimationPixelSelected);
+                             &selection, &SelectionNavigationController::onAnimationPixelSelected,
+                             Qt::UniqueConnection);
+            QObject::connect(view, &pnga::ui::qt::DeliveredImageView::pixelHovered,
+                             &selection, &SelectionNavigationController::onAnimationFrameHovered,
+                             Qt::UniqueConnection);
+            QObject::connect(view, &pnga::ui::qt::DeliveredImageView::pixelHoverLeft,
+                             &selection, &SelectionNavigationController::onPixelHoverLeft,
+                             Qt::UniqueConnection);
+            QObject::connect(view, &pnga::ui::qt::DeliveredImageView::pixelNudgeRequested,
+                             &selection, &SelectionNavigationController::nudgeLockedCoordinate,
+                             Qt::UniqueConnection);
+            QObject::connect(view, &pnga::ui::qt::DeliveredImageView::selectionCancelled,
+                             &selection, &SelectionNavigationController::clearLockedCoordinate,
+                             Qt::UniqueConnection);
           }
           if (!request.index->frames.empty()) {
             // The default frame is selected immediately by setDocument; make

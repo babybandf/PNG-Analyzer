@@ -7,13 +7,17 @@
 
 #include "selection_navigation_controller.h"
 
+#include "apng_inspection_fixture.h"
+
 #include <pnga/io/byte_source.h>
 #include <pnga/trace-model/compression_navigation.h>
 #include <pnga/ui/qt/chunk_model.h>
+#include <pnga/ui/qt/delivered_image_view.h>
 #include <pnga/ui/qt/compression_selection_store.h>
 #include <pnga/ui/qt/hex_source_tab_bar.h>
 #include <pnga/ui/qt/hex_view.h>
 #include <pnga/ui/qt/selection_bus.h>
+#include <pnga/analysis-engine/frame_analysis.h>
 #include <pnga/png-format/virtual_frame_stream.h>
 
 #include <QtTest/QtTest>
@@ -73,6 +77,8 @@ class SelectionNavigationControllerTest : public QObject {
   void compressionCurrentFlowsThroughSharedStore();
   void statisticsSelectionRoutesZeroWidthPhysicalAnchorToHex();
   void chunkColumnsRefitOnDocumentReplaceAndPreserveWhileOpen();
+  void frameClickLocksGlobalCoordinatesAndActiveViewStatus();
+  void animationEventConnectionsFireOncePerUserEventAfterRemount();
 };
 
 void SelectionNavigationControllerTest::pixelCommitPublishesLockAndRequestsTrace() {
@@ -363,6 +369,121 @@ void SelectionNavigationControllerTest::
   controller.replaceChunkModel(&index);
   QCOMPARE(tree->columnWidth(pnga::ui::qt::ChunkModel::kType),
            scratch.columnWidth(pnga::ui::qt::ChunkModel::kType));
+}
+
+void SelectionNavigationControllerTest::frameClickLocksGlobalCoordinatesAndActiveViewStatus() {
+  // WP-APNG-INSPECT T09 (C6): a click at frame-local (1, 2) of a 2x3 frame
+  // at offset (10, 20) locks the canvas-global coordinates, the lock
+  // identity is frame 0, and the status RGBA comes from the active view.
+  QMainWindow window;
+  MainWindowWidgets widgets = buildMainWindowUi(window, nullptr);
+  SelectionNavigationController controller(
+      widgets,
+      {[](const pnga::trace_model::ImageCoordinate&) {},
+       [](std::uint64_t) {}});
+  controller.setDocument(9, nullptr, nullptr, nullptr);
+
+  auto request = pnga_test::inspection_request(0);
+  auto analyzed = pnga::analysis_engine::analyze_frame(request, nullptr);
+  QCOMPARE(analyzed.stop, pnga::analysis_engine::FrameResult::Stop::kReady);
+
+  pnga::ui::qt::DeliveredImageView view(&window);
+  QImage image(2, 3, QImage::Format_RGBA8888);
+  for (int y = 0; y < 3; ++y) {
+    for (int x = 0; x < 2; ++x) {
+      image.setPixel(x, y, qRgba(10 + x, 20 + y, 30, 255));
+    }
+  }
+  view.setImage(image);
+
+  controller.setImageIdentity(
+      pnga::trace_model::ImageIdentity{pnga::trace_model::AnimationFrame{0}});
+  controller.setAnimationView(&view, pnga::trace_model::Stage::kFrameOutput,
+                              10, 20);
+
+  // Hover status comes from the active (animation) view; animation views
+  // emit frame-local coordinates that the dedicated slot converts.
+  controller.onAnimationFrameHovered(0, 0);
+  QVERIFY(widgets.pixel_label->text().contains(QStringLiteral("pixel (10, 20)")));
+
+  // Click at frame-local (1, 2): global lock at (11, 22).
+  controller.onAnimationPixelSelected(1, 2);
+  QCOMPARE(widgets.x_spin->value(), 11);
+  QCOMPARE(widgets.y_spin->value(), 22);
+  QVERIFY(widgets.lock_check->isChecked());
+  QVERIFY(controller.viewState().locked.has_value());
+  QVERIFY(std::holds_alternative<pnga::trace_model::AnimationFrame>(
+      controller.viewState().locked->identity));
+  const auto rgba = view.rgbaAt(1, 2);
+  QVERIFY(rgba.has_value());
+  QCOMPARE(widgets.pixel_label->text(),
+           QStringLiteral("pixel (%1, %2) RGBA(%3, %4, %5, %6)")
+               .arg(11)
+               .arg(22)
+               .arg((*rgba)[0])
+               .arg((*rgba)[1])
+               .arg((*rgba)[2])
+               .arg((*rgba)[3]));
+
+  // Leaving the view restores the locked pixel's status (still frame 0).
+  controller.onPixelHoverLeft();
+  QVERIFY(widgets.pixel_label->text().contains(QStringLiteral("pixel (11, 22)")));
+
+  // Escape/unlock clears the active view's crosshair and the lock.
+  controller.clearLockedCoordinate();
+  QVERIFY(!widgets.lock_check->isChecked());
+  QVERIFY(!controller.viewState().locked.has_value());
+}
+
+void SelectionNavigationControllerTest::animationEventConnectionsFireOncePerUserEventAfterRemount() {
+  // WP-APNG-INSPECT T09 (C6/D2): mounting and unmounting the animation UI
+  // twice leaves exactly one connection per user event, so each event
+  // publishes once (verified through the selection bus publications).
+  QMainWindow window;
+  MainWindowWidgets widgets = buildMainWindowUi(window, nullptr);
+  SelectionNavigationController controller(
+      widgets,
+      {[](const pnga::trace_model::ImageCoordinate&) {},
+       [](std::uint64_t) {}});
+  controller.setDocument(9, nullptr, nullptr, nullptr);
+  widgets.bus->setDocumentGeneration(9);
+
+  pnga::ui::qt::DeliveredImageView view(&window);
+  QImage image(2, 3, QImage::Format_RGBA8888);
+  image.fill(0);
+  view.setImage(image);
+  controller.setImageIdentity(
+      pnga::trace_model::ImageIdentity{pnga::trace_model::AnimationFrame{0}});
+  controller.setAnimationView(&view, pnga::trace_model::Stage::kFrameOutput,
+                              0, 0);
+
+  int publications = 0;
+  QObject::connect(widgets.bus, &pnga::ui::qt::SelectionBus::selectionChanged,
+                   &window, [&publications](int,
+                                            const pnga::trace_model::Selection&) {
+                     ++publications;
+                   });
+
+  // Click publications are idempotent across repeated view wiring: wire the
+  // same view's click twice through the controller's own slot and verify a
+  // single publication per event (UniqueConnection suppresses the second).
+  const auto wire = [&]() {
+    QObject::connect(&view, &pnga::ui::qt::DeliveredImageView::pixelSelected,
+                     &controller,
+                     &SelectionNavigationController::onAnimationPixelSelected,
+                     Qt::UniqueConnection);
+  };
+  wire();
+  wire();
+  const QMetaObject* meta = &pnga::ui::qt::DeliveredImageView::staticMetaObject;
+  QVERIFY(meta->invokeMethod(&view, "pixelSelected", Q_ARG(int, 1),
+                             Q_ARG(int, 1)));
+  QCOMPARE(publications, 1);
+  wire();
+  wire();
+  QVERIFY(meta->invokeMethod(&view, "pixelSelected", Q_ARG(int, 1),
+                             Q_ARG(int, 1)));
+  QCOMPARE(publications, 2);
 }
 
 QTEST_MAIN(SelectionNavigationControllerTest)

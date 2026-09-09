@@ -490,6 +490,11 @@ void SelectionNavigationController::publishLockedCoordinate() {
 }
 
 void SelectionNavigationController::clearLockedCoordinate() {
+  // Escape/unlock clears the active view's crosshair (C6/D3): the mounted
+  // animation view when one is set, the static image always.
+  if (animation_view_ != nullptr) {
+    animation_view_->clearLockedPixel();
+  }
   view_state_.clear_locked();
   w_.image_view->clearLockedPixel();
   {
@@ -625,8 +630,24 @@ void SelectionNavigationController::updateNumericBaseButton() {
   w_.base_button->setToolTip(QStringLiteral("Switch to %1").arg(target));
 }
 
+pnga::ui::qt::DeliveredImageView*
+SelectionNavigationController::activePixelView() const noexcept {
+  // The active view provides hover/lock presentation facts (C6/D3): the
+  // mounted animation view when one is set, the static image otherwise.
+  return animation_view_ != nullptr ? animation_view_.data() : w_.image_view;
+}
+
 void SelectionNavigationController::setPixelStatus(int x, int y) {
-  const auto rgba = w_.image_view->rgbaAt(x, y);
+  // The active animation view stores the frame-local image: the status is
+  // reported for canvas-global coordinates and read frame-locally (C1
+  // conversion through the frame rectangle origin).
+  int read_x = x;
+  int read_y = y;
+  if (animation_view_ != nullptr) {
+    read_x = x - static_cast<int>(animation_origin_x_);
+    read_y = y - static_cast<int>(animation_origin_y_);
+  }
+  const auto rgba = activePixelView()->rgbaAt(read_x, read_y);
   if (!rgba.has_value()) {
     restorePixelStatus();
     return;
@@ -646,7 +667,8 @@ void SelectionNavigationController::restorePixelStatus() {
   // provide it; a committed lock without a delivered image (standalone
   // controller tests, transient decode failure) falls back to the default
   // status instead of recursing between here and setPixelStatus().
-  if (view_state_.locked.has_value() && !w_.image_view->image().isNull()) {
+  if (view_state_.locked.has_value() &&
+      !activePixelView()->image().isNull()) {
     setPixelStatus(static_cast<int>(view_state_.locked->x),
                    static_cast<int>(view_state_.locked->y));
     return;
@@ -662,6 +684,17 @@ void SelectionNavigationController::setAnimationView(
   animation_origin_x_ = origin_x;
   animation_origin_y_ = origin_y;
 }
+void SelectionNavigationController::onAnimationFrameHovered(int x, int y) {
+  if (!animation_view_ || x < 0 || y < 0) return;
+  const auto global_x = static_cast<std::uint64_t>(x) + animation_origin_x_;
+  const auto global_y = static_cast<std::uint64_t>(y) + animation_origin_y_;
+  if (global_x > std::numeric_limits<int>::max() ||
+      global_y > std::numeric_limits<int>::max()) {
+    return;
+  }
+  onPixelHovered(static_cast<int>(global_x), static_cast<int>(global_y));
+}
+
 void SelectionNavigationController::onAnimationPixelSelected(int x, int y) {
   if (!animation_view_ || x < 0 || y < 0) return;
   const auto rgba = animation_view_->rgbaAt(x, y);
@@ -681,6 +714,12 @@ void SelectionNavigationController::onAnimationPixelSelected(int x, int y) {
   view_state_.set_locked(*selected.image);
   // Canvas stages cannot be mapped through the static IDAT trace query.
   w_.bus->publish(kImagePanelOrigin, generation_, selected);
-  w_.pixel_label->setText(QStringLiteral("(%1, %2) · RGBA %3, %4, %5, %6")
-      .arg(global_x).arg(global_y).arg((*rgba)[0]).arg((*rgba)[1]).arg((*rgba)[2]).arg((*rgba)[3]));
+  w_.pixel_label->setText(
+      QStringLiteral("pixel (%1, %2) RGBA(%3, %4, %5, %6)")
+          .arg(global_x)
+          .arg(global_y)
+          .arg((*rgba)[0])
+          .arg((*rgba)[1])
+          .arg((*rgba)[2])
+          .arg((*rgba)[3]));
 }

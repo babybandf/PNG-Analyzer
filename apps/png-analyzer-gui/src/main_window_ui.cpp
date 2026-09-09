@@ -402,8 +402,11 @@ void mountAnimationUi(MainWindowWidgets& widgets,
     view->setObjectName(QStringLiteral("animationStage%1").arg(i));
     widgets.animation_views[i] = view;
     widgets.preview_tabs->addTab(view, titles[i]);
-    if (controller) QObject::connect(view, &pnga::ui::qt::DeliveredImageView::pixelSelected,
-                                    controller, &AnimationController::pause);
+    if (controller) {
+      QObject::connect(view, &pnga::ui::qt::DeliveredImageView::pixelSelected,
+                       controller, &AnimationController::pause,
+                       Qt::UniqueConnection);
+    }
   }
   widgets.animation_timeline = new pnga::ui::qt::AnimationTimelineWidget(widgets.center_splitter);
   widgets.animation_timeline->setObjectName(QStringLiteral("animationTimeline"));
@@ -465,8 +468,19 @@ void mountAnimationUi(MainWindowWidgets& widgets,
                      timeline_widget, [controller](int tab) {
       using pnga::trace_model::Stage;
       const std::array stages{Stage::kFrameOutput, Stage::kPreBlend, Stage::kPostBlend, Stage::kPostDispose};
-      if (tab >= 4 && tab < 8) controller->selectStage(stages[tab - 4]);
-      else controller->selectStaticFallback();
+      if (tab >= 4 && tab < 8) {
+        // Canvas-stage tabs: pause and commit the stage switch (C6).
+        controller->pause();
+        controller->selectStage(stages[tab - 4]);
+      } else if (tab >= 1 && tab < 4) {
+        // Pixels/Filtered/Defiltered keep the frame identity (C6/D4): the
+        // encoded-stage views interpret the current frame's data and never
+        // fall back to the static document context.
+        controller->pause();
+      } else {
+        controller->pause();
+        controller->selectStaticFallback();
+      }
     });
     QObject::connect(widgets.animation_timeline,
                      &pnga::ui::qt::AnimationTimelineWidget::frameRequested,

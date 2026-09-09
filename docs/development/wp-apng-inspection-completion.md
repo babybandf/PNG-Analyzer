@@ -1,6 +1,6 @@
 # WP-APNG-INSPECT 完成记录
 
-状态：IN PROGRESS（T00–T08 完成；T09–T12 未开始）。
+状态：IN PROGRESS（T00–T09 完成；T10–T12 未开始）。
 
 ## T00：静态基线与验收 runner
 
@@ -420,3 +420,46 @@ G-static 全套：构建无错误；`ctest --preset dev` 仅剩 3 个已归因�
 
 G-static 全套：构建无错误；`ctest --preset dev` 仅剩 3 个已归因基线失败，无新增失败；
 layout/dependencies/diff-check 通过。
+
+## T09：完整鼠标键盘交互与目标状态机
+
+日期：2026-09-09。
+
+### 产出（C6/D2–D4 落实）
+
+- D2（bindAnimationUi）：四个动画视图的全部用户事件补齐连接——click→
+  onAnimationPixelSelected、hover→新增 onAnimationFrameHovered（帧局部→画布全局转换）、
+  leave→onPixelHoverLeft、nudge→nudgeLockedCoordinate、Escape/selectionCancelled→
+  clearLockedCoordinate；全部 Qt::UniqueConnection，重复挂载不重复发布。
+- D3（活动视图状态）：`activePixelView()` 返回当前活动视图（animation_view_ 优先）；
+  setPixelStatus/restorePixelStatus 读取活动视图（动画视图经 origin 转换全局→局部）；
+  clearLockedCoordinate 同时清除动画视图十字线；onAnimationPixelSelected 状态文本
+  统一为静态格式 "pixel (x, y) RGBA(...)"（修复 D3 状态格式分歧）。
+- D4（tab<4 保持帧身份）：mountAnimationUi 的 currentChanged 分为三支——tab 4–7 暂停+
+  selectStage；tab 1–3（Pixels/Filtered/Defiltered）仅暂停、保持帧身份（不再调用
+  selectStaticFallback）；tab 0（默认图像）暂停+selectStaticFallback（C6：tab0 才进
+  StaticImage）。pause 连接同样 UniqueConnection。
+- C1 转换：点击/悬停坐标经 frame rectangle origin（animation_origin_x_/y_）转换；
+  悬停新增专用槽避免静态 canvas 坐标语义混用。
+- 静态槽签名全部保留（onPixelSelected/onPixelHovered/onPixelHoverLeft/publishLockedCoordinate/
+  clearLockedCoordinate/nudgeLockedCoordinate 等）；静态视图连接未改动。
+- 测试：selection_navigation_controller_test 新增 2 个用例（帧点击全局锁定+活动视图
+  状态+Escape 清除；UniqueConnection 去重——每次事件恰发布一次）。
+
+### red/green 证据
+
+- red：新增测试先于实现——帧点击全局锁定断言在 D3 转换前失败（状态读取用静态视图、
+  坐标未转换），D2/D4 无新连接时动画事件无路由。
+- 实现过程修正：动画视图 hover 为帧局部坐标，与静态 canvas 坐标语义不同——新增
+  onAnimationFrameHovered 专用槽转换后委托，静态槽不改动；测试经
+  QMetaObject::invokeMethod 发射 protected 信号；测试 bus 需先 setDocumentGeneration
+  对齐文档代（bus publish 的 stale 门）。
+- green：`ctest --preset dev -R "gui_selection_navigation_controller_tests"` → 1/1
+  （14 个用例全过）；gui_apng_controller_tests / gui_apng_ui_tests 全过。
+
+### 静态门槛
+
+G-static 全套：构建无错误；`ctest --preset dev` 仅剩 3 个已归因基线失败（与 T00 基线
+一致，无新增失败）；静态视图连接与槽签名逐字节保留；layout/dependencies/diff-check
+通过。D5（QueryCoordinator/trace/statistics 绑定静态链路）的帧上下文部分已由
+T03/T04/T05/T08 的 target 流与帧上下文接口承接，T10/T11 完成剩余接线。

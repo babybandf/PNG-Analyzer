@@ -74,6 +74,10 @@ class SelectionNavigationController final : public QObject {
   void setAnimationView(pnga::ui::qt::DeliveredImageView* view, pnga::trace_model::Stage stage,
                         std::uint32_t origin_x, std::uint32_t origin_y);
   void onAnimationPixelSelected(int x, int y);
+  // Frame-local hover of the mounted animation view, converted to the
+  // canvas-global hover status (C6; animation views emit frame-local
+  // coordinates).
+  void onAnimationFrameHovered(int x, int y);
   void setAnimationFrameStream(
       std::shared_ptr<const pnga::png_format::IVirtualCompressedStream> stream);
 
@@ -112,6 +116,8 @@ class SelectionNavigationController final : public QObject {
   void updateNumericBaseButton();
   void setPixelStatus(int x, int y);
   void restorePixelStatus();
+  // The active presentation view for hover/lock status (C6/D3).
+  pnga::ui::qt::DeliveredImageView* activePixelView() const noexcept;
 
   MainWindowWidgets w_;
   SelectionNavigationCallbacks callbacks_;
