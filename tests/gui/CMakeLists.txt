@@ -96,6 +96,9 @@ target_link_libraries(pnga_gui_hex_data_source_tests PRIVATE
   pnga::io
   Qt6::Test
 )
+target_include_directories(pnga_gui_hex_data_source_tests PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../common
+)
 target_compile_features(pnga_gui_hex_data_source_tests PRIVATE cxx_std_20)
 
 add_test(NAME gui_hex_data_source_tests COMMAND pnga_gui_hex_data_source_tests)

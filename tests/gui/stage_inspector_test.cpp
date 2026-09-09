@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <memory>
 
+#include "apng_inspection_fixture.h"
 #include "test_png_helpers.h"
 
 using namespace pnga_test;  // NOLINT: test helpers are the local vocabulary
@@ -51,6 +52,7 @@ class StageInspectorModelTest : public QObject {
   void reconstructReportUsesViewModel();
   void pixelNeighborhoodShowsPaethCDependency();
   void filterReportUsesActualDependencyRoles();
+  void frameContextSubmitsStagesDeliveredAndIdentityAtomically();
 };
 
 void StageInspectorModelTest::stageSwitchKeepsRows() {
@@ -220,6 +222,52 @@ void StageInspectorModelTest::filterReportUsesActualDependencyRoles() {
              qPrintable(text));
     QVERIFY(text.contains(QStringLiteral("current")));
   }
+}
+
+void StageInspectorModelTest::frameContextSubmitsStagesDeliveredAndIdentityAtomically() {
+  // WP-APNG-INSPECT T08: setFrameContext atomically submits the analyzed
+  // frame; the report shows the frame's own Filter/native/delivered data
+  // and switching frames leaves no stale row or coordinate highlight.
+  auto request = pnga_test::inspection_request(0);
+  auto analyzed = pnga::analysis_engine::analyze_frame(request, nullptr);
+  QCOMPARE(analyzed.stop, pnga::analysis_engine::FrameResult::Stop::kReady);
+
+  pnga::ui::qt::StageInspector inspector;
+  inspector.setFrameContext(analyzed.frame);
+  inspector.onPixelSelected(11, 22);  // canvas-global point of frame 0
+
+  auto* report =
+      inspector.findChild<QTextEdit*>(QStringLiteral("reconstructReport"));
+  QVERIFY(report != nullptr);
+  const QString text = report->toPlainText();
+  QVERIFY(text.contains(QStringLiteral("Target pixel")));
+  // The frame's delivered pixels are submitted with the context and are
+  // readable frame-locally (frame 0 rect starts at (10, 20)).
+  const auto delivered = inspector.model()->deliveredChannel(1, 2, 0);
+  QVERIFY(delivered.has_value());
+
+  // The model exposes the frame identity and resets selection state per
+  // submission.
+  QCOMPARE(inspector.model()->pixelX(), 11u);
+  QCOMPARE(inspector.model()->pixelY(), 22u);
+  QVERIFY(std::holds_alternative<pnga::trace_model::AnimationFrame>(
+      inspector.model()->identity()));
+
+  // A second frame submission resets the pixel highlight (no stale row).
+  auto request1 = pnga_test::inspection_request(1);
+  auto analyzed1 = pnga::analysis_engine::analyze_frame(request1, nullptr);
+  QCOMPARE(analyzed1.stop, pnga::analysis_engine::FrameResult::Stop::kReady);
+  inspector.setFrameContext(analyzed1.frame);
+  QCOMPARE(inspector.model()->pixelX(), 0u);
+  QCOMPARE(inspector.model()->pixelY(), 0u);
+  QCOMPARE(inspector.model()->stage(), pnga::trace_model::Stage::kFiltered);
+  QVERIFY(std::holds_alternative<pnga::trace_model::AnimationFrame>(
+      inspector.model()->identity()));
+
+  inspector.clear();
+  QVERIFY(!inspector.model()->hasData());
+  QVERIFY(std::holds_alternative<pnga::trace_model::StaticImage>(
+      inspector.model()->identity()));
 }
 
 QTEST_MAIN(StageInspectorModelTest)

@@ -126,6 +126,12 @@ void StageInspector::setStageSet(
   refreshReport();
 }
 
+void StageInspector::setFrameContext(
+    std::shared_ptr<const pnga::analysis_engine::FrameStageSet> frame) {
+  model_->setFrameContext(std::move(frame));
+  refreshReport();
+}
+
 void StageInspector::setDeliveredPixels(std::uint32_t width,
                                         std::uint32_t height,
                                         std::vector<std::byte> rgba) {

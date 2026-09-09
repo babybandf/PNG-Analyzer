@@ -81,6 +81,7 @@ class TraceInspectorBindingTest : public QObject {
   void fastIndexIsVisibleWithoutPixelLock();
   void storeStateReachesBlocksPage();
   void publishMapsCurrentThroughStore();
+  void publicationGateSuppressesPublish();
 };
 
 void TraceInspectorBindingTest::publishesOneGenerationToAllPages() {
@@ -226,6 +227,27 @@ void TraceInspectorBindingTest::publishMapsCurrentThroughStore() {
   QVERIFY(model->data(model->index(1, 0),
                       pnga::ui::qt::IsManualSelectionRole)
               .toBool());
+}
+
+void TraceInspectorBindingTest::publicationGateSuppressesPublish() {
+  // WP-APNG-INSPECT T08: with a publication gate set, publish() is
+  // suppressed while the gate reports rejection (the frame inspection
+  // session has not accepted the ticket). Without a gate the static path
+  // is unchanged.
+  pnga::ui::qt::BlockInspector block_widget;
+  pnga::ui::qt::HuffmanInspector huffman_widget;
+  pnga::ui::qt::DecodeTraceInspector decode_widget;
+  pnga::ui::qt::CompressionContext context;
+  pnga::ui::qt::TraceInspectorBinding binding(&block_widget, &huffman_widget,
+                                              &decode_widget, this);
+
+  binding.setPublicationGate([] { return false; });
+  binding.publish(readyTrace());  // must be a no-op
+  QCOMPARE(binding.generation(), 0u);
+
+  binding.setPublicationGate([] { return true; });
+  binding.publish(readyTrace());
+  QCOMPARE(binding.generation(), 91u);
 }
 
 QTEST_MAIN(TraceInspectorBindingTest)

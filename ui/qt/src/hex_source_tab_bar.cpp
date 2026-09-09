@@ -12,18 +12,31 @@ struct SourcePresentation {
   const char* label;
   const char* tooltip;
   const char* accessible;
+  HexSource source;  // identity of the tab; mapping is table-driven so no
+                     // consumer may locate tabs by hardcoded indexes.
 };
 
 constexpr SourcePresentation kSources[] = {
-    {"File", "PNG physical file bytes", "Hex source: File"},
-    {"IDAT", "Virtual concatenated IDAT payload stream", "Hex source: IDAT"},
+    {"File", "PNG physical file bytes", "Hex source: File",
+     HexSource::kFile},
+    {"IDAT", "Virtual concatenated IDAT payload stream", "Hex source: IDAT",
+     HexSource::kIdatStream},
     {"Inflated", "Inflate output filtered scanline bytes",
-     "Hex source: Inflated"},
+     "Hex source: Inflated", HexSource::kInflated},
     {"Unfiltered", "Reconstructed packed scanline bytes",
-     "Hex source: Unfiltered"},
+     "Hex source: Unfiltered", HexSource::kDefiltered},
 };
 
-constexpr int kStreamTabIndex = 1;
+constexpr HexSource kStreamSource = HexSource::kIdatStream;
+
+int index_for_source(HexSource source) noexcept {
+  for (std::size_t i = 0; i < std::size(kSources); ++i) {
+    if (kSources[i].source == source) {
+      return static_cast<int>(i);
+    }
+  }
+  return 0;
+}
 
 }  // namespace
 
@@ -55,7 +68,8 @@ HexSourceTabBar::HexSourceTabBar(QWidget* parent) : QTabBar(parent) {
 }
 
 HexSource HexSourceTabBar::source() const noexcept {
-  if (animation_mode_ && currentIndex() == kStreamTabIndex) {
+  if (animation_mode_ &&
+      kSources[currentIndex()].source == kStreamSource) {
     return HexSource::kFrameStream;
   }
   return sourceForIndex(currentIndex());
@@ -69,12 +83,16 @@ void HexSourceTabBar::setSource(HexSource source) {
 void HexSourceTabBar::setAnimationMode(bool animation) {
   const QSignalBlocker blocker(this);
   animation_mode_ = animation;
-  const auto& presentation = animation ? SourcePresentation{
-      "Frame Stream", "Virtual compressed payload for the selected frame",
-      "Hex source: Frame Stream"} : kSources[kStreamTabIndex];
-  setTabText(kStreamTabIndex, QString::fromLatin1(presentation.label));
-  setTabToolTip(kStreamTabIndex, QString::fromLatin1(presentation.tooltip));
-  setTabWhatsThis(kStreamTabIndex,
+  const int stream_index = index_for_source(kStreamSource);
+  const SourcePresentation& presentation =
+      animation ? SourcePresentation{
+                      "Frame Stream",
+                      "Virtual compressed payload for the selected frame",
+                      "Hex source: Frame Stream", HexSource::kIdatStream}
+                : kSources[stream_index];
+  setTabText(stream_index, QString::fromLatin1(presentation.label));
+  setTabToolTip(stream_index, QString::fromLatin1(presentation.tooltip));
+  setTabWhatsThis(stream_index,
                   QString::fromLatin1(presentation.accessible));
 }
 
@@ -85,26 +103,17 @@ void HexSourceTabBar::onCurrentChanged(int index) {
 }
 
 HexSource HexSourceTabBar::sourceForIndex(int index) noexcept {
-  switch (index) {
-    case 1:
-      return HexSource::kIdatStream;
-    case 2:
-      return HexSource::kInflated;
-    case 3:
-      return HexSource::kDefiltered;
-    case 0:
-    default:
-      return HexSource::kFile;
+  if (index < 0 || index >= static_cast<int>(std::size(kSources))) {
+    return HexSource::kFile;
   }
+  return kSources[index].source;
 }
 
 int HexSourceTabBar::indexForSource(HexSource source) noexcept {
   if (source == HexSource::kFrameStream) {
-    return kStreamTabIndex;
+    return index_for_source(kStreamSource);
   }
-  return static_cast<int>(source) >= 0 && static_cast<int>(source) < 4
-             ? static_cast<int>(source)
-             : 0;
+  return index_for_source(source);
 }
 
 }  // namespace pnga::ui::qt

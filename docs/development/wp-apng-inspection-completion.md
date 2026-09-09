@@ -1,6 +1,6 @@
 # WP-APNG-INSPECT 完成记录
 
-状态：IN PROGRESS（T00–T07 完成；T08–T12 未开始）。
+状态：IN PROGRESS（T00–T08 完成；T09–T12 未开始）。
 
 ## T00：静态基线与验收 runner
 
@@ -376,3 +376,47 @@ layout/dependencies/diff-check 通过。
 G-static 全套：构建无错误；`ctest --preset dev` 仅剩 3 个已归因基线失败，无新增失败
 （静态会话/worker 新增计数为 0——静态路径未构造本会话；document_session 既有测试
 全部通过）；layout/dependencies/diff-check 通过。
+
+## T08：Inspector/Hex 接收完整帧上下文
+
+日期：2026-09-09。
+
+### 产出
+
+- `StageInspector::setFrameContext(std::shared_ptr<const FrameStageSet>)` +
+  `StageInspectorModel::setFrameContext`：一次提交 stages（零拷贝 aliasing 共享所有权）+
+  delivered 像素 + identity；x_/y_/stage_ 与静态 setStageSet 相同地复位（切帧无残留
+  行/坐标高亮）；identity 经 `model()->identity()` 暴露；clear() 一并清理帧上下文。
+  静态 `setStageSet`/`setDeliveredPixels` 调用路径与报告渲染逐字节不变。
+- `hex_data_source.h/.cpp`：新增 `make_frame_inflated_hex_source` /
+  `make_frame_defiltered_hex_source`（帧 StageSet aliasing，File 源保持文档字节不变）。
+- `hex_source_tab_bar.cpp`：tab 映射改为表驱动（`SourcePresentation` 携带 `HexSource`
+  身份 + `index_for_source` 查表），删除 `sourceForIndex` 硬编码 switch 与
+  `kStreamTabIndex` 常量——"source tabs 不按硬编码索引定位"。
+- `trace_inspector_binding.h/.cpp`：新增 `setPublicationGate(std::function<bool()>)`，
+  publish/publishFastIndex 在门拒绝时跳过（未设置门时静态路径不变）。
+- `statistics_worker.h`：新增 `FrameStatisticsWorker`（一次性 QThread 跑 C3
+  `collect_frame_statistics`，结果携带 InspectionTicket，发布决策归 session C1 门）。
+- 测试（均加入既有测试类 slots）：stage_inspector（帧上下文原子提交/复位/身份/清理）、
+  hex_data_source（帧 Inflated/Defiltered 逐字节 == 帧 StageSet、null 拒绝）、
+  trace_inspector_binding（门拒绝抑制发布、门通过正常发布 generation=91）、
+  statistics_controller（FrameStatisticsWorker 交付 ticketed 结果：inflated=27、
+  overhead=54、ticket 字段齐全）。
+
+### red/green 证据
+
+- red：新增测试先于实现（setFrameContext/帧 Hex 源/发布门/FrameStatisticsWorker
+  符号缺失，编译失败记录后实现）。
+- 实现过程修正：RgbaImage 的 uint8_t 像素到模型 byte 缓冲的显式转换；binding 测试按
+  现有 per-test widget 构造模式修正；FrameStatisticsRequest 需同时携带 target 与
+  frame（测试补 analyze_frame）；统计 worker 信号用 Qt::DirectConnection 以便
+  wait() 后断言（无 UI 访问）。
+- green：受影响 7 个测试可执行程序全过（stage_inspector / hex_data_source /
+  hex_source_tab_bar / trace_inspector_binding / statistics_controller /
+  compression_selection_store / frame_inspection_session），旧 StageInspector
+  报告断言与 Compression selection 历史测试无一改动地保持通过。
+
+### 静态门槛
+
+G-static 全套：构建无错误；`ctest --preset dev` 仅剩 3 个已归因基线失败，无新增失败；
+layout/dependencies/diff-check 通过。

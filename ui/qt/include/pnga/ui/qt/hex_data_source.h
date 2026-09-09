@@ -4,6 +4,7 @@
 // WP-5U4A: lifetime-safe, windowed byte sources for HexView. Implementations
 // copy only the caller's requested window and never concatenate IDAT payloads.
 
+#include <pnga/analysis-engine/frame_analysis.h>
 #include <pnga/io/byte_source.h>
 #include <pnga/png-format/virtual_compressed_stream.h>
 #include <pnga/png-format/virtual_idat_stream.h>
@@ -44,6 +45,15 @@ std::shared_ptr<const HexDataSource> make_inflated_hex_source(
 
 std::shared_ptr<const HexDataSource> make_defiltered_hex_source(
     std::shared_ptr<const pnga::analysis_engine::StageSet> stages);
+
+// WP-APNG-INSPECT (contract C1/T08): frame-scoped Inflated/Defiltered byte
+// sources over one analyzed frame. The frame StageSet is retained through
+// the shared ownership; File stays on the document source.
+std::shared_ptr<const HexDataSource> make_frame_inflated_hex_source(
+    std::shared_ptr<const pnga::analysis_engine::FrameStageSet> frame);
+
+std::shared_ptr<const HexDataSource> make_frame_defiltered_hex_source(
+    std::shared_ptr<const pnga::analysis_engine::FrameStageSet> frame);
 
 }  // namespace pnga::ui::qt
 

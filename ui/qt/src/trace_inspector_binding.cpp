@@ -112,6 +112,9 @@ TraceInspectorBinding::TraceInspectorBinding(BlockInspector* block,
 
 void TraceInspectorBinding::publishFastIndex(
     const pnga::analysis_engine::FastCompressionIndexView& view) {
+  if (publication_gate_ && !publication_gate_()) {
+    return;
+  }
   if (block_ != nullptr) {
     block_->setFastIndex(view);
   }
@@ -144,6 +147,9 @@ void TraceInspectorBinding::publish(
     std::optional<std::uint64_t> selected_token_index,
     std::optional<std::uint64_t> selected_output_offset,
     std::optional<std::uint64_t> scanline) {
+  if (publication_gate_ && !publication_gate_()) {
+    return;
+  }
   const auto bundle = pnga::analysis_engine::build_trace_inspector_bundle(
       result, selected_token_index, selected_output_offset, scanline);
   generation_ = bundle.generation;
@@ -235,6 +241,10 @@ void TraceInspectorBinding::setHasDocument(bool has_document) {
 void TraceInspectorBinding::setNotIndexed(bool not_indexed) {
   not_indexed_ = not_indexed;
   updateContext();
+}
+void TraceInspectorBinding::setPublicationGate(
+    std::function<bool()> gate) {
+  publication_gate_ = std::move(gate);
 }
 
 void TraceInspectorBinding::updateContext() {

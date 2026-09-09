@@ -163,6 +163,29 @@ std::shared_ptr<const HexDataSource> make_inflated_hex_source(
                                                    std::move(stages), false);
 }
 
+std::shared_ptr<const HexDataSource> make_frame_inflated_hex_source(
+    std::shared_ptr<const pnga::analysis_engine::FrameStageSet> frame) {
+  if (!frame) {
+    return nullptr;
+  }
+  // Alias the frame-owned StageSet so the source keeps the frame alive.
+  std::shared_ptr<const pnga::analysis_engine::StageSet> stages(
+      frame, &frame->stages);
+  return std::make_shared<StageBytesHexDataSource>("Inflated",
+                                                   std::move(stages), false);
+}
+
+std::shared_ptr<const HexDataSource> make_frame_defiltered_hex_source(
+    std::shared_ptr<const pnga::analysis_engine::FrameStageSet> frame) {
+  if (!frame) {
+    return nullptr;
+  }
+  std::shared_ptr<const pnga::analysis_engine::StageSet> stages(
+      frame, &frame->stages);
+  return std::make_shared<StageBytesHexDataSource>("Unfiltered",
+                                                   std::move(stages), true);
+}
+
 std::shared_ptr<const HexDataSource> make_defiltered_hex_source(
     std::shared_ptr<const pnga::analysis_engine::StageSet> stages) {
   return std::make_shared<StageBytesHexDataSource>("Unfiltered",

@@ -10,6 +10,9 @@
 #include "document_session.h"
 #include "main_window_ui.h"
 #include "statistics_controller.h"
+#include "statistics_worker.h"
+
+#include "apng_inspection_fixture.h"
 
 #include <pnga/analysis-engine/statistics_collector.h>
 #include <pnga/analysis-engine/statistics_view.h>
@@ -141,6 +144,7 @@ class StatisticsControllerTest : public QObject {
   void exportGateFailureGivesFeedback();
   void midCollectionExportWritesLabeledPartial();
   void occurrencePublishesOnceAndStalePublishesNothing();
+  void frameStatisticsWorkerDeliversTicketedResult();
   void deflateOccurrencePublishesPhysicalSpansInsideIdatPayload();
   void occurrenceSupersedeChainPublishesOnceAndSettles();
 };
@@ -674,6 +678,56 @@ void StatisticsControllerTest::midCollectionExportWritesLabeledPartial() {
   const QString label = progressLabel(widgets)->text();
   QVERIFY(label.contains(QStringLiteral("Exported JSON (partial)")));
   QVERIFY(label.contains(QStringLiteral("collection is still running")));
+}
+
+void StatisticsControllerTest::frameStatisticsWorkerDeliversTicketedResult() {
+  // WP-APNG-INSPECT T08: the frame statistics worker runs the C3 collector
+  // on an AnalysisTarget and delivers the immutable result with its
+  // inspection ticket; publication decisions stay with the session gate.
+  auto request = pnga_test::inspection_request(0);
+  auto target = pnga::analysis_engine::make_frame_target(request);
+  QVERIFY(target.target);
+
+  auto analyzed = pnga::analysis_engine::analyze_frame(request, nullptr);
+  QCOMPARE(analyzed.stop, pnga::analysis_engine::FrameResult::Stop::kReady);
+
+  pnga::analysis_engine::FrameStatisticsRequest stats_request;
+  stats_request.target = target.target;
+  stats_request.frame = analyzed.frame;
+  stats_request.document = pnga::statistics::DocumentIdentity{
+      1, "fnv1a64-v1:0123456789abcdef"};
+
+  const auto ticket = pnga::trace_model::InspectionTicket{
+      {7, pnga::trace_model::AnimationFrame{0}},
+      pnga::trace_model::Stage::kPreBlend, 1, 1};
+
+  int done_count = 0;
+  std::shared_ptr<const pnga::analysis_engine::FrameStatisticsResult>
+      result_holder;
+  pnga::trace_model::InspectionTicket done_ticket;
+  auto* worker = new FrameStatisticsWorker(stats_request, ticket, this);
+  QObject::connect(
+      worker, &FrameStatisticsWorker::done, this,
+      [&](std::shared_ptr<const pnga::analysis_engine::FrameStatisticsResult>
+              result,
+          const pnga::trace_model::InspectionTicket& delivered) {
+        // Direct connection: the assertion state is written on the worker
+        // thread and read after wait() joins it.
+        result_holder = std::move(result);
+        done_ticket = delivered;
+        ++done_count;
+      },
+      Qt::DirectConnection);
+  worker->start();
+  QVERIFY(worker->wait(10000));
+
+  QCOMPARE(done_count, 1);
+  QVERIFY(result_holder != nullptr);
+  QCOMPARE(result_holder->error, std::string());
+  QCOMPARE(result_holder->value.inflated_bytes, 27u);
+  QCOMPARE(result_holder->value.chunk_overhead_bytes, 54u);
+  QCOMPARE(done_ticket.selection_serial, 1u);
+  QCOMPARE(done_ticket.key.generation, 7u);
 }
 
 QTEST_MAIN(StatisticsControllerTest)
