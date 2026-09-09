@@ -7,6 +7,7 @@
 #include <QThread>
 
 #include <algorithm>
+#include <limits>
 #include <utility>
 
 namespace pnga::gui {
@@ -60,6 +61,9 @@ void FrameInspectionSession::selectTarget(
     queue_.clear();
     in_flight_.clear();
     retained_bytes_ = 0;  // the previous context's retained artifacts drop
+    evidence_active_ = false;
+    evidence_selection_ = pnga::trace_model::Selection{};
+    evidence_key_ = pnga::trace_model::AnalysisKey{};
     current_target_ = std::move(target);
     current_ticket_ = ticket;
   }
@@ -81,6 +85,9 @@ void FrameInspectionSession::clear(std::uint64_t next_generation) {
     }
     queue_.clear();
     in_flight_.clear();
+    evidence_active_ = false;
+    evidence_selection_ = pnga::trace_model::Selection{};
+    evidence_key_ = pnga::trace_model::AnalysisKey{};
     current_target_.reset();
     current_ticket_ = pnga::trace_model::InspectionTicket{};
     retained_bytes_ = 0;
@@ -141,6 +148,72 @@ void FrameInspectionSession::requestFrameStatistics(
   job.priority = priority;
   job.reservation = reservation;
   enqueue(std::move(job));
+}
+
+void FrameInspectionSession::setEvidenceFocus(
+    pnga::trace_model::AnalysisKey source_key,
+    pnga::trace_model::Selection source_selection,
+    pnga::trace_model::InspectionTicket parent_ticket) {
+  pnga::trace_model::Selection selection_copy = source_selection;
+  std::uint64_t serial = 0;
+  bool accepted = false;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    // accepts() re-locks; inline the C1 gate while already holding the
+    // session mutex.
+    if (current_target_ != nullptr &&
+        pnga::trace_model::accepts_publication(
+            current_ticket_, parent_ticket,
+            pnga::trace_model::PublicationScope::kTarget) &&
+        evidence_serial_ != std::numeric_limits<std::uint64_t>::max()) {
+      evidence_key_ = source_key;
+      evidence_selection_ = std::move(source_selection);
+      evidence_parent_ = parent_ticket;
+      ++evidence_serial_;  // independent monotonic focus serial (checked)
+      evidence_active_ = true;
+      serial = evidence_serial_;
+      accepted = true;
+    }
+  }
+  if (accepted) {
+    emit evidenceFocusChanged(source_key, selection_copy, parent_ticket,
+                              serial);
+  }
+}
+
+void FrameInspectionSession::clearEvidenceFocus() {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!evidence_active_) {
+      return;
+    }
+    evidence_active_ = false;
+    evidence_selection_ = pnga::trace_model::Selection{};
+    evidence_key_ = pnga::trace_model::AnalysisKey{};
+    evidence_parent_ = pnga::trace_model::InspectionTicket{};
+  }
+  emit evidenceFocusCleared();
+}
+
+bool FrameInspectionSession::evidenceFocusActive() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return evidence_active_;
+}
+
+bool FrameInspectionSession::evidenceAccepts(std::uint64_t focus_serial) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return evidence_active_ && focus_serial == evidence_serial_;
+}
+
+std::uint64_t FrameInspectionSession::evidenceFocusSerial() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return evidence_serial_;
+}
+
+const pnga::trace_model::AnalysisKey*
+FrameInspectionSession::evidenceSourceKey() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return evidence_active_ ? &evidence_key_ : nullptr;
 }
 
 void FrameInspectionSession::setExecutorForTesting(

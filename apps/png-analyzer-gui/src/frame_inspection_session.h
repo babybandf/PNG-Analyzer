@@ -13,7 +13,9 @@
 #include <pnga/analysis-engine/frame_analysis.h>
 #include <pnga/analysis-engine/frame_statistics.h>
 #include <pnga/analysis-engine/job_scheduler.h>
+#include <pnga/analysis-engine/canvas_pixel_query.h>
 #include <pnga/trace-model/inspection_context.h>
+#include <pnga/trace-model/selection.h>
 
 #include <QObject>
 #include <QString>
@@ -72,6 +74,22 @@ class FrameInspectionSession final : public QObject {
           pnga::analysis_engine::JobPriority::kBackground,
       std::uint64_t reservation = kFrameStatisticsReservation);
 
+  // Evidence focus (WP-APNG-INSPECT T10): an optional provenance focus on
+  // a source (AnalysisKey, Selection) reached from the current context. The
+  // main ticket stays unchanged; the focus carries an independent monotonic
+  // serial so stale focus results are rejected without invalidating the
+  // main flow. Selecting a new main pixel clears the focus.
+  void setEvidenceFocus(pnga::trace_model::AnalysisKey source_key,
+                        pnga::trace_model::Selection source_selection,
+                        pnga::trace_model::InspectionTicket parent_ticket);
+  void clearEvidenceFocus();
+  bool evidenceFocusActive() const;
+  // Gate for focus-scoped publications: the parent ticket must still be
+  // accepted on the main scope and the focus serial must match.
+  bool evidenceAccepts(std::uint64_t focus_serial) const;
+  std::uint64_t evidenceFocusSerial() const;
+  const pnga::trace_model::AnalysisKey* evidenceSourceKey() const;
+
   // Test seam: injects a deterministic executor. When set, jobs run through
   // it (typically synchronously, or stored and run at a chosen point)
   // instead of the background worker thread, so tests control completion
@@ -88,6 +106,12 @@ class FrameInspectionSession final : public QObject {
   static constexpr std::uint64_t kFrameStatisticsReservation = 16ull << 20;
 
  signals:
+  void evidenceFocusChanged(
+      pnga::trace_model::AnalysisKey source_key,
+      pnga::trace_model::Selection source_selection,
+      pnga::trace_model::InspectionTicket parent_ticket,
+      std::uint64_t focus_serial);
+  void evidenceFocusCleared();
   void targetSelected(
       std::shared_ptr<const pnga::analysis_engine::AnalysisTarget> target,
       pnga::trace_model::InspectionTicket ticket);
@@ -145,6 +169,11 @@ class FrameInspectionSession final : public QObject {
   std::uint64_t arrival_counter_ = 0;
   std::function<void(std::function<void()>)> executor_;
   std::function<void()> deferred_completion_;
+  pnga::trace_model::AnalysisKey evidence_key_;
+  pnga::trace_model::Selection evidence_selection_;
+  pnga::trace_model::InspectionTicket evidence_parent_;
+  std::uint64_t evidence_serial_ = 0;
+  bool evidence_active_ = false;
 };
 
 }  // namespace pnga::gui

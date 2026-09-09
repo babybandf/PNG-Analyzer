@@ -1,6 +1,6 @@
 # WP-APNG-INSPECT 完成记录
 
-状态：IN PROGRESS（T00–T09 完成；T10–T12 未开始）。
+状态：IN PROGRESS（T00–T10 完成；T11–T12 未开始）。
 
 ## T00：静态基线与验收 runner
 
@@ -463,3 +463,36 @@ G-static 全套：构建无错误；`ctest --preset dev` 仅剩 3 个已归因�
 一致，无新增失败）；静态视图连接与槽签名逐字节保留；layout/dependencies/diff-check
 通过。D5（QueryCoordinator/trace/statistics 绑定静态链路）的帧上下文部分已由
 T03/T04/T05/T08 的 target 流与帧上下文接口承接，T10/T11 完成剩余接线。
+
+## T10：来源 focus、返回和跨面板导航
+
+日期：2026-09-09。
+
+### 产出
+
+- `FrameInspectionSession` 证据 focus（T10 接口）：`setEvidenceFocus(source_key,
+  source_selection, parent_ticket)`、`clearEvidenceFocus()`、`evidenceFocusActive()`、
+  `evidenceAccepts(focus_serial)`、`evidenceFocusSerial()`、`evidenceSourceKey()`。
+  主 ticket 保持不变；focus 持独立单调 serial（checked 递增，溢出拒绝）；focus 结果
+  仅在 serial 匹配且父 ticket 仍被主 scope 接受时发布；切主上下文（selectTarget）与
+  clear 一并清除 focus。信号 evidenceFocusChanged/evidenceFocusCleared。
+- 来源贡献经 C4 DAG 证明：frame1 PostBlend 的 PreBlend 链达 frame0 的 FrameSample
+  节点（测试固定），FrameSample 节点即"查看编码来源"的入口（T06 语义）。
+- 新增 `tests/gui/canvas_provenance_navigation_test.cpp`（注册
+  `gui_canvas_provenance_navigation_tests`）：3 个用例。
+- 实现过程修正：setEvidenceFocus 持锁调用 accepts() 导致 std::mutex 不可重入死锁
+  （测试超时暴露）——改为持锁内联 C1 判断；focus 事件发出改用参数副本避免释放锁后
+  读取已 move 的成员。
+
+### red/green 证据
+
+- red：新增测试先于实现（focus 接口缺失编译失败；死锁以 ctest 300s 超时暴露）。
+- green：`ctest --preset dev -R "gui_canvas_provenance_navigation_tests"` → 1/1：
+  frame1 PostBlend 由 frame0 贡献（C4 DAG 到达 frame0 FrameSample）、focus 独立
+  serial 生命周期（附加/单调递增/stale 拒绝/清除拒绝/主 ticket 不受影响）、切主上下文
+  清 focus 且 focus 不能附着异父 ticket。
+
+### 静态门槛
+
+G-static 全套：构建无错误；`ctest --preset dev` 仅剩 3 个已归因基线失败，无新增失败；
+layout/dependencies/diff-check 通过。
