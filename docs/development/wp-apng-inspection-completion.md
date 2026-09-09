@@ -1,6 +1,6 @@
 # WP-APNG-INSPECT 完成记录
 
-状态：IN PROGRESS（T00、T01 完成；T02–T12 未开始）。
+状态：IN PROGRESS（T00–T02 完成；T03–T12 未开始）。
 
 ## T00：静态基线与验收 runner
 
@@ -86,3 +86,41 @@ T00 已归因的既有环境性失败（gui_main_window_layout / gui_wp607a_nati
 gui_statistics_inspector），与基线一致，无新增失败；`trace_model_selection_tests` 通过，
 旧 Selection 持久格式未变；`verify_repository_layout.py`、`verify_dependencies.py`、
 `git diff --check` 全部通过。
+
+## T02：目标工厂与可靠 fixture
+
+日期：2026-09-09。
+
+### 产出
+
+- `libs/analysis-engine/src/analysis_target.cpp` 完成 `make_frame_target`（C1 factory）：
+  校验 source/index/ordinal 在 verified prefix；用 `make_frame_stream` 构建帧虚拟流；
+  header 继承 canvas_header 格式并替换 fcTL 尺寸；delivery 从 request 继承；失败时
+  target=null 且不产生半有效对象。source/index/stream 均为共享所有权。
+- 新增 `tests/common/apng_inspection_fixture.h`：
+  - `pnga_test::inspection_request(ordinal)`：固定 16×32 画布、RGBA8、两帧 2×3 @(10,20)、
+    frame1 blend=OVER、generation 7 / serial 11。未用 make_apng_canvas 构造子矩形。
+  - `pnga_test::make_dual_wrapped_payload(...)`：同 payload 双包装 fixture——同一压缩 payload
+    分别包装为静态 PNG（IDAT）与 APNG（fdAT 帧 0 @(10,20)）；palette/tRNS 测试值复制进两个
+    包装；总 buffer 上限 64KiB（超限返回空对象）；delivery 用生产 `delivery_context_from`
+    从 APNG 包装提取。测试内读取完整流仅限该 ≤64KiB fixture；生产禁止完整拼接的边界不变。
+- 测试：`analysis_target_test.cpp` 新增 factory/dual-wrapper/palette 三用例；
+  `frame_analysis_test.cpp` 新增 analyze_frame 与 make_frame_target 一致性用例（共用 fixture）。
+
+### red/green 证据
+
+- red：实现前链接失败，精确缺失符号
+  `pnga::analysis_engine::make_frame_target(pnga::analysis_engine::FrameRequest const&)`。
+- 实现期测试基础设施修正：fixture 直接以空 `sample_at` 调用 `encode_apng_frame_payload`
+  触发 `std::bad_function_call`，改为传入与 `make_apng_format` 相同的默认 pattern 函数；
+  另修正 fcTL 字节数（dispose/blend 共 2 字节）。均为测试 fixture 修正，不涉及生产行为。
+- green：`ctest --preset dev -R "apng_inspection_"` → 2/2 通过。新增 4 个用例：
+  make_frame_target 构建上下文（含 ordinal=2 越界拒绝）、双包装逻辑流一致（frame stream
+  逐字节 == 静态 IDAT 流 == 共享 payload）、palette/tRNS 复制、fixture 驱动 analyze_frame
+  与 factory 一致。
+
+### 静态门槛
+
+G-static 全套：构建无错误；`ctest --preset dev` 仅剩 3 个已归因基线失败，无新增失败；
+layout/dependencies/diff-check 全部通过。helper 预算边界（64KiB 测试上限）与生产预算
+（C5 retained/reservation）分属测试与产品两套约束，互不替代。

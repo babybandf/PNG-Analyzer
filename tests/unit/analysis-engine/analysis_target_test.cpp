@@ -9,6 +9,7 @@
 #include <pnga/io/byte_source.h>
 #include <pnga/png-format/animation_index.h>
 #include <pnga/png-format/chunk_index.h>
+#include <pnga/png-format/virtual_frame_stream.h>
 #include <pnga/png-format/virtual_idat_stream.h>
 #include <pnga/trace-model/selection.h>
 
@@ -18,6 +19,7 @@
 #include <limits>
 
 #include "test_png_helpers.h"
+#include "apng_inspection_fixture.h"
 
 using namespace pnga::analysis_engine;
 using pnga::io::MemoryByteSource;
@@ -134,4 +136,77 @@ TEST_CASE("query_frame_coordinate rejects foreign identity and outside points",
 
   REQUIRE(query_frame_coordinate(frame, Selection{}).status ==
           CoordinateQueryStatus::kNoSelection);
+}
+
+TEST_CASE("make_frame_target builds the frame analysis context",
+          "[apng-inspect]") {
+  auto request = pnga_test::inspection_request();
+  const auto target = make_frame_target(request);
+  REQUIRE(target.target);
+  REQUIRE(target.error.empty());
+  REQUIRE(target.target->header.width == 2);
+  REQUIRE(target.target->header.height == 3);
+  REQUIRE(target.target->stream->size() > 0);
+  REQUIRE(target.target->key.generation == 7);
+  REQUIRE(std::holds_alternative<AnimationFrame>(target.target->key.identity));
+  REQUIRE(target.target->control.has_value());
+  REQUIRE(target.target->control->x == 10);
+  REQUIRE(target.target->control->y == 20);
+  REQUIRE(target.target->source == request.source);
+
+  request.ordinal = 2;
+  const auto missing = make_frame_target(request);
+  REQUIRE_FALSE(missing.target);
+  REQUIRE_FALSE(missing.error.empty());
+}
+
+TEST_CASE("Dual wrapped payload exposes the identical logical stream",
+          "[apng-inspect]") {
+  const auto dual = pnga_test::make_dual_wrapped_payload();
+  REQUIRE_FALSE(dual.static_png.empty());
+  REQUIRE_FALSE(dual.apng.empty());
+  REQUIRE(dual.static_png.size() + dual.apng.size() <= 64u * 1024u);
+
+  const auto target = make_frame_target(pnga_test::inspection_request());
+  REQUIRE(target.target);
+  const std::size_t frame_size = target.target->stream->size();
+  REQUIRE(frame_size == dual.frame_payload.size());
+  std::vector<std::byte> frame_bytes(frame_size);
+  REQUIRE(
+      target.target->stream->read(0, frame_bytes.data(), frame_bytes.size()));
+
+  pnga::io::MemoryByteSource static_source(dual.static_png);
+  const auto static_index = pnga::png_format::index_chunks(static_source);
+  const auto idat_stream = pnga::png_format::make_idat_stream(
+      std::make_shared<const pnga::io::MemoryByteSource>(dual.static_png),
+      static_index);
+  REQUIRE(idat_stream);
+  REQUIRE(idat_stream->size() == dual.frame_payload.size());
+  std::vector<std::byte> static_bytes(idat_stream->size());
+  REQUIRE(idat_stream->read(0, static_bytes.data(), static_bytes.size()));
+  REQUIRE(frame_bytes == static_bytes);
+}
+
+TEST_CASE("Dual wrapped payload copies palette and transparency values",
+          "[apng-inspect]") {
+  std::vector<std::byte> palette;
+  for (std::uint32_t i = 0; i < 256; ++i) {
+    palette.push_back(std::byte{static_cast<unsigned char>((i * 37 + 12) % 256)});
+    palette.push_back(std::byte{static_cast<unsigned char>((i * 71 + 90) % 256)});
+    palette.push_back(std::byte{static_cast<unsigned char>((i * 13 + 200) % 256)});
+  }
+  std::vector<std::byte> transparency;
+  for (std::uint32_t i = 0; i < 256; ++i) {
+    transparency.push_back(std::byte{static_cast<unsigned char>(i)});
+  }
+
+  const auto dual = pnga_test::make_dual_wrapped_payload(
+      pnga_test::ApngFormat{3, 8}, palette, transparency);
+  REQUIRE_FALSE(dual.static_png.empty());
+  REQUIRE(dual.static_png.size() + dual.apng.size() <= 64u * 1024u);
+  REQUIRE(dual.delivery.palette.size() == 256);
+  REQUIRE(dual.delivery.palette[1][0] ==
+          static_cast<std::uint8_t>((1 * 37 + 12) % 256));
+  REQUIRE(dual.delivery.palette_alpha.size() == 256);
+  REQUIRE(dual.delivery.palette_alpha[7] == 7);
 }

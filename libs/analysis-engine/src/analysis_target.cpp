@@ -1,6 +1,39 @@
 #include "pnga/analysis-engine/analysis_target.h"
 
+#include <pnga/png-format/virtual_frame_stream.h>
+
+#include <utility>
+
 namespace pnga::analysis_engine {
+
+TargetResult make_frame_target(const FrameRequest& request) {
+  TargetResult result;
+  if (!request.source || !request.index ||
+      request.ordinal >= request.index->frames.size()) {
+    result.error = "frame ordinal is outside the verified prefix";
+    return result;
+  }
+  auto stream = pnga::png_format::make_frame_stream(
+      request.source, request.index, request.ordinal);
+  if (!stream) {
+    result.error = "frame stream is unavailable";
+    return result;
+  }
+  const auto& record = request.index->frames[request.ordinal];
+  auto target = std::make_shared<AnalysisTarget>();
+  target->key.generation = request.generation;
+  target->key.identity = pnga::trace_model::ImageIdentity{
+      pnga::trace_model::AnimationFrame{request.ordinal}};
+  target->source = request.source;
+  target->stream = std::move(stream);
+  target->header = request.canvas_header;
+  target->header.width = record.control.width;
+  target->header.height = record.control.height;
+  target->delivery = request.delivery;
+  target->control = record.control;
+  result.target = std::move(target);
+  return result;
+}
 
 std::optional<LocalPoint> frame_local_point(
     const pnga::png_format::FrameControl& rect,
