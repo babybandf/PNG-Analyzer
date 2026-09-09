@@ -1,7 +1,11 @@
 # WP-699–706 — APNG First Release Completion
 
-Status: **FAIL** (2026-09-09 merge review of `c1d7af2`: GUI performance
-evidence corrections remain; historical verification results follow below).
+Status: **PASS** (2026-09-09; the 2026-09-09 merge review of `c1d7af2` found
+the two GUI performance measurement errors below, both corrected in
+`a8df8e2` and re-recorded — see the corrected baselines section. The same
+merge review explicitly accepted the Homebrew Qt toolchain exception and
+recorded the deferred Compression-tab decision. Fast-forward merged into
+`main` at the same tree `3f58b43`.)
 
 The latest review found that `timelineModelScrollBaseline` manipulates the
 vertical scrollbar and forces its range, whereas the production timeline is
