@@ -37,10 +37,16 @@ FrameInspectionSession::FrameInspectionSession(QObject* parent)
     : QObject(parent) {}
 
 FrameInspectionSession::~FrameInspectionSession() {
-  // In-flight jobs hold shared state through the executor or worker thread;
-  // completions are generation-gated, so nothing touches this object after
-  // the mutex dies. Background threads are joined by Qt's child cleanup in
-  // the QObject destructor chain — the session never waits on the UI thread.
+  // Join in-flight one-shot worker threads before the members die (the
+  // DocumentSession precedent; runtime switches never join on the UI
+  // thread, only final destruction does). Completions are
+  // generation-gated, so their publications are dropped, not delivered.
+  const auto workers = findChildren<QThread*>();
+  for (QThread* worker : workers) {
+    if (worker->isRunning()) {
+      worker->wait();
+    }
+  }
 }
 
 void FrameInspectionSession::selectTarget(
@@ -107,6 +113,12 @@ bool FrameInspectionSession::accepts(
   }
   return pnga::trace_model::accepts_publication(current_ticket_, ticket,
                                                 scope);
+}
+
+std::shared_ptr<const pnga::analysis_engine::AnalysisTarget>
+FrameInspectionSession::currentTarget() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return current_target_;
 }
 
 std::uint64_t FrameInspectionSession::retainedBytes() const {
@@ -240,7 +252,10 @@ void FrameInspectionSession::enqueue(QueuedJob job) {
   bool pending_pump = false;
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (current_target_ == nullptr) {
+    // The kFrameOpenAnalysis job exists to build and adopt the FIRST
+    // target, so it is enqueued even before any target exists.
+    if (current_target_ == nullptr &&
+        job.kind != JobKind::kFrameOpenAnalysis) {
       dropped.push_back(job.ticket);
     } else if (job.reservation > kReservationBudget) {
       // A single job larger than the whole in-flight budget is rejected

@@ -110,6 +110,29 @@ class FrameInspectionSessionTest : public QObject {
     QVERIFY(!session.accepts(current, PublicationScope::kTarget));
   }
 
+  void openFrameBuildsAndPublishesWithoutPriorTarget() {
+    // WP-APNG-INSPECT live wiring: openFrame is the app's entry point and
+    // must build the FIRST target without any prior selectTarget call.
+    FrameInspectionSession session;
+    ManualExecutor executor;
+    session.setExecutorForTesting(executor.dispatcher());
+    QSignalSpy ready(&session, &FrameInspectionSession::frameAnalysisReady);
+    QSignalSpy failed(&session, &FrameInspectionSession::frameAnalysisFailed);
+
+    auto request = pnga_test::inspection_request(0);
+    session.openFrame(request, frame_ticket(0, 1));
+    executor.run_all();
+    QCOMPARE(ready.count(), 1);
+    QCOMPARE(failed.count(), 0);
+    QVERIFY(session.retainedBytes() > 0);
+    auto frame =
+        ready.back().at(0).value<std::shared_ptr<const FrameStageSet>>();
+    QVERIFY(frame != nullptr);
+    QVERIFY(frame->stages.success);
+    QCOMPARE(frame->delivered.width, 2u);
+    QCOMPARE(frame->delivered.height, 3u);
+  }
+
   void lateCompletionsOfSupersededTargetsNeverPublish() {
     FrameInspectionSession session;
     ManualExecutor executor;

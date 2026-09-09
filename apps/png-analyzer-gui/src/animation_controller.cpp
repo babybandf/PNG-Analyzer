@@ -329,21 +329,30 @@ void bindAnimationUi(AnimationController& controller, DocumentSession& session,
           }
         }
       });
+  // Live frame-following wiring (WP-APNG-INSPECT D5). The session-level
+  // capability is complete and unit-tested, but the widget wiring has a
+  // lifetime race under rapid playback stress (Bus error in the product
+  // gate/performance tests) that is not yet root-caused, so it ships
+  // behind this flag until the race is fixed.
+  bool live_frame_wiring_enabled_ = false;
   // WP-APNG-INSPECT live wiring (D5): frame analyses flow through the
   // inspection session into the Reconstruction panel and the frame-scoped
   // Hex sources; the Compression panel opens the frame target stream.
   std::uint64_t frame_selection_serial = 0;
-  std::shared_ptr<const pnga::analysis_engine::AnalysisTarget> active_target;
   QObject::connect(
       &frame_inspection, &pnga::gui::FrameInspectionSession::frameAnalysisReady,
       &controller,
       [&](std::shared_ptr<const pnga::analysis_engine::FrameStageSet> frame,
           const pnga::trace_model::InspectionTicket& ticket) {
+        if (!live_frame_wiring_enabled_) {
+          return;
+        }
         widgets.inspector->setFrameContext(frame);
         selection.setFrameStageContext(frame);
         selection.setImageIdentity(ticket.key.identity);
-        if (active_target != nullptr) {
-          trace.setFrameContext(active_target, frame);
+        auto target = frame_inspection.currentTarget();
+        if (target != nullptr) {
+          trace.setFrameContext(std::move(target), frame);
         }
       });
   QObject::connect(
@@ -357,19 +366,24 @@ void bindAnimationUi(AnimationController& controller, DocumentSession& session,
   QObject::connect(
       &frame_inspection, &pnga::gui::FrameInspectionSession::targetSelected,
       &controller,
-      [&, active_target =
-              std::shared_ptr<const pnga::analysis_engine::AnalysisTarget>()](
+      [&frame_inspection, &trace, &live_frame_wiring_enabled_](
           const std::shared_ptr<const pnga::analysis_engine::AnalysisTarget>&
               target,
-          const pnga::trace_model::InspectionTicket&) mutable {
-        active_target = target;
-        // The frame stage set arrives with the analysis result.
+          const pnga::trace_model::InspectionTicket&) {
+        if (!live_frame_wiring_enabled_) {
+          return;
+        }
+        // The frame stage set arrives with the analysis result; the trace
+        // context opens as soon as the target exists.
         trace.setFrameContext(target, nullptr);
       });
 
   QObject::connect(
       &controller, &AnimationController::framePublished, &controller,
-      [&](std::shared_ptr<const pnga::analysis_engine::ReplayResult> result) {
+      [&session, &widgets, &selection, &frame_inspection,
+       live_frame_wiring_enabled_, frame_selection_serial](
+          std::shared_ptr<const pnga::analysis_engine::ReplayResult> result)
+          mutable {
         if (!result || result->generation != session.generation()) return;
         presentAnimationFrame(widgets, *result);
         const auto* frame = std::get_if<pnga::trace_model::AnimationFrame>(
@@ -431,11 +445,23 @@ void bindAnimationUi(AnimationController& controller, DocumentSession& session,
             frame_request.delivery = pnga::analysis_engine::delivery_context_from(
                 *session.animationIndex(), session.stageSet()->header);
           }
-          const pnga::trace_model::InspectionTicket ticket{
-              {session.generation(), *frame},
-              result->stage, 1, ++frame_selection_serial};
-          frame_inspection.openFrame(frame_request, ticket);
+          if (live_frame_wiring_enabled_) {
+            const pnga::trace_model::InspectionTicket ticket{
+                {session.generation(), *frame},
+                result->stage, 1, ++frame_selection_serial};
+            frame_inspection.openFrame(frame_request, ticket);
+          }
         }
+      });
+  QObject::connect(
+      &session, &DocumentSession::replaced, &controller,
+      [&frame_inspection](std::uint64_t generation) {
+        frame_inspection.clear(generation);
+      });
+  QObject::connect(
+      &session, &DocumentSession::closed, &controller,
+      [&frame_inspection](std::uint64_t generation) {
+        frame_inspection.clear(generation);
       });
   QObject::connect(&controller, &AnimationController::staticFallbackSelected,
                    &controller, [&selection, &session, &widgets, &frame_inspection,

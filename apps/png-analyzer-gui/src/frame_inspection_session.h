@@ -56,6 +56,10 @@ class FrameInspectionSession final : public QObject {
 
   std::uint64_t retainedBytes() const;
   std::uint64_t reservedBytes() const;
+  // The currently adopted target (null before the first openFrame adoption
+  // or after clear()); used by the wiring instead of shared mutable state.
+  std::shared_ptr<const pnga::analysis_engine::AnalysisTarget> currentTarget()
+      const;
 
   // Analysis requests. Priority orders the queue (kSelection = current
   // pixel, kViewport = visible panel, kBackground = statistics); duplicate

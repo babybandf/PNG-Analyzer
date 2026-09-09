@@ -552,27 +552,26 @@ layout/dependencies/diff-check 通过。
 | D4 tab<4 回退 | T09 currentChanged 三分支；gui_apng_controller_tests 回归 |
 | D5 静态链路绑定 | T03/T04 帧 target 流重载（frame_query/frame_trace）、T05 帧统计/occurrence、T08 帧上下文/Hex 源；全帧 API 由对应 [apng-inspect] 测试覆盖 |
 
-## 后续修复：D5 活接线（用户实测反馈）
+## 后续修复尝试：D5 活接线（用户实测反馈）
 
-用户在原生 GUI 验证时发现 Reconstruction/Compression 未跟随当前帧——T08 的 widget
-能力缺少到活动帧的接线。已补齐：
+用户在原生 GUI 验证发现 Reconstruction/Compression 未跟随当前帧。本轮完成了：
 
-- `FrameInspectionSession::openFrame(request, ticket)`：后台构建 AnalysisTarget
-  （C1：make_frame_target 不在 UI 线程）+ 单调 serial 采纳 + 同 job 完成帧分析，
-  结果经 C1 门发布。
-- `bindAnimationUi` 接线：framePublished → openFrame（每帧选择递增 serial）；
-  frameAnalysisReady → `inspector->setFrameContext` + `selection.setFrameStageContext`
-  + `trace.setFrameContext(target, frame)`；staticFallbackSelected → 静态 StageSet
-  恢复 + 帧上下文全部拆除。
-- `SelectionNavigationController::setFrameStageContext`：帧 Inflated/Defiltered Hex
-  源跟随当前帧（T08 工厂），File 保持文档字节。
-- `TraceController::setFrameContext(target, frame)`：Compression 面板经 T04
-  `open(target)` 打开帧流索引，requestFor 帧分支经 C1 `query_frame_coordinate`
-  解析帧局部区间提交；回退静态时按文档代重开静态流。
-- 修复两处接线引出的崩溃：连接 lambda 按引用捕获 bindAnimationUi 局部状态（悬空），
-  改为 mutable 值捕获；MainWindow 初始化顺序（trace_ 必须先于 bindAnimationUi 创建）。
-- 回归：全量 ctest 无新增失败（仅剩 3 个已归因基线项），product gate/layout 测试
-  SEGFAULT 消除。
+- widget 能力确认完整（T08）：setFrameContext / 帧 Hex 源 / 发布门均可用且有测试。
+- `FrameInspectionSession::openFrame(request, ticket)`：后台建 target（C1）+ 单调
+  serial 采纳 + 同 job 分析；修复 enqueue 在无 target 时丢弃 openFrame 的缺陷；
+  新增 openFrame 回归测试（无先验 selectTarget 亦可构建并发布）。
+- `SelectionNavigationController::setFrameStageContext`：帧 Inflated/Defiltered Hex 源。
+- `TraceController::setFrameContext(target, frame)` + requestFor 帧分支（C1
+  query_frame_coordinate 解析帧局部区间）。
+- `bindAnimationUi` 完整接线（framePublished → openFrame；分析结果 → Inspector/Hex/
+  Compression；staticFallback → 静态恢复；文档 replaced/closed → 会话清理）。
+- 修复：连接 lambda 悬空引用（改为值捕获/mutable）；MainWindow 初始化顺序
+  （trace_ 先于 bindAnimationUi）；会话析构 join 在途 worker 线程（DocumentSession 先例）。
+
+**未完成（诚实报告）**：接线在快速播放压力下（product gate / performance 测试）触发
+Bus error/SEGFAULT，竞争根因（疑似 trace 帧上下文与快速帧发布的生存期竞争）未定位。
+当前整条接线位于 `live_frame_wiring_enabled_ = false` 开关之后（应用恢复稳定基线行为，
+session 级能力与其测试保留）。定位并修复该竞争、打开开关，是启用帧跟随面板的剩余工作。
 
 ### 最终状态：BLOCKED
 
