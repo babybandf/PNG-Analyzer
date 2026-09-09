@@ -127,7 +127,7 @@ inline DualWrappedPayload make_dual_wrapped_payload(
   apng.push_back(apng_byte(0));
   append_apng_chunk(apng, "fcTL", fctl);
   std::vector<std::byte> fdat;
-  append_u32(fdat, 0);
+  append_u32(fdat, 1);  // fdAT sequence follows the fcTL sequence
   fdat.insert(fdat.end(), dual.frame_payload.begin(),
               dual.frame_payload.end());
   append_apng_chunk(apng, "fdAT", fdat);

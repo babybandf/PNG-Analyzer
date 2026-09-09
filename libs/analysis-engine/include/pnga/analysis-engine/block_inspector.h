@@ -8,6 +8,8 @@
 #include "pnga/analysis-engine/trace_query.h"
 
 #include <pnga/deflate-index/block_index.h>
+#include <pnga/png-format/virtual_compressed_stream.h>
+#include <pnga/png-format/virtual_idat_stream.h>
 
 #include <cstdint>
 #include <optional>
@@ -134,6 +136,14 @@ FastCompressionIndexView build_fast_compression_index(
     std::uint64_t generation,
     const pnga::deflate_index::BlockIndexResult& block_index,
     const pnga::png_format::VirtualIDATStream& stream);
+
+// Same projection over any virtual compressed stream (WP-APNG-INSPECT
+// contract C2): IDAT spans are derived from the stream's logical/physical
+// mapping instead of IDAT segments.
+FastCompressionIndexView build_fast_compression_index(
+    std::uint64_t generation,
+    const pnga::deflate_index::BlockIndexResult& block_index,
+    const pnga::png_format::IVirtualCompressedStream& stream);
 
 }  // namespace pnga::analysis_engine
 

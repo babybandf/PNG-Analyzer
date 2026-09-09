@@ -141,6 +141,17 @@ TraceQueryResult compose_trace_query(
     const pnga::io::IByteSource& source, std::uint64_t inflated_begin,
     std::uint64_t inflated_end, std::uint64_t max_tokens);
 
+// Same composition over any virtual compressed stream (WP-APNG-INSPECT
+// contract C2): only stream.logical_to_physical is consumed, so frame
+// streams reuse the static composition kernel unchanged.
+TraceQueryResult compose_trace_query(
+    std::uint64_t generation, const pnga::trace_model::Selection& selection,
+    const pnga::deflate_index::BlockIndexResult& block_index,
+    const pnga::deflate_trace::TokenDecodeResult& trace,
+    const pnga::png_format::IVirtualCompressedStream& stream,
+    std::uint64_t inflated_begin, std::uint64_t inflated_end,
+    std::uint64_t max_tokens);
+
 // Stable, locale-independent text form for logs, cache keys and golden tests.
 // The field order is fixed and every result field is represented.
 std::string serialize_trace_query(const TraceQueryResult& result);

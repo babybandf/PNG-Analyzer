@@ -101,8 +101,9 @@ bool overlaps(std::uint64_t begin, std::uint64_t end,
 // wrapper origin (checked multiplication of the byte-unit DEFLATE origin by
 // 8); the byte envelope [floor(begin/8), ceil(end/8)) is mapped through
 // VirtualIDATStream and every returned physical range is retained in order.
+template <typename MappingStream>
 bool token_physical_spans(
-    const pnga::png_format::VirtualIDATStream& stream,
+    const MappingStream& stream,
     std::uint64_t wrapper_bits, const pnga::deflate_trace::TokenEvent& token,
     std::vector<pnga::trace_model::FileByteRange>* spans) {
   std::uint64_t absolute_begin = 0;
@@ -149,8 +150,9 @@ bool token_physical_spans(
   return covered == logical_length;
 }
 
+template <typename MappingStream>
 bool append_bit_mapping(
-    const pnga::png_format::VirtualIDATStream& stream,
+    const MappingStream& stream,
     std::uint64_t logical_begin_bits, std::uint64_t logical_end_bits,
     std::vector<ProvenanceSpan>* logical,
     std::vector<ProvenanceSpan>* physical) {
@@ -232,32 +234,12 @@ std::string escape_text(std::string_view text) {
   return out;
 }
 
-}  // namespace
-
-const char* trace_query_status_text(TraceQueryStatus status) noexcept {
-  switch (status) {
-    case TraceQueryStatus::kNotIndexed:
-      return "not indexed";
-    case TraceQueryStatus::kReplaying:
-      return "replaying";
-    case TraceQueryStatus::kReady:
-      return "ready";
-    case TraceQueryStatus::kPartial:
-      return "partial";
-    case TraceQueryStatus::kError:
-      return "error";
-    case TraceQueryStatus::kCancelled:
-      return "cancelled";
-  }
-  return "unknown";
-}
-
-TraceQueryResult compose_trace_query(
+template <typename MappingStream>
+TraceQueryResult compose_trace_query_impl(
     std::uint64_t generation, const pnga::trace_model::Selection& selection,
     const pnga::deflate_index::BlockIndexResult& block_index,
     const pnga::deflate_trace::TokenDecodeResult& trace,
-    const pnga::png_format::VirtualIDATStream& stream,
-    const pnga::io::IByteSource&, std::uint64_t inflated_begin,
+    const MappingStream& stream, std::uint64_t inflated_begin,
     std::uint64_t inflated_end, std::uint64_t max_tokens) {
   TraceQueryResult out;
   out.generation = generation;
@@ -428,6 +410,50 @@ TraceQueryResult compose_trace_query(
     out.status = TraceQueryStatus::kReady;
   }
   return out;
+}
+}  // namespace
+
+const char* trace_query_status_text(TraceQueryStatus status) noexcept {
+  switch (status) {
+    case TraceQueryStatus::kNotIndexed:
+      return "not indexed";
+    case TraceQueryStatus::kReplaying:
+      return "replaying";
+    case TraceQueryStatus::kReady:
+      return "ready";
+    case TraceQueryStatus::kPartial:
+      return "partial";
+    case TraceQueryStatus::kError:
+      return "error";
+    case TraceQueryStatus::kCancelled:
+      return "cancelled";
+  }
+  return "unknown";
+}
+
+TraceQueryResult compose_trace_query(
+    std::uint64_t generation, const pnga::trace_model::Selection& selection,
+    const pnga::deflate_index::BlockIndexResult& block_index,
+    const pnga::deflate_trace::TokenDecodeResult& trace,
+    const pnga::png_format::VirtualIDATStream& stream,
+    const pnga::io::IByteSource& source, std::uint64_t inflated_begin,
+    std::uint64_t inflated_end, std::uint64_t max_tokens) {
+  (void)source;  // the composition maps through the stream only
+  return compose_trace_query_impl(generation, selection, block_index, trace,
+                                  stream, inflated_begin, inflated_end,
+                                  max_tokens);
+}
+
+TraceQueryResult compose_trace_query(
+    std::uint64_t generation, const pnga::trace_model::Selection& selection,
+    const pnga::deflate_index::BlockIndexResult& block_index,
+    const pnga::deflate_trace::TokenDecodeResult& trace,
+    const pnga::png_format::IVirtualCompressedStream& stream,
+    std::uint64_t inflated_begin, std::uint64_t inflated_end,
+    std::uint64_t max_tokens) {
+  return compose_trace_query_impl(generation, selection, block_index, trace,
+                                  stream, inflated_begin, inflated_end,
+                                  max_tokens);
 }
 
 std::string serialize_trace_query(const TraceQueryResult& result) {

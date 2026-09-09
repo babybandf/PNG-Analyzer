@@ -1,6 +1,6 @@
 # WP-APNG-INSPECT 完成记录
 
-状态：IN PROGRESS（T00–T03 完成；T04–T12 未开始）。
+状态：IN PROGRESS（T00–T04 完成；T05–T12 未开始）。
 
 ## T00：静态基线与验收 runner
 
@@ -171,3 +171,48 @@ layout/dependencies/diff-check 全部通过。helper 预算边界（64KiB 测试
 G-static 全套：构建无错误；`ctest --preset dev` 仅剩 3 个已归因基线失败，无新增失败
 （query_coordinator/scanline_anchor/pixel_provenance/filtered_scanlines 既有测试全部
 通过，静态 open 与原 query_coordinate 行为不变）；layout/dependencies/diff-check 通过。
+
+## T04：逐帧 Compression 和来源物理映射
+
+日期：2026-09-09。
+
+### 产出
+
+- `trace_query.h/.cpp`：`compose_trace_query` 新增 `(const IVirtualCompressedStream&, ...)`
+  重载（去掉 source 位置）；内部 `token_physical_spans`/`append_bit_mapping`/composition
+  内核模板化（仅用 `logical_to_physical`），对偶重载复用同一内核；`serialize_trace_query`
+  与 TraceQueryResult 结构不变。
+- `block_inspector.h/.cpp`：`build_fast_compression_index` 新增接口重载；IDAT spans 由
+  `logical_to_physical(0, size)` 推导，内核模板化（`append_physical_bit_spans` 同样模板化）。
+- `trace_orchestrator.h/.cpp`：新增 `open(std::shared_ptr<const AnalysisTarget>, budget)`：
+  直接对帧流 `index_blocks`，绝不重新扫全文件构建静态 IDAT；generation 采用
+  `target->key.generation`；保留静态 open 门面且互斥重置对方流状态；submit 对 target 路径
+  校验 `request.selection.image` 身份与 target 不符即 kRejected；工作 lambda 按路径分派
+  decode/compose，帧流由共享指针持有。re-open/replay-active 规则不变。
+- `src/virtual_idat_source.h` 未修改（bridge 仍被静态路径使用，符合计划列出的允许修改集）。
+- README 列出全部新增声明；新增 `tests/unit/analysis-engine/frame_trace_test.cpp`。
+- fixture 修正：`make_dual_wrapped_payload` 的 fdAT 序列号从 0 改为 1（fcTL 之后递增，
+  与 `make_apng_format` 一致）；该 APNG 此前仅用于 delivery 提取，T04 起作为完整目标使用。
+
+### red/green 证据
+
+- red：新增测试先于实现——`TraceOrchestrator::open(const AnalysisTarget&, u64)` 与
+  `compose_trace_query` 接口重载缺失（编译失败记录后实现）。
+- 实现过程修正（均为测试侧）：stored 块 token 计数（2 字面量 + EOB = 3）、payload 末字节
+  反向映射语义（帧流终点按设计映射到 total_，CRC 内部才失败）、手工双帧 APNG 的 fcTL
+  位置与 canvas 一致性、Adler 错误的可观测量（`BlockIndexResult.adler.status == kMismatch`
+  而非 trace 失败）、truncated 的可观测量（`trace.stream_ended == false` partial）、
+  动态块用 4096 字节难压缩数据确保 zlib 产出 kDynamic。重构脚本曾误删
+  `trace_query_status_text` 定义，链接失败后从 diff 恢复；`build_fast_compression_index`
+  重构中的重复参数行与括号不平衡已修复并验证。
+- green：`ctest --preset dev -R "apng_inspection_"` → 2/2 通过。新增 6 个用例：
+  orchestrator 打开帧 target（generation=7、fast index ready、物理 spans 非空）、token
+  证据跨 fdAT 切片（物理包含性 + 序列号/CRC 反向映射失败）、frame0/frame1 同逻辑偏移独立、
+  Stored/Fixed/Dynamic 包装帧与同 payload 静态逻辑 token 逐一相等、错误 Adler（kMismatch +
+  index 不成功）与截断（partial，index 不成功）、外部身份 submit 拒绝。
+
+### 静态门槛
+
+G-static 全套：构建无错误；`ctest --preset dev` 仅剩 3 个已归因基线失败，无新增失败
+（trace_query/trace_orchestrator/block_inspector/pixel_provenance 既有测试全部通过，
+静态 open 与 serialize_trace_query 字节不变）；layout/dependencies/diff-check 通过。

@@ -17,12 +17,16 @@ Orchestration rather than codec algorithms (REPOSITORY_LAYOUT.md §5.10, ADR-000
   canvas-global coordinates in its output (WP-APNG-INSPECT).
 - Generic virtual-compressed-stream overloads of the shared row/trace
   kernels so frame streams reuse the static implementations without an
-  adapter: `inflate_filtered`, `build_scanline_anchors`, `restore_scanline`
-  and `query_pixel_provenance` accept any `IVirtualCompressedStream`
+  adapter: `inflate_filtered`, `build_scanline_anchors`, `restore_scanline`,
+  `query_pixel_provenance`, `compose_trace_query` and
+  `build_fast_compression_index` accept any `IVirtualCompressedStream`
   (WP-APNG-INSPECT). Original source-pair overloads remain.
-- `QueryCoordinator::open(target, anchor_interval_bytes)` builds the anchor
-  index over an `AnalysisTarget` frame stream; the document generation
-  adopts `target->key.generation` (WP-APNG-INSPECT).
+- `QueryCoordinator::open(target, anchor_interval_bytes)` and
+  `TraceOrchestrator::open(target, max_index_output_bytes)` build their
+  indexes over an `AnalysisTarget` frame stream without rescanning the file;
+  the document generation adopts `target->key.generation` and trace submit
+  rejects selections whose image identity differs from the open target
+  (WP-APNG-INSPECT).
 - A bounded, Qt-free Trace Query Contract that composes associated Deflate
   blocks, token/table summaries and logical/physical bit provenance without
   starting a worker or retaining a whole-file token trace (WP-5T0A).
