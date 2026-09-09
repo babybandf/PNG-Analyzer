@@ -99,17 +99,18 @@ leftmost visible frame index advances (1,000 distinct positions over the
 100,000-entry model), and the playback fixture paces at the corrected
 10 ms/frame.
 
-Corrected baselines (offscreen run): timeline model population of 100,000
-entries 7.1 ms; 1,000-step full-range scroll sweep 617 ms total, step P50
-605 us / P95 669 us / max 4.8 ms; the leftmost visible frame index reaches
-99,990 at the end of the sweep. During real playback of the 100-frame
+Corrected baselines (recorded at `a8df8e2`, native cocoa window): timeline
+model population of 100,000 entries 8.9 ms; 1,000-step full-range
+horizontal scroll sweep 1.24 s total, step P50 1.1 ms / P95 1.65 ms; the
+leftmost visible frame index advances across 1,000 distinct positions and
+reaches the end of the model. During real playback of the 100-frame
 document at 10 ms/frame pacing, a 1 ms event-loop probe measured tick-gap
-P50 15.1 ms / P95 23.6 ms / max 24.5 ms — no long main-thread freeze. The
-publication rate inside the window was 91 publications (about 11 fps,
-i.e. one displayed frame per ~90 ms end to end against the 100 fps pacing
-target — the pipeline drops frames rather than blocking the UI thread;
-the per-publication cost splits between the replay materialize on the
-worker and the publication handlers on the main thread).
+P50 4.0 ms / P95 16.3 ms / max 77 ms — no sustained main-thread freeze.
+The publication rate inside the window was 127 publications (about 16 fps
+against the 100 fps pacing target — the pipeline drops frames rather than
+blocking the UI thread; the per-publication cost splits between the replay
+materialize on the worker and the publication handlers on the main
+thread).
 
 ## Native macOS evidence (cocoa, not offscreen)
 
