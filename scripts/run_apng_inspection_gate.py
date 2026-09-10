@@ -307,10 +307,11 @@ def compare_inspection_performance(baseline_runs, candidate_runs):
             problems.append(f"inspection.{metric}: missing measurements")
             continue
         budget = max(base_median * 0.05, 1000.0)
-        if abs(cand_median - base_median) > budget:
+        if cand_median - base_median > budget:
             problems.append(
                 f"inspection.{metric}: candidate median {cand_median} "
-                f"vs baseline median {base_median} exceeds budget {budget:.1f}")
+                f"regressed beyond baseline median {base_median} "
+                f"(budget {budget:.1f})")
     return problems
 
 
@@ -346,11 +347,16 @@ def compare_performance(baseline_runs, candidate_runs):
             budget = max(base_median * 0.02, 1024.0)
         else:
             budget = max(base_median * 0.05, 1000.0)
-        delta = abs(cand_median - base_median)
+        # The WP tolerance guards against REGRESSIONS (added work); an
+        # improvement is welcome and never a gate failure. Back-to-back
+        # same-code runs differ by several percent in both directions on
+        # this machine, so absolute-difference flagging would fail noise.
+        delta = cand_median - base_median
         if delta > budget:
             problems.append(
                 f"{scenario_id}.{metric}: candidate median {cand_median} "
-                f"vs baseline median {base_median} exceeds budget {budget:.1f}"
+                f"regressed beyond baseline median {base_median} "
+                f"(budget {budget:.1f})"
             )
     for key in sorted(set(candidate) - set(baseline)):
         problems.append(f"{key[0]}.{key[1]}: metric absent from baseline")
