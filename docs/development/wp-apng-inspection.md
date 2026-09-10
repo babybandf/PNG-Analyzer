@@ -1,6 +1,6 @@
 # WP-APNG-INSPECT — 完整逐帧检查任务包
 
-日期：2026-09-09。状态：BLOCKED（T00–T10 完成并验证；T11 自动化部分完成；native GUI 证据待补——见 wp-apng-inspection-completion.md）。
+日期：2026-09-09。状态：PASS（T00–T12 完成并验证；native GUI 交互验证由用户于 2026-09-10 原生确认——见 wp-apng-inspection-completion.md）。
 
 ## 执行入口
 

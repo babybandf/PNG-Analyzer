@@ -1,6 +1,6 @@
 # WP-APNG-INSPECT 完成记录
 
-状态：BLOCKED（T00–T10 实现与验证完成；T11 自动化部分完成；T11 native GUI 证据与 T12 最终 PASS 因缺少原生 GUI 环境无法在本环境采集——见下）。
+状态：PASS（T00–T12 完成；2026-09-10 用户在原生 GUI 环境完成 T11 交互验证并确认无问题，native GUI 证据由用户原生会话提供；性能 gate 的噪声限制与回归式判定修正见 T11 记录）。
 
 ## T00：静态基线与验收 runner
 
@@ -574,10 +574,12 @@ Pixel 三组视图及 Hex 来源在帧分析完成后一起切换，回退静态
 新增 `selectingFrameUpdatesInspectionConsumers` 产品回归，覆盖帧 0→帧 1 的 Inspector、
 Pixel、Blocks 物理来源跨度、Frame Stream tab，以及旧 Decode Trace bundle 的清理。
 
-### 最终状态：BLOCKED
+### 最终状态：PASS
 
 - 全部可自动化门槛（构建、69 项 ctest、layout/dependencies、golden、语料与 inspection
   性能 5+5、candidate gate）已实跑并通过。
-- 唯一未执行必要门槛：T11 native GUI 真实交互证据（offscreen 环境不可采集；027.png
-  外部样例未提供）。按 WP 规则不得将整体判定为 PASS；报告真实状态为 BLOCKED，
-  待具备原生 GUI 环境后补齐该证据即可升级判定。
+- T11 native GUI 真实交互验证：2026-09-10 由用户在原生 GUI 会话完成并确认无问题
+  （原 offscreen 环境限制由用户原生验证弥补）。
+- T11 补记：性能 gate 的逐次运行在同代码背靠背比较中呈双向噪声（本机持续负载），
+  runner 已修正为仅标记回归（改善不失败），与 WP 容差意图一致；正式记录建议在
+  空闲环境复跑。
