@@ -7,6 +7,7 @@
 #include <QtTest/QtTest>
 
 #include <QImage>
+#include <QListView>
 
 using pnga::analysis_engine::AnimationTimeline;
 using pnga::analysis_engine::TimelineEntry;
@@ -20,6 +21,8 @@ class AnimationUiTest final : public QObject {
  private slots:
   void largeTimelineStaysInTheModel();
   void timelineEmitsInteractionSignals();
+  void keyboardArrowRequestsSelectedFrame();
+  void clickingSelectedFrameDoesNotRequestItAgain();
   void inspectorShowsControlMetadata();
   void thumbnailsCarryThinBlackOutline();
 };
@@ -54,6 +57,59 @@ void AnimationUiTest::timelineEmitsInteractionSignals() {
   QCOMPARE(play.count(), 1);
   QCOMPARE(speed.count(), 1);
   QCOMPARE(speed.at(0).at(0).toInt(), 2);
+}
+
+void AnimationUiTest::keyboardArrowRequestsSelectedFrame() {
+  AnimationTimeline timeline;
+  timeline.complete = true;
+  timeline.entries.push_back(TimelineEntry{0, 1, 100, 0, 10000000ull});
+  timeline.entries.push_back(TimelineEntry{1, 1, 100, 10000000ull, 10000000ull});
+  timeline.entries.push_back(TimelineEntry{2, 1, 100, 20000000ull, 10000000ull});
+
+  AnimationTimelineWidget widget;
+  widget.setTimeline(timeline);
+  widget.show();
+  auto* list = widget.findChild<QListView*>(QStringLiteral("animationThumbnails"));
+  QVERIFY(list != nullptr);
+  list->setFocus();
+  QSignalSpy frame(&widget, &AnimationTimelineWidget::frameRequested);
+
+  QTest::keyClick(list, Qt::Key_Right);
+
+  QCOMPARE(frame.count(), 1);
+  QCOMPARE(frame.at(0).at(0).toUInt(), 1u);
+
+  QTest::keyClick(list, Qt::Key_Left);
+
+  QCOMPARE(frame.count(), 2);
+  QCOMPARE(frame.at(1).at(0).toUInt(), 0u);
+}
+
+void AnimationUiTest::clickingSelectedFrameDoesNotRequestItAgain() {
+  AnimationTimeline timeline;
+  timeline.complete = true;
+  timeline.entries.push_back(TimelineEntry{0, 1, 100, 0, 10000000ull});
+  timeline.entries.push_back(TimelineEntry{1, 1, 100, 10000000ull, 10000000ull});
+
+  AnimationTimelineWidget widget;
+  widget.setTimeline(timeline);
+  widget.show();
+  auto* list = widget.findChild<QListView*>(QStringLiteral("animationThumbnails"));
+  QVERIFY(list != nullptr);
+  QCoreApplication::processEvents();
+  QSignalSpy frame(&widget, &AnimationTimelineWidget::frameRequested);
+
+  const auto first = list->visualRect(widget.model()->index(0, 0)).center();
+  const auto second = list->visualRect(widget.model()->index(1, 0)).center();
+  QTest::mouseClick(list->viewport(), Qt::LeftButton, Qt::NoModifier, first);
+  QCOMPARE(frame.count(), 0);
+
+  QTest::mouseClick(list->viewport(), Qt::LeftButton, Qt::NoModifier, second);
+  QCOMPARE(frame.count(), 1);
+  QCOMPARE(frame.at(0).at(0).toUInt(), 1u);
+
+  QTest::mouseClick(list->viewport(), Qt::LeftButton, Qt::NoModifier, second);
+  QCOMPARE(frame.count(), 1);
 }
 
 void AnimationUiTest::inspectorShowsControlMetadata() {

@@ -122,6 +122,8 @@ class SelectionNavigationController final : public QObject {
   void updateNumericBaseButton();
   void setPixelStatus(int x, int y);
   void restorePixelStatus();
+  void clearCoordinateSelectionForIdentityChange();
+  void showDefaultAnimationCoordinate();
   void adoptAnimationViewFromSender();
   // Re-submit the locked canvas coordinate after the selected animation frame
   // has produced its frame-scoped stages.

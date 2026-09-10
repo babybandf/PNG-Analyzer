@@ -329,7 +329,11 @@ void ApngProductGateTest::navigationPlaybackAndFirstStage() {
   auto* play = window.findChild<QPushButton*>(QStringLiteral("animationPlay"));
   QVERIFY(tabs != nullptr);
 
-  window.findChild<QPushButton*>(QStringLiteral("animationNext"))->click();
+  auto* thumbnails = window.findChild<QListView*>(
+      QStringLiteral("animationThumbnails"));
+  QVERIFY(thumbnails != nullptr);
+  thumbnails->setFocus();
+  QTest::keyClick(thumbnails, Qt::Key_Right);
   QTRY_COMPARE_WITH_TIMEOUT(output->image().pixelColor(0, 0),
                             QColor(Qt::green), 4000);
   QCOMPARE(frame->value(), 1);
@@ -638,17 +642,28 @@ void ApngProductGateTest::selectingFrameUpdatesInspectionConsumers() {
   QVERIFY(decode_table != nullptr);
   QVERIFY(trace_button != nullptr);
   auto* lock = window.findChild<QCheckBox*>(QStringLiteral("lockCoordinate"));
+  auto* x = window.findChild<QSpinBox*>(QStringLiteral("xCoordinate"));
+  auto* y = window.findChild<QSpinBox*>(QStringLiteral("yCoordinate"));
+  auto* pixel_status = window.findChild<QLabel*>(QStringLiteral("pixelStatus"));
   QVERIFY(lock != nullptr);
+  QVERIFY(x != nullptr);
+  QVERIFY(y != nullptr);
+  QVERIFY(pixel_status != nullptr);
   lock->setChecked(true);
   QTRY_VERIFY_WITH_TIMEOUT(
       context->statusLabel()->text().contains(QStringLiteral("Trace ready")),
       10000);
   QTRY_VERIFY_WITH_TIMEOUT(!decode->view().steps.empty(), 10000);
-  const auto frame0_decode_spans = decode->view().steps.front().physical_input_spans;
 
   window.findChild<QPushButton*>(QStringLiteral("animationNext"))->click();
   QTRY_COMPARE_WITH_TIMEOUT(output->image().pixelColor(0, 0),
                             QColor(Qt::green), 4000);
+  QTRY_COMPARE_WITH_TIMEOUT(x->value(), 0, 4000);
+  QTRY_COMPARE_WITH_TIMEOUT(y->value(), 0, 4000);
+  QVERIFY(!lock->isChecked());
+  QTRY_VERIFY_WITH_TIMEOUT(pixel_status->text().contains(
+                               QStringLiteral("pixel (0, 0)")),
+                           4000);
   QTRY_VERIFY_WITH_TIMEOUT(
       std::holds_alternative<pnga::trace_model::AnimationFrame>(
           inspector->model()->identity()) &&
@@ -667,11 +682,9 @@ void ApngProductGateTest::selectingFrameUpdatesInspectionConsumers() {
                                       pnga::ui::qt::PhysicalSpansRole)
                                 .value<std::vector<pnga::trace_model::ProvenanceSpan>>();
   QVERIFY(frame1_spans != frame0_spans);
-  QTRY_VERIFY_WITH_TIMEOUT(
-      !decode->view().steps.empty() && decode_table->model()->rowCount() > 0 &&
-          decode->view().steps.front().physical_input_spans !=
-              frame0_decode_spans,
-      10000);
+  QTRY_VERIFY_WITH_TIMEOUT(decode->view().steps.empty() &&
+                               decode_table->model()->rowCount() == 0,
+                           10000);
   QCOMPARE(hex_bar->tabText(1), QStringLiteral("Frame Stream"));
   hex_bar->setCurrentIndex(1);
   QCOMPARE(hex_bar->source(), pnga::ui::qt::HexSource::kFrameStream);

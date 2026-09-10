@@ -581,8 +581,50 @@ void SelectionNavigationController::refreshHexSource() {
 
 void SelectionNavigationController::setImageIdentity(
     const pnga::trace_model::ImageIdentity& identity) noexcept {
+  if (image_identity_ != identity) {
+    clearCoordinateSelectionForIdentityChange();
+  }
   image_identity_ = identity;
   if (std::holds_alternative<pnga::trace_model::StaticImage>(identity)) animation_view_.clear();
+}
+
+void SelectionNavigationController::clearCoordinateSelectionForIdentityChange() {
+  // Pixel coordinates and their lock are scoped to one image identity. Do not
+  // carry a previous animation frame's toolbar values into the new frame.
+  view_state_.clear_hover();
+  clearLockedCoordinate();
+  const QSignalBlocker x_blocker(w_.x_spin);
+  const QSignalBlocker y_blocker(w_.y_spin);
+  w_.x_spin->setValue(0);
+  w_.y_spin->setValue(0);
+  w_.pixel_view->setCoordinate(0, 0);
+  w_.filtered_view->setCoordinate(0, 0);
+  w_.defiltered_view->setCoordinate(0, 0);
+  restorePixelStatus();
+}
+
+void SelectionNavigationController::showDefaultAnimationCoordinate() {
+  if (!animation_view_) {
+    return;
+  }
+  if (animation_origin_x_ >
+          static_cast<std::uint32_t>(std::numeric_limits<int>::max()) ||
+      animation_origin_y_ >
+          static_cast<std::uint32_t>(std::numeric_limits<int>::max())) {
+    return;
+  }
+  const auto global_x = static_cast<int>(animation_origin_x_);
+  const auto global_y = static_cast<int>(animation_origin_y_);
+  {
+    const QSignalBlocker x_blocker(w_.x_spin);
+    const QSignalBlocker y_blocker(w_.y_spin);
+    w_.x_spin->setValue(global_x);
+    w_.y_spin->setValue(global_y);
+  }
+  w_.pixel_view->setCoordinate(0, 0);
+  w_.filtered_view->setCoordinate(0, 0);
+  w_.defiltered_view->setCoordinate(0, 0);
+  setPixelStatus(global_x, global_y);
 }
 
 void SelectionNavigationController::setFrameStageContext(
@@ -602,6 +644,9 @@ void SelectionNavigationController::setFrameStageContext(
     w_.defiltered_view->setStageSet(stage_set_);
   }
   updateHexSource();
+  if (frame_stage_ != nullptr) {
+    showDefaultAnimationCoordinate();
+  }
   requestLockedTraceForCurrentFrame();
 }
 

@@ -433,6 +433,24 @@ void SelectionNavigationControllerTest::frameClickLocksGlobalCoordinatesAndActiv
   controller.clearLockedCoordinate();
   QVERIFY(!widgets.lock_check->isChecked());
   QVERIFY(!controller.viewState().locked.has_value());
+
+  // Pixel coordinates are scoped to the frame where they were selected.
+  controller.onAnimationPixelSelected(1, 2);
+  controller.setImageIdentity(
+      pnga::trace_model::ImageIdentity{pnga::trace_model::AnimationFrame{1}});
+  QCOMPARE(widgets.x_spin->value(), 0);
+  QCOMPARE(widgets.y_spin->value(), 0);
+  QVERIFY(!widgets.lock_check->isChecked());
+  QVERIFY(!controller.viewState().locked.has_value());
+  QVERIFY(!widgets.bus->current().image.has_value());
+
+  auto request1 = pnga_test::inspection_request(1);
+  auto analyzed1 = pnga::analysis_engine::analyze_frame(request1, nullptr);
+  QCOMPARE(analyzed1.stop, pnga::analysis_engine::FrameResult::Stop::kReady);
+  controller.setFrameStageContext(analyzed1.frame);
+  QCOMPARE(widgets.x_spin->value(), 10);
+  QCOMPARE(widgets.y_spin->value(), 20);
+  QVERIFY(widgets.pixel_label->text().contains(QStringLiteral("pixel (10, 20)")));
 }
 
 void SelectionNavigationControllerTest::animationEventConnectionsFireOncePerUserEventAfterRemount() {
