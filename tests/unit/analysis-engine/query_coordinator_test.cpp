@@ -38,6 +38,12 @@ std::shared_ptr<const pnga::io::IByteSource> shared_source(
 // Waits until `ready_row` reaches `status` (via the callback), with a timeout.
 bool wait_status(QueryCoordinator& coordinator, std::uint64_t row,
                  QueryStatus status, int timeout_ms = 5000) {
+  // A replay that completed before the callback registration fired its
+  // notification already: check the current status first (CI runners are
+  // uneven and this race did flake there).
+  if (coordinator.status_for(row).status == status) {
+    return true;
+  }
   std::mutex m;
   std::condition_variable cv;
   std::atomic<bool> done{false};
@@ -48,9 +54,15 @@ bool wait_status(QueryCoordinator& coordinator, std::uint64_t row,
           cv.notify_all();
         }
       });
+  if (coordinator.status_for(row).status == status) {
+    coordinator.setStatusCallback({});
+    return true;
+  }
   std::unique_lock<std::mutex> lock(m);
-  return cv.wait_for(lock, std::chrono::milliseconds(timeout_ms),
-                     [&] { return done.load(); });
+  const bool reached = cv.wait_for(lock, std::chrono::milliseconds(timeout_ms),
+                                   [&] { return done.load(); });
+  coordinator.setStatusCallback({});
+  return reached;
 }
 
 }  // namespace
