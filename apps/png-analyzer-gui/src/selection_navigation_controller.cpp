@@ -406,6 +406,7 @@ void SelectionNavigationController::applyChunkHexHighlight(
 }
 
 void SelectionNavigationController::onPixelSelected(int x, int y) {
+  adoptAnimationViewFromSender();
   if (animation_view_) { onAnimationPixelSelected(x, y); return; }
   {
     const QSignalBlocker x_blocker(w_.x_spin);
@@ -587,7 +588,41 @@ void SelectionNavigationController::setImageIdentity(
 void SelectionNavigationController::setFrameStageContext(
     std::shared_ptr<const pnga::analysis_engine::FrameStageSet> frame) {
   frame_stage_ = std::move(frame);
+  if (frame_stage_ != nullptr) {
+    // Alias the frame-owned StageSet so all three encoded-stage views switch
+    // atomically with Reconstruction and keep the frame alive without a copy.
+    auto stages = std::shared_ptr<const pnga::analysis_engine::StageSet>(
+        frame_stage_, &frame_stage_->stages);
+    w_.pixel_view->setStageSet(stages);
+    w_.filtered_view->setStageSet(stages);
+    w_.defiltered_view->setStageSet(std::move(stages));
+  } else {
+    w_.pixel_view->setStageSet(stage_set_);
+    w_.filtered_view->setStageSet(stage_set_);
+    w_.defiltered_view->setStageSet(stage_set_);
+  }
   updateHexSource();
+  requestLockedTraceForCurrentFrame();
+}
+
+void SelectionNavigationController::requestLockedTraceForCurrentFrame() {
+  if (frame_stage_ == nullptr || callbacks_.request_trace == nullptr ||
+      !std::holds_alternative<pnga::trace_model::AnimationFrame>(
+          image_identity_) || !view_state_.locked.has_value()) {
+    return;
+  }
+  const auto& locked = *view_state_.locked;
+  const auto coordinate = coordinate_for(image_identity_, locked.x, locked.y);
+  if (!view_state_.set_locked(coordinate)) {
+    return;
+  }
+  pnga::trace_model::Selection selected;
+  selected.image = coordinate;
+  selected.stage = animation_stage_ == pnga::trace_model::Stage::kUnknown
+                       ? pnga::trace_model::Stage::kDelivered
+                       : animation_stage_;
+  w_.bus->publishMerged(kImagePanelOrigin, generation_, selected);
+  callbacks_.request_trace(coordinate);
 }
 
 void SelectionNavigationController::setAnimationFrameStream(
@@ -700,7 +735,33 @@ void SelectionNavigationController::setAnimationView(
   animation_stage_ = stage;
   animation_origin_x_ = origin_x;
   animation_origin_y_ = origin_y;
+  for (std::size_t i = 0; i < w_.animation_views.size(); ++i) {
+    if (w_.animation_views[i] == view) {
+      animation_stages_[i] = stage;
+      animation_origin_x_by_view_[i] = origin_x;
+      animation_origin_y_by_view_[i] = origin_y;
+      break;
+    }
+  }
 }
+
+void SelectionNavigationController::adoptAnimationViewFromSender() {
+  auto* clicked_view =
+      qobject_cast<pnga::ui::qt::DeliveredImageView*>(sender());
+  if (clicked_view == nullptr) {
+    return;
+  }
+  for (std::size_t i = 0; i < w_.animation_views.size(); ++i) {
+    if (w_.animation_views[i] == clicked_view) {
+      animation_view_ = clicked_view;
+      animation_stage_ = animation_stages_[i];
+      animation_origin_x_ = animation_origin_x_by_view_[i];
+      animation_origin_y_ = animation_origin_y_by_view_[i];
+      return;
+    }
+  }
+}
+
 void SelectionNavigationController::onAnimationFrameHovered(int x, int y) {
   if (!animation_view_ || x < 0 || y < 0) return;
   const auto global_x = static_cast<std::uint64_t>(x) + animation_origin_x_;
@@ -713,6 +774,7 @@ void SelectionNavigationController::onAnimationFrameHovered(int x, int y) {
 }
 
 void SelectionNavigationController::onAnimationPixelSelected(int x, int y) {
+  adoptAnimationViewFromSender();
   if (!animation_view_ || x < 0 || y < 0) return;
   const auto rgba = animation_view_->rgbaAt(x, y);
   if (!rgba) return;
@@ -729,8 +791,8 @@ void SelectionNavigationController::onAnimationPixelSelected(int x, int y) {
   selected.image = coordinate_for(image_identity_, global_x, global_y);
   selected.stage = animation_stage_;
   view_state_.set_locked(*selected.image);
-  // Canvas stages cannot be mapped through the static IDAT trace query.
   w_.bus->publish(kImagePanelOrigin, generation_, selected);
+  requestLockedTraceForCurrentFrame();
   w_.pixel_label->setText(
       QStringLiteral("pixel (%1, %2) RGBA(%3, %4, %5, %6)")
           .arg(global_x)

@@ -3,8 +3,9 @@
 // WP-5U12E: the Decode Trace page navigates through the typed
 // CompressionSelectionStore targets only (Show in Hex carries the compressed
 // DeflateBitRange with every physical file span, Show inflated output carries
-// the InflatedByteRange); no untyped integer navigation signal exists and no
-// path here submits a replay except the explicit Open Decode Trace action.
+// the InflatedByteRange); no untyped integer navigation signal exists. Replay
+// requests come from explicit Open Decode Trace or a locked animation pixel
+// whose frame-scoped stages have just become ready.
 
 #include "trace_controller.h"
 
@@ -38,9 +39,9 @@ TraceController::TraceController(MainWindowWidgets widgets, QObject* parent)
   trace_state_ =
       std::make_unique<pnga::analysis_engine::TraceInspectorStateMachine>();
   // WP-5U12C/E: the Compression pages navigate through the shared
-  // CompressionSelectionStore and the selection controller; only the explicit
-  // Open Decode Trace action reaches this controller, and it reuses the
-  // existing bounded request path once per interval.
+  // CompressionSelectionStore and the selection controller. Explicit Open
+  // Decode Trace and locked animation-pixel refreshes reuse the same bounded
+  // request path once per interval.
   connect(w_.block_inspector,
           &pnga::ui::qt::BlockInspector::decodeTraceRequested, this,
           [this](std::uint64_t generation, std::uint64_t /*block_index*/,
@@ -91,6 +92,11 @@ TraceController::TraceController(MainWindowWidgets widgets, QObject* parent)
             pnga::analysis_engine::TraceOrchestrationRequest request;
             request.generation = generation_;
             pnga::trace_model::Selection selection;
+            if (frame_target_ != nullptr) {
+              pnga::trace_model::ImageCoordinate image;
+              image.identity = frame_target_->key.identity;
+              selection.image = image;
+            }
             selection.stage = pnga::trace_model::Stage::kDelivered;
             request.selection = selection;
             request.inflated_begin = begin;
@@ -143,6 +149,9 @@ TraceController::TraceController(MainWindowWidgets widgets, QObject* parent)
 void TraceController::replaceDocument(
     std::uint64_t generation,
     std::shared_ptr<const pnga::io::IByteSource> source) {
+  static_source_ = source;
+  frame_target_.reset();
+  frame_stage_.reset();
   trace_.reset();
   trace_handle_.reset();
   trace_result_.reset();
@@ -191,6 +200,9 @@ void TraceController::replaceDocument(
 }
 
 void TraceController::clearDocument(std::uint64_t generation) {
+  static_source_.reset();
+  frame_target_.reset();
+  frame_stage_.reset();
   generation_ = generation;
   trace_.reset();
   trace_handle_.reset();
@@ -231,8 +243,14 @@ void TraceController::setFrameContext(
       // document's so stale frame results fail the request gate.
       trace_->open(static_source_, kTraceIndexOutputBytes);
       trace_->setDocumentGeneration(generation_);
+      if (w_.trace_binding != nullptr) {
+        w_.trace_binding->publishFastIndex(trace_->fast_index());
+      }
     }
     w_.trace_binding->setPublicationGate({});
+    return;
+  }
+  if (frame_target_ == target) {
     return;
   }
   frame_target_ = std::move(target);
@@ -242,6 +260,9 @@ void TraceController::setFrameContext(
   pending_trace_coordinate_.reset();
   if (trace_->open(frame_target_, kTraceIndexOutputBytes)) {
     trace_->setDocumentGeneration(generation_);
+    if (w_.trace_binding != nullptr) {
+      w_.trace_binding->publishFastIndex(trace_->fast_index());
+    }
     w_.trace_binding->setPublicationGate(publication_gate_);
   }
 }
@@ -285,6 +306,19 @@ void TraceController::onTraceResult(
   if (result.generation != generation_ || w_.trace_binding == nullptr ||
       trace_state_ == nullptr) {
     return;  // stale result; never publish for an older document
+  }
+  const auto result_identity = result.selection.image.has_value()
+                                   ? &result.selection.image->identity
+                                   : nullptr;
+  if (frame_target_ != nullptr) {
+    if (result_identity == nullptr ||
+        *result_identity != frame_target_->key.identity) {
+      return;  // stale result from a previous frame target
+    }
+  } else if (result_identity != nullptr &&
+             std::holds_alternative<pnga::trace_model::AnimationFrame>(
+                 *result_identity)) {
+    return;  // stale frame result after returning to the static document
   }
   trace_result_ =
       std::make_shared<const pnga::analysis_engine::TraceQueryResult>(result);

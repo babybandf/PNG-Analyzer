@@ -514,6 +514,9 @@ void FrameInspectionSession::analyze_target_frame(
 void FrameInspectionSession::publishAnalysis(
     const pnga::analysis_engine::FrameStageSet& frame,
     const pnga::trace_model::InspectionTicket& ticket) {
+  if (!accepts(ticket, pnga::trace_model::PublicationScope::kTarget)) {
+    return;
+  }
   std::uint64_t bytes = 0;
   {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -535,6 +538,9 @@ void FrameInspectionSession::publishAnalysis(
 void FrameInspectionSession::publishStatistics(
     std::shared_ptr<const pnga::analysis_engine::FrameStatisticsResult> result,
     const pnga::trace_model::InspectionTicket& ticket) {
+  if (!accepts(ticket, pnga::trace_model::PublicationScope::kTarget)) {
+    return;
+  }
   std::lock_guard<std::mutex> lock(mutex_);
   retained_bytes_ = std::min<std::uint64_t>(
       kRetainedBudget,

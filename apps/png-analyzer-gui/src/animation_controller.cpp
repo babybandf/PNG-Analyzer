@@ -9,12 +9,14 @@
 #include <pnga/ui/qt/animation_inspector.h>
 #include <pnga/ui/qt/animation_timeline.h>
 #include <pnga/ui/qt/delivered_image_view.h>
+#include <pnga/ui/qt/selection_bus.h>
 
 #include <pnga/png-format/animation_index.h>
 #include <pnga/png-format/virtual_frame_stream.h>
 #include <pnga/analysis-engine/frame_analysis.h>
 
 #include <variant>
+#include <limits>
 #include <utility>
 
 AnimationController::AnimationController(QObject* parent)
@@ -47,6 +49,7 @@ void AnimationController::setDocument(
   document_context_ = document_context;
   document_context_.generation = generation_;
   ++request_serial_;
+  frame_selection_serial_ = 0;
   selected_ordinal_ = 0;
   playback_.reset();
 
@@ -78,6 +81,14 @@ void AnimationController::setDocument(
     // A complete animation always opens paused on its first verified frame.
     selectFrame(0);
   }
+}
+
+std::optional<std::uint64_t>
+AnimationController::nextFrameSelectionSerial() noexcept {
+  if (frame_selection_serial_ == std::numeric_limits<std::uint64_t>::max()) {
+    return std::nullopt;
+  }
+  return ++frame_selection_serial_;
 }
 
 void AnimationController::selectFrame(std::uint32_t ordinal) {
@@ -329,31 +340,19 @@ void bindAnimationUi(AnimationController& controller, DocumentSession& session,
           }
         }
       });
-  // Live frame-following wiring (WP-APNG-INSPECT D5). The session-level
-  // capability is complete and unit-tested, but the widget wiring has a
-  // lifetime race under rapid playback stress (Bus error in the product
-  // gate/performance tests) that is not yet root-caused, so it ships
-  // behind this flag until the race is fixed.
-  bool live_frame_wiring_enabled_ = false;
   // WP-APNG-INSPECT live wiring (D5): frame analyses flow through the
   // inspection session into the Reconstruction panel and the frame-scoped
   // Hex sources; the Compression panel opens the frame target stream.
-  std::uint64_t frame_selection_serial = 0;
   QObject::connect(
       &frame_inspection, &pnga::gui::FrameInspectionSession::frameAnalysisReady,
       &controller,
-      [&](std::shared_ptr<const pnga::analysis_engine::FrameStageSet> frame,
+      [&controller, &frame_inspection, &trace, &widgets, &selection](
+        std::shared_ptr<const pnga::analysis_engine::FrameStageSet> frame,
           const pnga::trace_model::InspectionTicket& ticket) {
-        if (!live_frame_wiring_enabled_) {
-          return;
-        }
         widgets.inspector->setFrameContext(frame);
-        selection.setFrameStageContext(frame);
         selection.setImageIdentity(ticket.key.identity);
-        auto target = frame_inspection.currentTarget();
-        if (target != nullptr) {
-          trace.setFrameContext(std::move(target), frame);
-        }
+        trace.setFrameContext(frame_inspection.currentTarget(), frame);
+        selection.setFrameStageContext(std::move(frame));
       });
   QObject::connect(
       &frame_inspection, &pnga::gui::FrameInspectionSession::frameAnalysisFailed,
@@ -366,13 +365,10 @@ void bindAnimationUi(AnimationController& controller, DocumentSession& session,
   QObject::connect(
       &frame_inspection, &pnga::gui::FrameInspectionSession::targetSelected,
       &controller,
-      [&frame_inspection, &trace, &live_frame_wiring_enabled_](
+      [&trace](
           const std::shared_ptr<const pnga::analysis_engine::AnalysisTarget>&
               target,
           const pnga::trace_model::InspectionTicket&) {
-        if (!live_frame_wiring_enabled_) {
-          return;
-        }
         // The frame stage set arrives with the analysis result; the trace
         // context opens as soon as the target exists.
         trace.setFrameContext(target, nullptr);
@@ -380,10 +376,9 @@ void bindAnimationUi(AnimationController& controller, DocumentSession& session,
 
   QObject::connect(
       &controller, &AnimationController::framePublished, &controller,
-      [&session, &widgets, &selection, &frame_inspection,
-       live_frame_wiring_enabled_, frame_selection_serial](
+      [&controller, &session, &widgets, &selection, &frame_inspection](
           std::shared_ptr<const pnga::analysis_engine::ReplayResult> result)
-          mutable {
+          {
         if (!result || result->generation != session.generation()) return;
         presentAnimationFrame(widgets, *result);
         const auto* frame = std::get_if<pnga::trace_model::AnimationFrame>(
@@ -395,9 +390,17 @@ void bindAnimationUi(AnimationController& controller, DocumentSession& session,
           const auto stage_it = std::find(stages.begin(), stages.end(), result->stage);
           if (stage_it != stages.end()) {
             const auto& control = session.animationIndex()->frames[frame->index].control;
-            selection.setAnimationView(widgets.animation_views[stage_it - stages.begin()], result->stage,
-                result->stage == Stage::kFrameOutput ? control.x : 0,
-                result->stage == Stage::kFrameOutput ? control.y : 0);
+            const auto stage_index =
+                static_cast<int>(stage_it - stages.begin());
+            // Only the visible canvas stage is the active coordinate space.
+            // Results for the other three stages can arrive later on the
+            // worker callback and must not change how a click is interpreted.
+            if (widgets.preview_tabs->currentIndex() == 4 + stage_index) {
+              selection.setAnimationView(
+                  widgets.animation_views[stage_index], result->stage,
+                  result->stage == Stage::kFrameOutput ? control.x : 0,
+                  result->stage == Stage::kFrameOutput ? control.y : 0);
+            }
             // Explain why a canvas stage can legitimately be fully
             // transparent; the view only shows the hint when the scan finds
             // no opaque pixel.
@@ -445,10 +448,15 @@ void bindAnimationUi(AnimationController& controller, DocumentSession& session,
             frame_request.delivery = pnga::analysis_engine::delivery_context_from(
                 *session.animationIndex(), session.stageSet()->header);
           }
-          if (live_frame_wiring_enabled_) {
+          const auto selection_serial = controller.nextFrameSelectionSerial();
+          if (!selection_serial.has_value()) {
+            frame_inspection.clear(session.generation());
+            return;
+          }
+          {
             const pnga::trace_model::InspectionTicket ticket{
-                {session.generation(), *frame},
-                result->stage, 1, ++frame_selection_serial};
+                {session.generation(), *frame}, result->stage, 1,
+                *selection_serial};
             frame_inspection.openFrame(frame_request, ticket);
           }
         }
@@ -478,6 +486,15 @@ void bindAnimationUi(AnimationController& controller, DocumentSession& session,
                      selection.setImageIdentity(
                          pnga::trace_model::StaticImage{});
                      selection.setAnimationFrameStream(nullptr);
+                     pnga::trace_model::Selection selected = widgets.bus->current();
+                     pnga::trace_model::ImageCoordinate image;
+                     if (selected.image.has_value()) {
+                       image = *selected.image;
+                     }
+                     image.identity = pnga::trace_model::StaticImage{};
+                     selected.image = image;
+                     selected.stage = pnga::trace_model::Stage::kDelivered;
+                     widgets.bus->publishMerged(2, session.generation(), selected);
                      trace.setFrameContext(nullptr, nullptr);
                      frame_inspection.clearEvidenceFocus();
                    });

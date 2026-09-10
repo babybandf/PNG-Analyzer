@@ -568,10 +568,11 @@ layout/dependencies/diff-check 通过。
 - 修复：连接 lambda 悬空引用（改为值捕获/mutable）；MainWindow 初始化顺序
   （trace_ 先于 bindAnimationUi）；会话析构 join 在途 worker 线程（DocumentSession 先例）。
 
-**未完成（诚实报告）**：接线在快速播放压力下（product gate / performance 测试）触发
-Bus error/SEGFAULT，竞争根因（疑似 trace 帧上下文与快速帧发布的生存期竞争）未定位。
-当前整条接线位于 `live_frame_wiring_enabled_ = false` 开关之后（应用恢复稳定基线行为，
-session 级能力与其测试保留）。定位并修复该竞争、打开开关，是启用帧跟随面板的剩余工作。
+本轮修复（2026-09-10）已完成 D5 活接线：移除禁用开关，增加帧选择 serial 和发布时的
+target 门，确保迟到的分析/Trace 结果不能覆盖当前帧；Reconstruction、Compression、
+Pixel 三组视图及 Hex 来源在帧分析完成后一起切换，回退静态图像时恢复静态上下文。
+新增 `selectingFrameUpdatesInspectionConsumers` 产品回归，覆盖帧 0→帧 1 的 Inspector、
+Pixel、Blocks 物理来源跨度、Frame Stream tab，以及旧 Decode Trace bundle 的清理。
 
 ### 最终状态：BLOCKED
 

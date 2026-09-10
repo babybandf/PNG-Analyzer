@@ -115,6 +115,20 @@ void TraceInspectorBinding::publishFastIndex(
   if (publication_gate_ && !publication_gate_()) {
     return;
   }
+  // A new stream invalidates every previously replayed token bundle. Keep the
+  // fast block index below usable while removing stale Huffman/Decode Trace
+  // rows from the old document or animation frame.
+  last_state_ = pnga::analysis_engine::TraceInspectorState{};
+  last_state_.generation = view.generation;
+  last_state_.status =
+      pnga::analysis_engine::TraceInspectorLifecycle::kLoading;
+  generation_ = view.generation;
+  if (huffman_ != nullptr) {
+    huffman_->clear();
+  }
+  if (decode_ != nullptr) {
+    decode_->clear();
+  }
   if (block_ != nullptr) {
     block_->setFastIndex(view);
   }

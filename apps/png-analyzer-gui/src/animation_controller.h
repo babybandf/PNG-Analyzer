@@ -17,6 +17,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 struct MainWindowWidgets;
 class DocumentSession;
@@ -46,6 +47,7 @@ class AnimationController final : public QObject {
   Capability capability() const noexcept { return capability_; }
   std::uint64_t generation() const noexcept { return generation_; }
   std::uint64_t requestSerial() const noexcept { return request_serial_; }
+  std::optional<std::uint64_t> nextFrameSelectionSerial() noexcept;
   // Retained replay-cache bytes of the shared animation budget (C5: the
   // playback worker keeps its own 64 MiB; the inspection session reads this
   // for shared budget reporting, WP-APNG-INSPECT).
@@ -98,6 +100,7 @@ class AnimationController final : public QObject {
   std::uint64_t generation_ = 0;
   std::uint64_t request_serial_ = 0;
   std::uint32_t selected_ordinal_ = 0;
+  std::uint64_t frame_selection_serial_ = 0;
 };
 
 void bindAnimationUi(AnimationController& controller, DocumentSession& session,
