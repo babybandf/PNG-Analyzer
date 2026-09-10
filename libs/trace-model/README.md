@@ -10,6 +10,10 @@ Backend-neutral analysis data model (REPOSITORY_LAYOUT.md §5.4, ADR-0004).
   whole-pixel selection; optional sample-byte and packed-bit fields distinguish
   channel/sample granularity without a Qt-specific coordinate type.
 - `ProvenanceSpan` spaces for reversible pixel/stage/file-bit mappings (WP-504).
+- `AnalysisKey`, `InspectionTicket` and `accepts_publication`: identity and
+  publication-scope rules for per-frame inspection sessions. Target-scoped
+  publications match key and target epoch; pixel-scoped publications
+  additionally match stage and selection serial (WP-APNG-INSPECT).
 - Structured diagnostics and analysis events.
 
 ## Non-goals

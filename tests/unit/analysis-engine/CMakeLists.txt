@@ -1,15 +1,20 @@
 # Unit tests for libs/analysis-engine. Catch2 is test-only (layout §8.4).
 
 add_executable(pnga_analysis_engine_tests
+  analysis_target_test.cpp
   artifact_store_test.cpp
   block_inspector_test.cpp
+  canvas_pixel_query_test.cpp
   frame_analysis_test.cpp
+  frame_statistics_test.cpp
+  frame_trace_test.cpp
   coordinate_query_test.cpp
   decode_trace_inspector_test.cpp
   document_fingerprint_test.cpp
   animation_replay_test.cpp
   animation_playback_test.cpp
   filtered_scanlines_test.cpp
+  frame_query_test.cpp
   huffman_inspector_test.cpp
   job_scheduler_test.cpp
   pixel_provenance_test.cpp
@@ -45,3 +50,4 @@ target_include_directories(pnga_analysis_engine_tests PRIVATE
 target_compile_features(pnga_analysis_engine_tests PRIVATE cxx_std_20)
 
 add_test(NAME analysis_engine_artifact_store_tests COMMAND pnga_analysis_engine_tests)
+add_test(NAME apng_inspection_engine_tests COMMAND pnga_analysis_engine_tests "[apng-inspect]")

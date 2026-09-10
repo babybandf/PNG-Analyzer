@@ -9,12 +9,15 @@
 #include "pnga/analysis-engine/statistics_occurrence_query.h"
 
 #include <pnga/analysis-engine/job_scheduler.h>
+#include <pnga/analysis-engine/analysis_target.h>
 #include <pnga/analysis-engine/stage_analysis.h>
 #include <pnga/deflate-trace/token_decoder.h>
 #include <pnga/png-format/virtual_idat_stream.h>
 
+#include <array>
 #include <limits>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace pnga::analysis_engine {
@@ -36,6 +39,8 @@ using pnga::trace_model::StreamSpan;
 constexpr std::uint64_t kZlibWrapperBits = 16;
 constexpr std::uint64_t kChunkHeaderBytes = 8;
 constexpr std::uint64_t kChunkCrcBytes = 4;
+// fcTL data: sequence, width, height, x, y, delays, dispose, blend (26).
+constexpr std::uint64_t kFctlDataBytes = 26;
 
 bool checked_add(std::uint64_t left, std::uint64_t right,
                  std::uint64_t* output) noexcept {
@@ -72,7 +77,9 @@ class VirtualIdatByteSource final : public pnga::io::IByteSource {
 
 // Maps an IDAT-logical bit range to the ordered physical file byte spans and
 // the logical byte envelope. A zero-bit boundary maps to no span.
-bool map_logical_bits(const VirtualIDATStream& stream,
+template <typename MappingStream>
+bool map_logical_bits(
+    const MappingStream& stream,
                       std::uint64_t logical_bit_begin,
                       std::uint64_t logical_bit_end, Selection* selection,
                       std::string* error) {
@@ -206,10 +213,11 @@ StatisticsOccurrenceResult run_chunk_occurrence(
   return result;
 }
 
+template <typename MappingStream>
 StatisticsOccurrenceResult run_block_occurrence(
     std::uint64_t generation, const BlockIndexResult& blocks,
     const StatisticsNavigationRequest& request,
-    const VirtualIDATStream& stream) {
+    const MappingStream& stream) {
   BlockType wanted = BlockType::kStored;
   if (request.key == "stored") {
     wanted = BlockType::kStored;
@@ -266,10 +274,11 @@ StatisticsOccurrenceResult run_block_occurrence(
   return result;
 }
 
+template <typename MappingStream>
 StatisticsOccurrenceResult run_filter_occurrence(
     std::uint64_t generation, const StageSet& stages,
     const StatisticsNavigationRequest& request,
-    const VirtualIDATStream& stream, const BlockIndexResult& blocks) {
+    const MappingStream& stream, const BlockIndexResult& blocks) {
   if (request.key.size() != 1 || request.key[0] < '0' ||
       request.key[0] > '4') {
     return make_error(generation, "filter type key must be 0 to 4");
@@ -361,10 +370,29 @@ std::uint64_t align_to_byte(std::uint64_t bit_position, bool* ok) noexcept {
   return rounded & ~std::uint64_t{7};
 }
 
+template <typename MappingStream>
+StatisticsOccurrenceResult run_token_occurrence_impl(
+    std::uint64_t generation, const pnga::io::IByteSource& logical,
+    const MappingStream& stream, const BlockIndexResult& blocks,
+    const StatisticsNavigationRequest& request,
+    const CancellationToken* cancellation);
+
 StatisticsOccurrenceResult run_token_occurrence(
     std::uint64_t generation, const pnga::io::IByteSource& source,
     const pnga::png_format::ChunkIndex& chunks,
     const BlockIndexResult& blocks, const StatisticsNavigationRequest& request,
+    const CancellationToken* cancellation) {
+  VirtualIDATStream stream(chunks);
+  VirtualIdatByteSource logical(stream, source);
+  return run_token_occurrence_impl(generation, logical, stream, blocks,
+                                   request, cancellation);
+}
+
+template <typename MappingStream>
+StatisticsOccurrenceResult run_token_occurrence_impl(
+    std::uint64_t generation, const pnga::io::IByteSource& logical,
+    const MappingStream& stream, const BlockIndexResult& blocks,
+    const StatisticsNavigationRequest& request,
     const CancellationToken* cancellation) {
   pnga::deflate_trace::TokenKind wanted =
       pnga::deflate_trace::TokenKind::kLiteral;
@@ -414,8 +442,6 @@ StatisticsOccurrenceResult run_token_occurrence(
   StatisticsOccurrenceResult result;
   result.generation = generation;
 
-  VirtualIDATStream stream(chunks);
-  VirtualIdatByteSource logical(stream, source);
 
   // The block index carries the zlib wrapper origin (16 bits for PNG's
   // non-FDICT streams, the value the scalar scan enforces). Token fact
@@ -724,16 +750,26 @@ StatisticsOccurrenceResult run_token_occurrence(
           anchored = true;
         }
       } else {
-        for (std::size_t i = stream.segment_count(); i > 0; --i) {
-          const pnga::png_format::IdatSegment& segment = stream.segment(i - 1);
-          if (segment.length != 0) {
-            if (!checked_add(segment.physical_offset, segment.length,
-                             &physical)) {
-              return make_error(generation,
-                                "occurrence physical span overflow");
+        if constexpr (requires { stream.segment_count(); }) {
+          for (std::size_t i = stream.segment_count(); i > 0; --i) {
+            const pnga::png_format::IdatSegment& segment = stream.segment(i - 1);
+            if (segment.length != 0) {
+              if (!checked_add(segment.physical_offset, segment.length,
+                               &physical)) {
+                return make_error(generation,
+                                  "occurrence physical span overflow");
+              }
+              anchored = true;
+              break;
             }
+          }
+        } else {
+          // Generic streams (frame streams) anchor an end-of-stream
+          // boundary through their own zero-length logical mapping.
+          std::vector<PhysicalRange> ranges;
+          if (stream.logical_to_physical(p, 0, ranges) && !ranges.empty()) {
+            physical = ranges.front().offset;
             anchored = true;
-            break;
           }
         }
       }
@@ -795,6 +831,149 @@ StatisticsOccurrenceResult run_token_occurrence(
   return result;
 }
 
+// Frame-mode chunk navigation (WP-APNG-INSPECT contract C7): the frame's
+// own data chunks only, located through the frame stream's physical spans
+// with their chunk types read from the source. The owning fcTL has no
+// indexed file position, so that key honestly reports a partial answer;
+// every other non-frame key is not found. No image coordinates are
+// produced: chunk occurrences are File-domain facts.
+StatisticsOccurrenceResult run_frame_chunk_occurrence(
+    const AnalysisTarget& target, const StatisticsNavigationRequest& request) {
+  std::vector<PhysicalRange> spans;
+  if (!target.stream->logical_to_physical(0, target.stream->size(), spans)) {
+    return make_error(request.generation, "frame payload mapping failed");
+  }
+  const auto type_at = [&](std::uint64_t span_offset,
+                           std::array<std::byte, 4>* type) {
+    // Frame spans start after the fdAT sequence number when present, so
+    // the chunk type sits 4 bytes (IDAT) or 8 bytes (fdAT) before the
+    // span. Both candidates are matched explicitly.
+    if (span_offset < 8) {
+      return false;
+    }
+    std::array<std::byte, 8> window{};
+    if (!target.source->read(span_offset - 8, window.data(), window.size())) {
+      return false;
+    }
+    std::array<std::byte, 4> near_candidate{};
+    std::array<std::byte, 4> far_candidate{};
+    for (std::size_t i = 0; i < 4; ++i) {
+      near_candidate[i] = window[i + 4];
+      far_candidate[i] = window[i];
+    }
+    const auto text_of = [](const std::array<std::byte, 4>& bytes) {
+      std::string value;
+      for (const auto b : bytes) {
+        value.push_back(
+            static_cast<char>(std::to_integer<unsigned char>(b)));
+      }
+      return value;
+    };
+    if (text_of(near_candidate) == "IDAT" || text_of(near_candidate) == "fdAT") {
+      *type = near_candidate;
+      return true;
+    }
+    if (text_of(far_candidate) == "fdAT") {
+      *type = far_candidate;
+      return true;
+    }
+    return false;
+  };
+  std::vector<DirectOccurrence> occurrences;
+  bool fcTL_present = false;
+  // The owning fcTL (38 bytes: length, "fcTL", 26 data bytes, CRC) ends
+  // exactly where the first frame data chunk's header begins. Its position
+  // is therefore derivable from the first span when that chunk follows the
+  // canonical fdAT layout.
+  std::optional<std::uint64_t> fctl_type_offset;
+  for (std::size_t i = 0; i < spans.size(); ++i) {
+    std::array<std::byte, 4> type{};
+    if (!type_at(spans[i].offset, &type)) {
+      return make_error(request.generation, "frame chunk type is unreadable");
+    }
+    const std::string text = [&] {
+      std::string value;
+      for (const auto b : type) {
+        value.push_back(static_cast<char>(std::to_integer<unsigned char>(b)));
+      }
+      return value;
+    }();
+    if (text == request.key) {
+      occurrences.push_back(DirectOccurrence{spans[i].offset, i});
+    }
+    if (text == "fdAT" && !fctl_type_offset.has_value()) {
+      // fdAT span data starts after the sequence number: the fdAT chunk
+      // envelope (length + type) sits at -12, and the owning fcTL chunk
+      // (38 bytes) ends exactly there. Its type is at chunk start + 4.
+      fctl_type_offset = spans[i].offset - 12 - 38 + 4;
+    }
+  }
+  if (fctl_type_offset.has_value()) {
+    std::array<std::byte, 4> type{};
+    if (target.source->read(*fctl_type_offset, type.data(), type.size())) {
+      std::string text;
+      for (const auto b : type) {
+        text.push_back(static_cast<char>(std::to_integer<unsigned char>(b)));
+      }
+      fcTL_present = text == "fcTL";
+    }
+  }
+  if (request.key == "fcTL" && fcTL_present) {
+    // fcTL occurrence anchored at its derived physical position.
+    const std::uint64_t chunk_start = *fctl_type_offset - 4;
+    occurrences.push_back(DirectOccurrence{chunk_start + 8, 0});
+  }
+  StatisticsOccurrenceResult result;
+  result.generation = request.generation;
+  DirectOccurrence resolved;
+  if (!resolve_direct(request.direction, request.after_output_offset,
+                      occurrences, &resolved)) {
+    if (request.key == "fcTL" && fcTL_present) {
+      result.status = OccurrenceStatus::kPartial;
+      result.error = "frame fcTL occurrence has no verifiable position";
+      return result;
+    }
+    result.status = OccurrenceStatus::kNotFound;
+    return result;
+  }
+  Selection& selection = result.selection;
+  selection.stage = Stage::kChunk;
+  if (request.key == "fcTL") {
+    // The fcTL occurrence anchors at its derived data start (chunk start
+    // plus the 8-byte envelope header).
+    selection.physical_spans = {
+        BitSpan{resolved.cursor - 8, kChunkHeaderBytes, 0, false},
+        BitSpan{resolved.cursor, kFctlDataBytes, 0, false},
+        BitSpan{resolved.cursor + kFctlDataBytes, kChunkCrcBytes, 0, false}};
+  } else {
+    const PhysicalRange& span = spans[resolved.index];
+    selection.physical_spans = {
+        BitSpan{span.offset - 8, kChunkHeaderBytes, 0, false},
+        BitSpan{span.offset, span.length, 0, false},
+        BitSpan{span.offset + span.length, kChunkCrcBytes, 0, false}};
+  }
+  result.status = OccurrenceStatus::kReady;
+  return result;
+}
+
+// Frame-mode image coordinates always carry the target identity (contract
+// C7), and a frame-local stream-row hint is converted to the canvas-global
+// row. Image-less results receive an identity-bearing coordinate.
+void attach_frame_identity(const AnalysisTarget& target, Selection* selection,
+                           std::uint64_t global_row_delta) {
+  if (!selection->image.has_value()) {
+    pnga::trace_model::ImageCoordinate image;
+    image.identity = target.key.identity;
+    image.row = global_row_delta;
+    image.y = global_row_delta;
+    selection->image = image;
+    return;
+  }
+  selection->image->identity = target.key.identity;
+  selection->image->row += global_row_delta;
+  selection->image->y += global_row_delta;
+}
+
 }  // namespace
 
 StatisticsOccurrenceResult query_statistics_occurrence(
@@ -849,6 +1028,71 @@ StatisticsOccurrenceResult query_statistics_occurrence(
       }
       return run_token_occurrence(generation, source, chunks, *blocks,
                                   request, cancellation);
+    }
+  }
+  return make_error(generation, "unknown statistics bucket domain");
+}
+
+StatisticsOccurrenceResult query_frame_statistics_occurrence(
+    const AnalysisTarget& target, const StageSet* stages,
+    const BlockIndexResult* blocks, const StatisticsNavigationRequest& request,
+    const CancellationToken* cancellation) {
+  const std::uint64_t generation = request.generation;
+  if (cancellation != nullptr && cancellation->cancelled()) {
+    StatisticsOccurrenceResult result;
+    result.status = OccurrenceStatus::kCancelled;
+    result.error = "occurrence query cancelled";
+    result.generation = generation;
+    return result;
+  }
+  const std::uint64_t global_row_delta =
+      target.control.has_value() ? target.control->y : 0;
+
+  switch (request.domain) {
+    case StatisticsBucketDomain::kChunkType:
+      // File chunk range query: no coordinate conversion (contract C7).
+      return run_frame_chunk_occurrence(target, request);
+    case StatisticsBucketDomain::kBlockType: {
+      if (blocks == nullptr) {
+        return make_error(generation,
+                          "block navigation requires the block index");
+      }
+      auto result = run_block_occurrence(generation, *blocks, request,
+                                         *target.stream);
+      attach_frame_identity(target, &result.selection, global_row_delta);
+      return result;
+    }
+    case StatisticsBucketDomain::kFilterType: {
+      if (stages == nullptr) {
+        return make_error(generation,
+                          "filter navigation requires the stage analysis");
+      }
+      if (!stages->success) {
+        return make_error(
+            generation, "filter navigation requires a successful stage "
+                        "analysis");
+      }
+      if (blocks == nullptr) {
+        return make_error(generation,
+                          "filter navigation requires the block index");
+      }
+      auto result = run_filter_occurrence(generation, *stages, request,
+                                          *target.stream, *blocks);
+      attach_frame_identity(target, &result.selection, global_row_delta);
+      return result;
+    }
+    case StatisticsBucketDomain::kTokenKind:
+    case StatisticsBucketDomain::kLength:
+    case StatisticsBucketDomain::kDistance: {
+      if (blocks == nullptr) {
+        return make_error(generation,
+                          "token navigation requires the block index");
+      }
+      auto result = run_token_occurrence_impl(generation, *target.stream,
+                                              *target.stream, *blocks, request,
+                                              cancellation);
+      attach_frame_identity(target, &result.selection, global_row_delta);
+      return result;
     }
   }
   return make_error(generation, "unknown statistics bucket domain");

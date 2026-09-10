@@ -5,6 +5,8 @@
 
 #include "pnga/analysis-engine/query_coordinator.h"
 
+#include <pnga/analysis-engine/analysis_target.h>
+
 #include <utility>
 
 namespace pnga::analysis_engine {
@@ -85,6 +87,46 @@ bool QueryCoordinator::open(std::shared_ptr<const pnga::io::IByteSource> source,
   return true;
 }
 
+bool QueryCoordinator::open(std::shared_ptr<const AnalysisTarget> target,
+                            std::uint64_t anchor_interval_bytes) {
+  if (!target || !target->stream) {
+    return false;
+  }
+  // Re-open rules are identical to the static open: no in-flight replays and
+  // no queued jobs when members are replaced.
+  {
+    std::lock_guard<std::mutex> lock(rows_mutex_);
+    for (const auto& [row, state] : rows_) {
+      if (state.status == QueryStatus::kReplaying) {
+        return false;
+      }
+    }
+  }
+  if (scheduler_.queued_count() != 0) {
+    return false;
+  }
+
+  source_ = target->source;
+  target_stream_ = target->stream;
+  header_ = target->header;
+  stream_.reset();  // the static IDAT stream is unused for frame targets
+  anchors_ = build_scanline_anchors(*target_stream_, header_,
+                                    anchor_interval_bytes, 1ull << 30);
+  if (!anchors_.success) {
+    target_stream_.reset();
+    return false;
+  }
+  {
+    std::lock_guard<std::mutex> lock(rows_mutex_);
+    rows_.clear();
+  }
+  has_index_ = true;
+  scanline_count_ = anchors_.scanline_count;
+  generation_ = target->key.generation;
+  scheduler_.setDocumentGeneration(generation_);
+  return true;
+}
+
 std::uint64_t QueryCoordinator::row_reservation(std::uint64_t row) const noexcept {
   // Row data plus a scratch buffer for the extraction replay.
   const std::uint64_t row_bytes =
@@ -122,7 +164,9 @@ ScanlineQueryResult QueryCoordinator::query_scanline(std::uint64_t row,
           return;
         }
         const RowRestoreResult res =
-            restore_scanline(anchors_, *stream_, *source_, row);
+            target_stream_ != nullptr
+                ? restore_scanline(anchors_, *target_stream_, row)
+                : restore_scanline(anchors_, *stream_, *source_, row);
         r.success = res.success;
         r.error = res.error;
         r.payload = res.unfiltered;

@@ -1,8 +1,10 @@
 #include "pnga/ui/qt/animation_timeline.h"
 
 #include <QComboBox>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QListView>
+#include <QMouseEvent>
 #include <QPushButton>
 #include <QSpinBox>
 #include <QShortcut>
@@ -10,10 +12,44 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 
+#include <functional>
+
+namespace {
+
+class TimelineThumbnailView final : public QListView {
+ public:
+  using QListView::QListView;
+
+  std::function<void(int)> frameRequested;
+
+ protected:
+  void keyPressEvent(QKeyEvent* event) override {
+    const auto before = currentIndex();
+    QListView::keyPressEvent(event);
+    const auto key = event->key();
+    if ((key == Qt::Key_Left || key == Qt::Key_Right) &&
+        currentIndex().isValid() && currentIndex() != before &&
+        frameRequested) {
+      frameRequested(currentIndex().row());
+    }
+  }
+
+  void mousePressEvent(QMouseEvent* event) override {
+    const auto before = currentIndex();
+    QListView::mousePressEvent(event);
+    if (event->button() == Qt::LeftButton && currentIndex().isValid() &&
+        currentIndex() != before && frameRequested) {
+      frameRequested(currentIndex().row());
+    }
+  }
+};
+
+}  // namespace
+
 namespace pnga::ui::qt {
 AnimationTimelineWidget::AnimationTimelineWidget(QWidget* parent)
     : QWidget(parent), model_(new AnimationTimelineModel(this)),
-      list_(new QListView(this)) {
+      list_(new TimelineThumbnailView(this)) {
   setMinimumWidth(0);
   auto* layout = new QVBoxLayout(this);
   layout->setContentsMargins(4, 4, 4, 4);
@@ -38,6 +74,10 @@ AnimationTimelineWidget::AnimationTimelineWidget(QWidget* parent)
   list_->setGridSize(QSize(112, 90));
   list_->setFixedHeight(110);
   layout->addWidget(list_);
+  static_cast<TimelineThumbnailView*>(list_)->frameRequested =
+      [this](int ordinal) {
+        emit frameRequested(static_cast<std::uint32_t>(ordinal));
+      };
   connect(collapse, &QPushButton::toggled, list_, &QWidget::setVisible);
   auto* controls = new QHBoxLayout;
   const auto button = [&](const QString& name, const QString& text, auto action) {
@@ -82,7 +122,6 @@ AnimationTimelineWidget::AnimationTimelineWidget(QWidget* parent)
   connect(fallback_, &QPushButton::clicked, this, &AnimationTimelineWidget::staticFallbackRequested);
   connect(frame_, &QSpinBox::valueChanged, this, [this](int ordinal) { emit frameRequested(ordinal); });
   connect(speed_, &QComboBox::currentIndexChanged, this, &AnimationTimelineWidget::speedRequested);
-  connect(list_, &QListView::clicked, this, [this](const QModelIndex& i) { emit frameRequested(i.row()); });
   connect(list_, &QListView::activated, this, [this](const QModelIndex& i) { emit frameRequested(i.row()); });
   auto* jump = new QShortcut(QKeySequence("Ctrl+G"), this);
   connect(jump, &QShortcut::activated, frame_, [this] { frame_->setFocus(); frame_->selectAll(); });

@@ -30,6 +30,12 @@ class StageInspector final : public QWidget {
                           std::vector<std::byte> rgba);
   void clear();
 
+  // WP-APNG-INSPECT (contract C1/T08): atomically submits one analyzed
+  // frame (stages + delivered pixels + identity) to the same model. The
+  // static setStageSet/setDeliveredPixels paths are unchanged.
+  void setFrameContext(
+      std::shared_ptr<const pnga::analysis_engine::FrameStageSet> frame);
+
   // Keeps the report aligned with the global DEC/HEX presentation setting.
   void setNumericBase(bool hexadecimal);
 

@@ -10,6 +10,8 @@
 #include "main_window_ui.h"
 
 #include <pnga/analysis-engine/trace_inspector_state.h>
+#include <pnga/analysis-engine/analysis_target.h>
+#include <pnga/analysis-engine/frame_analysis.h>
 #include <pnga/analysis-engine/trace_orchestrator.h>
 #include <pnga/trace-model/selection.h>
 #include <pnga/ui/qt/selection_view_state.h>
@@ -46,6 +48,14 @@ class TraceController final : public QObject {
   // replayed it from openTraceCoordinator()).
   void setQueryCoordinator(pnga::analysis_engine::QueryCoordinator* query);
 
+  // WP-APNG-INSPECT live wiring (T08/D5): routes the compression panel to
+  // the analyzed frame's own stream (T04 target open) with frame-scoped
+  // coordinate resolution (T01 query_frame_coordinate). Null restores the
+  // static document stream.
+  void setFrameContext(
+      std::shared_ptr<const pnga::analysis_engine::AnalysisTarget> target,
+      std::shared_ptr<const pnga::analysis_engine::FrameStageSet> frame);
+
   void requestFor(const pnga::trace_model::ImageCoordinate& coordinate);
   void setSelectedOutputOffset(std::optional<std::uint64_t> output_offset);
   void setSelectedScanline(std::optional<std::uint64_t> scanline);
@@ -77,6 +87,19 @@ class TraceController final : public QObject {
   std::optional<std::uint64_t> trace_selected_output_offset_;
   std::optional<std::pair<std::uint64_t, std::uint64_t>> trace_interval_;
   std::uint64_t trace_request_generation_ = 0;
+  std::shared_ptr<const pnga::io::IByteSource> static_source_;
+  std::shared_ptr<const pnga::analysis_engine::AnalysisTarget> frame_target_;
+  std::shared_ptr<const pnga::analysis_engine::FrameStageSet> frame_stage_;
+  std::function<bool()> publication_gate_;
+
+ public:
+  // WP-APNG-INSPECT (T08/T10): sets the publication gate the frame session
+  // drives; called by the wiring after the session exists.
+  void setPublicationGate(std::function<bool()> gate) {
+    publication_gate_ = std::move(gate);
+  }
+
+ private:
   std::uint64_t trace_deflate_data_begin_ = 0;
   pnga::analysis_engine::QueryCoordinator* query_ = nullptr;
   std::uint64_t generation_ = 0;

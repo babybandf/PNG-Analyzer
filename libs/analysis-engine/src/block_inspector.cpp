@@ -49,8 +49,9 @@ bool checked_mul(std::uint64_t left, std::uint64_t right,
   return true;
 }
 
+template <typename MappingStream>
 bool append_physical_bit_spans(
-    const pnga::png_format::VirtualIDATStream& stream,
+    const MappingStream& stream,
     pnga::trace_model::ZlibBitRange bits,
     std::vector<pnga::trace_model::ProvenanceSpan>* spans) {
   if (!bits.valid()) {
@@ -213,10 +214,15 @@ const char* fast_compression_index_status_text(
   return "unknown";
 }
 
-FastCompressionIndexView build_fast_compression_index(
+namespace {
+
+
+template <typename MappingStream>
+FastCompressionIndexView build_fast_compression_index_impl(
     std::uint64_t generation,
     const pnga::deflate_index::BlockIndexResult& block_index,
-    const pnga::png_format::VirtualIDATStream& stream) {
+    const MappingStream& stream, std::uint64_t stream_size,
+    const std::vector<pnga::png_format::IdatSegment>& segments) {
   FastCompressionIndexView view;
   view.generation = generation;
 
@@ -236,7 +242,7 @@ FastCompressionIndexView build_fast_compression_index(
   }
 
   const auto stream_range =
-      make_range(pnga::trace_model::ZlibByteOffset{0}, stream.size());
+      make_range(pnga::trace_model::ZlibByteOffset{0}, stream_size);
   if (stream_range.has_value()) {
     summary.stream_range = *stream_range;
   } else {
@@ -253,9 +259,8 @@ FastCompressionIndexView build_fast_compression_index(
   summary.deflate_data_begin =
       pnga::trace_model::ZlibByteOffset{block_index.zlib_header_bits / 8};
 
-  summary.idat_spans.reserve(stream.segment_count());
-  for (std::size_t i = 0; i < stream.segment_count(); ++i) {
-    const pnga::png_format::IdatSegment& segment = stream.segment(i);
+  summary.idat_spans.reserve(segments.size());
+  for (const auto& segment : segments) {
     const auto logical =
         make_range(pnga::trace_model::ZlibByteOffset{segment.logical_start},
                    segment.length);
@@ -312,6 +317,44 @@ FastCompressionIndexView build_fast_compression_index(
     view.status = FastCompressionIndexStatus::kUnavailable;
   }
   return view;
+}
+
+}  // namespace
+
+FastCompressionIndexView build_fast_compression_index(
+    std::uint64_t generation,
+    const pnga::deflate_index::BlockIndexResult& block_index,
+    const pnga::png_format::VirtualIDATStream& stream) {
+  std::vector<pnga::png_format::IdatSegment> segments;
+  segments.reserve(stream.segment_count());
+  for (std::size_t i = 0; i < stream.segment_count(); ++i) {
+    segments.push_back(stream.segment(i));
+  }
+  return build_fast_compression_index_impl(generation, block_index, stream,
+                                           stream.size(), segments);
+}
+
+FastCompressionIndexView build_fast_compression_index(
+    std::uint64_t generation,
+    const pnga::deflate_index::BlockIndexResult& block_index,
+    const pnga::png_format::IVirtualCompressedStream& stream) {
+  std::vector<pnga::png_format::PhysicalRange> spans;
+  if (!stream.logical_to_physical(0, stream.size(), spans)) {
+    FastCompressionIndexView view;
+    view.status = FastCompressionIndexStatus::kError;
+    view.error = "fast stream logical mapping failed";
+    return view;
+  }
+  std::vector<pnga::png_format::IdatSegment> segments;
+  segments.reserve(spans.size());
+  std::uint64_t logical_start = 0;
+  for (const auto& range : spans) {
+    segments.push_back(pnga::png_format::IdatSegment{range.offset, range.length,
+                                                     logical_start});
+    logical_start += range.length;
+  }
+  return build_fast_compression_index_impl(generation, block_index, stream,
+                                           stream.size(), segments);
 }
 
 }  // namespace pnga::analysis_engine

@@ -7,6 +7,7 @@
 // modules (layout §7); none of them know about the others' concepts.
 
 #include <pnga/io/byte_source.h>
+#include <pnga/png-format/virtual_compressed_stream.h>
 #include <pnga/png-format/virtual_idat_stream.h>
 #include <pnga/png-reconstruction/scanline_layout.h>
 
@@ -42,6 +43,12 @@ struct FilteredOutcome {
 FilteredOutcome inflate_filtered(
     const pnga::png_format::VirtualIDATStream& stream,
     const pnga::io::IByteSource& source,
+    const pnga::png_reconstruction::ScanlineLayout& layout);
+
+// Same inflation over any virtual compressed stream (WP-APNG-INSPECT
+// contract C2): the stream is its own byte source.
+FilteredOutcome inflate_filtered(
+    const pnga::png_format::IVirtualCompressedStream& stream,
     const pnga::png_reconstruction::ScanlineLayout& layout);
 
 FilteredOutcome inflate_filtered(

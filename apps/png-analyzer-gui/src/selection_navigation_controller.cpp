@@ -406,6 +406,7 @@ void SelectionNavigationController::applyChunkHexHighlight(
 }
 
 void SelectionNavigationController::onPixelSelected(int x, int y) {
+  adoptAnimationViewFromSender();
   if (animation_view_) { onAnimationPixelSelected(x, y); return; }
   {
     const QSignalBlocker x_blocker(w_.x_spin);
@@ -490,6 +491,11 @@ void SelectionNavigationController::publishLockedCoordinate() {
 }
 
 void SelectionNavigationController::clearLockedCoordinate() {
+  // Escape/unlock clears the active view's crosshair (C6/D3): the mounted
+  // animation view when one is set, the static image always.
+  if (animation_view_ != nullptr) {
+    animation_view_->clearLockedPixel();
+  }
   view_state_.clear_locked();
   w_.image_view->clearLockedPixel();
   {
@@ -575,8 +581,93 @@ void SelectionNavigationController::refreshHexSource() {
 
 void SelectionNavigationController::setImageIdentity(
     const pnga::trace_model::ImageIdentity& identity) noexcept {
+  if (image_identity_ != identity) {
+    clearCoordinateSelectionForIdentityChange();
+  }
   image_identity_ = identity;
   if (std::holds_alternative<pnga::trace_model::StaticImage>(identity)) animation_view_.clear();
+}
+
+void SelectionNavigationController::clearCoordinateSelectionForIdentityChange() {
+  // Pixel coordinates and their lock are scoped to one image identity. Do not
+  // carry a previous animation frame's toolbar values into the new frame.
+  view_state_.clear_hover();
+  clearLockedCoordinate();
+  const QSignalBlocker x_blocker(w_.x_spin);
+  const QSignalBlocker y_blocker(w_.y_spin);
+  w_.x_spin->setValue(0);
+  w_.y_spin->setValue(0);
+  w_.pixel_view->setCoordinate(0, 0);
+  w_.filtered_view->setCoordinate(0, 0);
+  w_.defiltered_view->setCoordinate(0, 0);
+  restorePixelStatus();
+}
+
+void SelectionNavigationController::showDefaultAnimationCoordinate() {
+  if (!animation_view_) {
+    return;
+  }
+  if (animation_origin_x_ >
+          static_cast<std::uint32_t>(std::numeric_limits<int>::max()) ||
+      animation_origin_y_ >
+          static_cast<std::uint32_t>(std::numeric_limits<int>::max())) {
+    return;
+  }
+  const auto global_x = static_cast<int>(animation_origin_x_);
+  const auto global_y = static_cast<int>(animation_origin_y_);
+  {
+    const QSignalBlocker x_blocker(w_.x_spin);
+    const QSignalBlocker y_blocker(w_.y_spin);
+    w_.x_spin->setValue(global_x);
+    w_.y_spin->setValue(global_y);
+  }
+  w_.pixel_view->setCoordinate(0, 0);
+  w_.filtered_view->setCoordinate(0, 0);
+  w_.defiltered_view->setCoordinate(0, 0);
+  setPixelStatus(global_x, global_y);
+}
+
+void SelectionNavigationController::setFrameStageContext(
+    std::shared_ptr<const pnga::analysis_engine::FrameStageSet> frame) {
+  frame_stage_ = std::move(frame);
+  if (frame_stage_ != nullptr) {
+    // Alias the frame-owned StageSet so all three encoded-stage views switch
+    // atomically with Reconstruction and keep the frame alive without a copy.
+    auto stages = std::shared_ptr<const pnga::analysis_engine::StageSet>(
+        frame_stage_, &frame_stage_->stages);
+    w_.pixel_view->setStageSet(stages);
+    w_.filtered_view->setStageSet(stages);
+    w_.defiltered_view->setStageSet(std::move(stages));
+  } else {
+    w_.pixel_view->setStageSet(stage_set_);
+    w_.filtered_view->setStageSet(stage_set_);
+    w_.defiltered_view->setStageSet(stage_set_);
+  }
+  updateHexSource();
+  if (frame_stage_ != nullptr) {
+    showDefaultAnimationCoordinate();
+  }
+  requestLockedTraceForCurrentFrame();
+}
+
+void SelectionNavigationController::requestLockedTraceForCurrentFrame() {
+  if (frame_stage_ == nullptr || callbacks_.request_trace == nullptr ||
+      !std::holds_alternative<pnga::trace_model::AnimationFrame>(
+          image_identity_) || !view_state_.locked.has_value()) {
+    return;
+  }
+  const auto& locked = *view_state_.locked;
+  const auto coordinate = coordinate_for(image_identity_, locked.x, locked.y);
+  if (!view_state_.set_locked(coordinate)) {
+    return;
+  }
+  pnga::trace_model::Selection selected;
+  selected.image = coordinate;
+  selected.stage = animation_stage_ == pnga::trace_model::Stage::kUnknown
+                       ? pnga::trace_model::Stage::kDelivered
+                       : animation_stage_;
+  w_.bus->publishMerged(kImagePanelOrigin, generation_, selected);
+  callbacks_.request_trace(coordinate);
 }
 
 void SelectionNavigationController::setAnimationFrameStream(
@@ -603,10 +694,21 @@ void SelectionNavigationController::updateHexSource() {
     const pnga::png_format::VirtualIDATStream stream(*index_);
     w_.hex->setSource(pnga::ui::qt::make_idat_hex_source(source_, stream));
   } else if (view_state_.hex_source == pnga::ui::qt::HexSource::kInflated) {
-    w_.hex->setSource(pnga::ui::qt::make_inflated_hex_source(stage_set_));
+    // Frame identity active: the Inflated bytes come from the analyzed
+    // frame (T08); the static document otherwise.
+    if (frame_stage_ != nullptr) {
+      w_.hex->setSource(pnga::ui::qt::make_frame_inflated_hex_source(frame_stage_));
+    } else {
+      w_.hex->setSource(pnga::ui::qt::make_inflated_hex_source(stage_set_));
+    }
   } else if (view_state_.hex_source ==
              pnga::ui::qt::HexSource::kDefiltered) {
-    w_.hex->setSource(pnga::ui::qt::make_defiltered_hex_source(stage_set_));
+    if (frame_stage_ != nullptr) {
+      w_.hex->setSource(
+          pnga::ui::qt::make_frame_defiltered_hex_source(frame_stage_));
+    } else {
+      w_.hex->setSource(pnga::ui::qt::make_defiltered_hex_source(stage_set_));
+    }
   } else {
     w_.hex->setSource(pnga::ui::qt::make_file_hex_source(source_));
   }
@@ -625,8 +727,24 @@ void SelectionNavigationController::updateNumericBaseButton() {
   w_.base_button->setToolTip(QStringLiteral("Switch to %1").arg(target));
 }
 
+pnga::ui::qt::DeliveredImageView*
+SelectionNavigationController::activePixelView() const noexcept {
+  // The active view provides hover/lock presentation facts (C6/D3): the
+  // mounted animation view when one is set, the static image otherwise.
+  return animation_view_ != nullptr ? animation_view_.data() : w_.image_view;
+}
+
 void SelectionNavigationController::setPixelStatus(int x, int y) {
-  const auto rgba = w_.image_view->rgbaAt(x, y);
+  // The active animation view stores the frame-local image: the status is
+  // reported for canvas-global coordinates and read frame-locally (C1
+  // conversion through the frame rectangle origin).
+  int read_x = x;
+  int read_y = y;
+  if (animation_view_ != nullptr) {
+    read_x = x - static_cast<int>(animation_origin_x_);
+    read_y = y - static_cast<int>(animation_origin_y_);
+  }
+  const auto rgba = activePixelView()->rgbaAt(read_x, read_y);
   if (!rgba.has_value()) {
     restorePixelStatus();
     return;
@@ -646,7 +764,8 @@ void SelectionNavigationController::restorePixelStatus() {
   // provide it; a committed lock without a delivered image (standalone
   // controller tests, transient decode failure) falls back to the default
   // status instead of recursing between here and setPixelStatus().
-  if (view_state_.locked.has_value() && !w_.image_view->image().isNull()) {
+  if (view_state_.locked.has_value() &&
+      !activePixelView()->image().isNull()) {
     setPixelStatus(static_cast<int>(view_state_.locked->x),
                    static_cast<int>(view_state_.locked->y));
     return;
@@ -661,8 +780,46 @@ void SelectionNavigationController::setAnimationView(
   animation_stage_ = stage;
   animation_origin_x_ = origin_x;
   animation_origin_y_ = origin_y;
+  for (std::size_t i = 0; i < w_.animation_views.size(); ++i) {
+    if (w_.animation_views[i] == view) {
+      animation_stages_[i] = stage;
+      animation_origin_x_by_view_[i] = origin_x;
+      animation_origin_y_by_view_[i] = origin_y;
+      break;
+    }
+  }
 }
+
+void SelectionNavigationController::adoptAnimationViewFromSender() {
+  auto* clicked_view =
+      qobject_cast<pnga::ui::qt::DeliveredImageView*>(sender());
+  if (clicked_view == nullptr) {
+    return;
+  }
+  for (std::size_t i = 0; i < w_.animation_views.size(); ++i) {
+    if (w_.animation_views[i] == clicked_view) {
+      animation_view_ = clicked_view;
+      animation_stage_ = animation_stages_[i];
+      animation_origin_x_ = animation_origin_x_by_view_[i];
+      animation_origin_y_ = animation_origin_y_by_view_[i];
+      return;
+    }
+  }
+}
+
+void SelectionNavigationController::onAnimationFrameHovered(int x, int y) {
+  if (!animation_view_ || x < 0 || y < 0) return;
+  const auto global_x = static_cast<std::uint64_t>(x) + animation_origin_x_;
+  const auto global_y = static_cast<std::uint64_t>(y) + animation_origin_y_;
+  if (global_x > std::numeric_limits<int>::max() ||
+      global_y > std::numeric_limits<int>::max()) {
+    return;
+  }
+  onPixelHovered(static_cast<int>(global_x), static_cast<int>(global_y));
+}
+
 void SelectionNavigationController::onAnimationPixelSelected(int x, int y) {
+  adoptAnimationViewFromSender();
   if (!animation_view_ || x < 0 || y < 0) return;
   const auto rgba = animation_view_->rgbaAt(x, y);
   if (!rgba) return;
@@ -679,8 +836,14 @@ void SelectionNavigationController::onAnimationPixelSelected(int x, int y) {
   selected.image = coordinate_for(image_identity_, global_x, global_y);
   selected.stage = animation_stage_;
   view_state_.set_locked(*selected.image);
-  // Canvas stages cannot be mapped through the static IDAT trace query.
   w_.bus->publish(kImagePanelOrigin, generation_, selected);
-  w_.pixel_label->setText(QStringLiteral("(%1, %2) · RGBA %3, %4, %5, %6")
-      .arg(global_x).arg(global_y).arg((*rgba)[0]).arg((*rgba)[1]).arg((*rgba)[2]).arg((*rgba)[3]));
+  requestLockedTraceForCurrentFrame();
+  w_.pixel_label->setText(
+      QStringLiteral("pixel (%1, %2) RGBA(%3, %4, %5, %6)")
+          .arg(global_x)
+          .arg(global_y)
+          .arg((*rgba)[0])
+          .arg((*rgba)[1])
+          .arg((*rgba)[2])
+          .arg((*rgba)[3]));
 }

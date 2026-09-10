@@ -24,6 +24,7 @@
 #include <QPointer>
 #include <QString>
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -74,8 +75,17 @@ class SelectionNavigationController final : public QObject {
   void setAnimationView(pnga::ui::qt::DeliveredImageView* view, pnga::trace_model::Stage stage,
                         std::uint32_t origin_x, std::uint32_t origin_y);
   void onAnimationPixelSelected(int x, int y);
+  // Frame-local hover of the mounted animation view, converted to the
+  // canvas-global hover status (C6; animation views emit frame-local
+  // coordinates).
+  void onAnimationFrameHovered(int x, int y);
   void setAnimationFrameStream(
       std::shared_ptr<const pnga::png_format::IVirtualCompressedStream> stream);
+  // WP-APNG-INSPECT live wiring (T08/D5): the analyzed frame context for
+  // the frame-scoped Inflated/Defiltered Hex sources. Null restores the
+  // static document context.
+  void setFrameStageContext(
+      std::shared_ptr<const pnga::analysis_engine::FrameStageSet> frame);
 
   pnga::ui::qt::SelectionViewState& viewState() noexcept;
   const pnga::ui::qt::SelectionViewState& viewState() const noexcept;
@@ -112,6 +122,14 @@ class SelectionNavigationController final : public QObject {
   void updateNumericBaseButton();
   void setPixelStatus(int x, int y);
   void restorePixelStatus();
+  void clearCoordinateSelectionForIdentityChange();
+  void showDefaultAnimationCoordinate();
+  void adoptAnimationViewFromSender();
+  // Re-submit the locked canvas coordinate after the selected animation frame
+  // has produced its frame-scoped stages.
+  void requestLockedTraceForCurrentFrame();
+  // The active presentation view for hover/lock status (C6/D3).
+  pnga::ui::qt::DeliveredImageView* activePixelView() const noexcept;
 
   MainWindowWidgets w_;
   SelectionNavigationCallbacks callbacks_;
@@ -122,6 +140,7 @@ class SelectionNavigationController final : public QObject {
   const pnga::png_format::ChunkIndex* index_ = nullptr;
   pnga::analysis_engine::QueryCoordinator* query_ = nullptr;
   std::shared_ptr<const pnga::analysis_engine::StageSet> stage_set_;
+  std::shared_ptr<const pnga::analysis_engine::FrameStageSet> frame_stage_;
   std::shared_ptr<const pnga::png_format::IVirtualCompressedStream>
       frame_stream_;
   pnga::trace_model::ImageIdentity image_identity_ =
@@ -134,6 +153,13 @@ class SelectionNavigationController final : public QObject {
   QPointer<pnga::ui::qt::DeliveredImageView> animation_view_;
   pnga::trace_model::Stage animation_stage_ = pnga::trace_model::Stage::kUnknown;
   std::uint32_t animation_origin_x_ = 0, animation_origin_y_ = 0;
+  std::array<pnga::trace_model::Stage, 4> animation_stages_ = {
+      pnga::trace_model::Stage::kFrameOutput,
+      pnga::trace_model::Stage::kPreBlend,
+      pnga::trace_model::Stage::kPostBlend,
+      pnga::trace_model::Stage::kPostDispose};
+  std::array<std::uint32_t, 4> animation_origin_x_by_view_{};
+  std::array<std::uint32_t, 4> animation_origin_y_by_view_{};
 };
 
 // Absolute inflated byte offset of a pixel's sample within its scanline.

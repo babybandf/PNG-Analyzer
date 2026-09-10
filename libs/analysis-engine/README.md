@@ -9,6 +9,41 @@ Orchestration rather than codec algorithms (REPOSITORY_LAYOUT.md §5.10, ADR-000
   IDAT bit spans (WP-504).
 - Qt-free coordinate summaries that resolve image-global coordinates to
   pass-local rows, stage byte/bit offsets and native sample indices (WP-5U1).
+- Immutable per-frame `AnalysisTarget` contexts for APNG inspection:
+  `make_frame_target` builds the frame-scoped virtual stream, delivery
+  context and header; `frame_local_point` maps canvas-global points into the
+  frame rectangle with checked arithmetic; `query_frame_coordinate` resolves
+  canvas-global selections against analyzed frame stages and restores
+  canvas-global coordinates in its output (WP-APNG-INSPECT).
+- Generic virtual-compressed-stream overloads of the shared row/trace
+  kernels so frame streams reuse the static implementations without an
+  adapter: `inflate_filtered`, `build_scanline_anchors`, `restore_scanline`,
+  `query_pixel_provenance`, `compose_trace_query` and
+  `build_fast_compression_index` accept any `IVirtualCompressedStream`
+  (WP-APNG-INSPECT). Original source-pair overloads remain.
+- `QueryCoordinator::open(target, anchor_interval_bytes)` and
+  `TraceOrchestrator::open(target, max_index_output_bytes)` build their
+  indexes over an `AnalysisTarget` frame stream without rescanning the file;
+  the document generation adopts `target->key.generation` and trace submit
+  rejects selections whose image identity differs from the open target
+  (WP-APNG-INSPECT).
+- `collect_frame_statistics` (WP-APNG-INSPECT): frame-scoped scalar
+  statistics through the shared accumulator — chunk coverage is the owning
+  fcTL plus the frame's own data chunks only; byte accounting follows the
+  frozen C3 formulas; progress reuses the 100 ms throttle and monotonic
+  clock seam; cancellation keeps the verified prefix.
+- `query_frame_statistics_occurrence` (WP-APNG-INSPECT contract C7):
+  occurrence navigation over the target's frame stream; chunk-domain
+  results cover the frame's own data chunks and the derived fcTL position,
+  whole-file chunk navigation keeps using `query_statistics_occurrence`,
+  and every returned image coordinate carries `target.key.identity`.
+- `query_canvas_pixel` (WP-APNG-INSPECT contract C4): bounded canvas-pixel
+  provenance as a page-local DAG of FrameSample/BlendSource/BlendOver/
+  Carry/Clear/Restore operations. Numeric RGBA checkpoints reuse the
+  production compositor (`blend_into` on 1x1 images); the walk follows the
+  animation control records; fixed page budgets (4096 nodes, 1024
+  history-frame steps, 4 MiB node memory) paginate through a validated
+  cursor instead of growing the working set.
 - A bounded, Qt-free Trace Query Contract that composes associated Deflate
   blocks, token/table summaries and logical/physical bit provenance without
   starting a worker or retaining a whole-file token trace (WP-5T0A).

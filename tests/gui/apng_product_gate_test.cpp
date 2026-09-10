@@ -17,13 +17,19 @@
 #include <pnga/png-format/animation_index.h>
 #include <pnga/ui/qt/animation_inspector.h>
 #include <pnga/ui/qt/animation_timeline.h>
+#include <pnga/ui/qt/block_inspector.h>
+#include <pnga/ui/qt/block_inspector_model.h>
+#include <pnga/ui/qt/compression_context.h>
 #include <pnga/ui/qt/delivered_image_view.h>
+#include <pnga/ui/qt/decode_trace_inspector.h>
 #include <pnga/ui/qt/hex_source_tab_bar.h>
 #include <pnga/ui/qt/selection_bus.h>
+#include <pnga/ui/qt/stage_inspector.h>
 
 #include <QtTest/QtTest>
 
 #include <QComboBox>
+#include <QCheckBox>
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDebug>
@@ -40,6 +46,8 @@
 #include <QSpinBox>
 #include <QSysInfo>
 #include <QTabWidget>
+#include <QTableView>
+#include <QTextEdit>
 #include <QTemporaryDir>
 
 #include <array>
@@ -113,6 +121,11 @@ class ApngProductGateTest final : public QObject {
   // Cell 7: a palette APNG delivers through the document delivery context
   // (PLTE/tRNS -> FrameRequest::delivery) and shows the palette colors.
   void paletteApngDeliversThroughDocumentContext();
+
+  // Regression: selecting a frame updates every frame-scoped inspection
+  // consumer instead of leaving Reconstruction/Pixel/Compression on the
+  // static fallback context.
+  void selectingFrameUpdatesInspectionConsumers();
 
  private:
   void openApng(MainWindow& window, QTemporaryDir& dir,
@@ -316,7 +329,11 @@ void ApngProductGateTest::navigationPlaybackAndFirstStage() {
   auto* play = window.findChild<QPushButton*>(QStringLiteral("animationPlay"));
   QVERIFY(tabs != nullptr);
 
-  window.findChild<QPushButton*>(QStringLiteral("animationNext"))->click();
+  auto* thumbnails = window.findChild<QListView*>(
+      QStringLiteral("animationThumbnails"));
+  QVERIFY(thumbnails != nullptr);
+  thumbnails->setFocus();
+  QTest::keyClick(thumbnails, Qt::Key_Right);
   QTRY_COMPARE_WITH_TIMEOUT(output->image().pixelColor(0, 0),
                             QColor(Qt::green), 4000);
   QCOMPARE(frame->value(), 1);
@@ -570,6 +587,107 @@ void ApngProductGateTest::paletteApngDeliversThroughDocumentContext() {
 
   capture(window, QStringLiteral("palette-frame-output"));
   write_record();
+}
+
+void ApngProductGateTest::selectingFrameUpdatesInspectionConsumers() {
+  QTemporaryDir dir;
+  MainWindow window;
+  openApng(window, dir, valid_sample_, QStringLiteral("inspection.apng"));
+  window.show();
+
+  QTRY_VERIFY_WITH_TIMEOUT(stageView(window, 0) != nullptr, 4000);
+  auto* output = stageView(window, 0);
+  auto* inspector = window.findChild<pnga::ui::qt::StageInspector*>(
+      QStringLiteral("reconstructInspector"));
+  auto* pixels = window.findChild<QWidget*>(QStringLiteral("pixelsViewport"));
+  auto* pixel_text = pixels == nullptr ? nullptr : pixels->findChild<QTextEdit*>();
+  auto* block = window.findChild<pnga::ui::qt::BlockInspector*>(
+      QStringLiteral("blockInspector"));
+  auto* context = window.findChild<pnga::ui::qt::CompressionContext*>();
+  auto* hex_bar = window.findChild<pnga::ui::qt::HexSourceTabBar*>();
+  QVERIFY(output != nullptr);
+  QVERIFY(inspector != nullptr);
+  QVERIFY(pixel_text != nullptr);
+  QVERIFY(block != nullptr);
+  QVERIFY(context != nullptr);
+  QVERIFY(hex_bar != nullptr);
+  auto* block_table = block->findChild<QTableView*>();
+  QVERIFY(block_table != nullptr);
+
+  QTRY_VERIFY_WITH_TIMEOUT(!output->image().isNull(), 4000);
+  QTRY_VERIFY_WITH_TIMEOUT(
+      std::holds_alternative<pnga::trace_model::AnimationFrame>(
+          inspector->model()->identity()),
+      4000);
+  const QString frame0_pixels = pixel_text->toPlainText();
+  const auto frame0_blocks = block_table->model()->rowCount();
+  QVERIFY(frame0_blocks > 0);
+  const auto frame0_spans = block_table->model()
+                                ->data(block_table->model()->index(0, 0),
+                                      pnga::ui::qt::PhysicalSpansRole)
+                                .value<std::vector<pnga::trace_model::ProvenanceSpan>>();
+
+  auto* decode = window.findChild<pnga::ui::qt::DecodeTraceInspector*>(
+      QStringLiteral("decodeTraceInspector"));
+  auto* decode_table = decode == nullptr ? nullptr : decode->findChild<QTableView*>(
+      QStringLiteral("compressionDecodeTraceTable"));
+  QPushButton* trace_button = nullptr;
+  for (auto* button : block->findChildren<QPushButton*>()) {
+    if (button->text() == QStringLiteral("Open Decode Trace")) {
+      trace_button = button;
+      break;
+    }
+  }
+  QVERIFY(decode != nullptr);
+  QVERIFY(decode_table != nullptr);
+  QVERIFY(trace_button != nullptr);
+  auto* lock = window.findChild<QCheckBox*>(QStringLiteral("lockCoordinate"));
+  auto* x = window.findChild<QSpinBox*>(QStringLiteral("xCoordinate"));
+  auto* y = window.findChild<QSpinBox*>(QStringLiteral("yCoordinate"));
+  auto* pixel_status = window.findChild<QLabel*>(QStringLiteral("pixelStatus"));
+  QVERIFY(lock != nullptr);
+  QVERIFY(x != nullptr);
+  QVERIFY(y != nullptr);
+  QVERIFY(pixel_status != nullptr);
+  lock->setChecked(true);
+  QTRY_VERIFY_WITH_TIMEOUT(
+      context->statusLabel()->text().contains(QStringLiteral("Trace ready")),
+      10000);
+  QTRY_VERIFY_WITH_TIMEOUT(!decode->view().steps.empty(), 10000);
+
+  window.findChild<QPushButton*>(QStringLiteral("animationNext"))->click();
+  QTRY_COMPARE_WITH_TIMEOUT(output->image().pixelColor(0, 0),
+                            QColor(Qt::green), 4000);
+  QTRY_COMPARE_WITH_TIMEOUT(x->value(), 0, 4000);
+  QTRY_COMPARE_WITH_TIMEOUT(y->value(), 0, 4000);
+  QVERIFY(!lock->isChecked());
+  QTRY_VERIFY_WITH_TIMEOUT(pixel_status->text().contains(
+                               QStringLiteral("pixel (0, 0)")),
+                           4000);
+  QTRY_VERIFY_WITH_TIMEOUT(
+      std::holds_alternative<pnga::trace_model::AnimationFrame>(
+          inspector->model()->identity()) &&
+          std::get<pnga::trace_model::AnimationFrame>(
+              inspector->model()->identity())
+                  .index == 1,
+      4000);
+  QTRY_VERIFY_WITH_TIMEOUT(pixel_text->toPlainText() != frame0_pixels, 4000);
+  QTRY_VERIFY_WITH_TIMEOUT(
+      block_table->model()->rowCount() > 0 &&
+          context->streamSummaryLabel()->text().contains(
+              QStringLiteral("zlib stream")),
+      4000);
+  const auto frame1_spans = block_table->model()
+                                ->data(block_table->model()->index(0, 0),
+                                      pnga::ui::qt::PhysicalSpansRole)
+                                .value<std::vector<pnga::trace_model::ProvenanceSpan>>();
+  QVERIFY(frame1_spans != frame0_spans);
+  QTRY_VERIFY_WITH_TIMEOUT(decode->view().steps.empty() &&
+                               decode_table->model()->rowCount() == 0,
+                           10000);
+  QCOMPARE(hex_bar->tabText(1), QStringLiteral("Frame Stream"));
+  hex_bar->setCurrentIndex(1);
+  QCOMPARE(hex_bar->source(), pnga::ui::qt::HexSource::kFrameStream);
 }
 
 QTEST_MAIN(ApngProductGateTest)

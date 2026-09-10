@@ -4,10 +4,13 @@
 #include <pnga/analysis-engine/stage_analysis.h>
 #include <pnga/png-format/virtual_idat_stream.h>
 #include <pnga/png-format/virtual_frame_stream.h>
+#include <pnga/analysis-engine/frame_analysis.h>
 #include <pnga/ui/qt/hex_data_source.h>
 #include <pnga/ui/qt/hex_view.h>
 
 #include <QtTest/QtTest>
+
+#include "apng_inspection_fixture.h"
 
 #include <array>
 #include <memory>
@@ -21,6 +24,7 @@ class HexDataSourceTest : public QObject {
   void frameSourceReadsLogicalStreamAndKeepsOwnersAlive();
   void derivedSourcesExposeStageBytesAndStates();
   void hexViewKeepsBoundedAddressHistory();
+  void frameStageSourcesReadTheAnalyzedFrameBytes();
 };
 
 void HexDataSourceTest::fileSourceReadsAndKeepsBackingAlive() {
@@ -124,6 +128,40 @@ void HexDataSourceTest::hexViewKeepsBoundedAddressHistory() {
   QCOMPARE(view.currentLocation(), std::optional<std::uint64_t>(20));
   QVERIFY(!view.navigateTo(64));
   QVERIFY(!view.goForward());
+}
+
+void HexDataSourceTest::frameStageSourcesReadTheAnalyzedFrameBytes() {
+  // WP-APNG-INSPECT T08: the frame-scoped Inflated/Defiltered sources read
+  // the analyzed frame's own bytes (aliasing the frame's StageSet) and keep
+  // the frame alive through shared ownership.
+  auto request = pnga_test::inspection_request(0);
+  auto analyzed = pnga::analysis_engine::analyze_frame(request, nullptr);
+  QCOMPARE(analyzed.stop, pnga::analysis_engine::FrameResult::Stop::kReady);
+  std::shared_ptr<const pnga::analysis_engine::FrameStageSet> frame =
+      analyzed.frame;
+  QVERIFY(frame != nullptr);
+
+  const auto inflated =
+      pnga::ui::qt::make_frame_inflated_hex_source(frame);
+  const auto defiltered =
+      pnga::ui::qt::make_frame_defiltered_hex_source(frame);
+  QVERIFY(inflated != nullptr);
+  QVERIFY(defiltered != nullptr);
+  QCOMPARE(inflated->status(), pnga::ui::qt::HexDataStatus::kReady);
+  QCOMPARE(defiltered->status(), pnga::ui::qt::HexDataStatus::kReady);
+  QCOMPARE(inflated->size(), frame->stages.filtered.size());
+  QCOMPARE(defiltered->size(), frame->stages.unfiltered.size());
+
+  std::vector<std::byte> bytes(inflated->size());
+  QVERIFY(inflated->read(0, bytes.data(), bytes.size()));
+  QCOMPARE(bytes, frame->stages.filtered);
+
+  std::vector<std::byte> unfiltered(defiltered->size());
+  QVERIFY(defiltered->read(0, unfiltered.data(), unfiltered.size()));
+  QCOMPARE(unfiltered, frame->stages.unfiltered);
+
+  // A null frame has no source.
+  QCOMPARE(pnga::ui::qt::make_frame_inflated_hex_source(nullptr), nullptr);
 }
 
 QTEST_MAIN(HexDataSourceTest)

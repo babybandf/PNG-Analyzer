@@ -2,6 +2,8 @@
 #define PNG_ANALYZER_GUI_ANIMATION_CONTROLLER_H
 
 #include "animation_worker.h"
+#include "frame_inspection_session.h"
+#include "trace_controller.h"
 
 #include <pnga/analysis-engine/animation_playback.h>
 
@@ -15,6 +17,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 struct MainWindowWidgets;
 class DocumentSession;
@@ -44,6 +47,13 @@ class AnimationController final : public QObject {
   Capability capability() const noexcept { return capability_; }
   std::uint64_t generation() const noexcept { return generation_; }
   std::uint64_t requestSerial() const noexcept { return request_serial_; }
+  std::optional<std::uint64_t> nextFrameSelectionSerial() noexcept;
+  // Retained replay-cache bytes of the shared animation budget (C5: the
+  // playback worker keeps its own 64 MiB; the inspection session reads this
+  // for shared budget reporting, WP-APNG-INSPECT).
+  std::uint64_t replayRetainedBytes() const noexcept {
+    return replay_ ? replay_->retained_bytes() : 0;
+  }
 
   // Test seam for delivering a deliberately reordered worker completion.
   void publishWorkerResultForTesting(
@@ -90,10 +100,13 @@ class AnimationController final : public QObject {
   std::uint64_t generation_ = 0;
   std::uint64_t request_serial_ = 0;
   std::uint32_t selected_ordinal_ = 0;
+  std::uint64_t frame_selection_serial_ = 0;
 };
 
 void bindAnimationUi(AnimationController& controller, DocumentSession& session,
                      MainWindowWidgets& widgets,
-                     SelectionNavigationController& selection);
+                     SelectionNavigationController& selection,
+                     pnga::gui::FrameInspectionSession& frame_inspection,
+                     TraceController& trace);
 
 #endif  // PNG_ANALYZER_GUI_ANIMATION_CONTROLLER_H

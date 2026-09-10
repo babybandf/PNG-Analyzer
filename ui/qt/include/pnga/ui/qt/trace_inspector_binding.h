@@ -13,6 +13,7 @@
 #include <QObject>
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 
@@ -47,6 +48,12 @@ class TraceInspectorBinding final : public QObject {
   void setHasDocument(bool has_document);
   void setNotIndexed(bool not_indexed);
 
+  // WP-APNG-INSPECT (T08): optional publication gate. When set, publish()
+  // and publishFastIndex() run only while the gate returns true (the frame
+  // inspection session accepted the result's ticket). Default (unset) keeps
+  // the static publication path unchanged.
+  void setPublicationGate(std::function<bool()> gate);
+
  signals:
   void generationPublished(quint64 generation);
 
@@ -60,6 +67,7 @@ class TraceInspectorBinding final : public QObject {
   pnga::analysis_engine::TraceInspectorState last_state_;
   bool has_document_ = false;
   bool not_indexed_ = false;
+  std::function<bool()> publication_gate_;
   std::uint64_t generation_ = 0;
 };
 

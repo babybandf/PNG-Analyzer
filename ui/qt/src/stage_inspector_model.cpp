@@ -74,7 +74,39 @@ void StageInspectorModel::setStageSet(
   endResetModel();
 }
 
+void StageInspectorModel::setFrameContext(
+    std::shared_ptr<const pnga::analysis_engine::FrameStageSet> frame) {
+  beginResetModel();
+  frame_ = std::move(frame);
+  if (frame_ != nullptr) {
+    // Alias the frame's own StageSet: one shared ownership, zero copies.
+    set_ = std::shared_ptr<const pnga::analysis_engine::StageSet>(frame_,
+                                                                  &frame_->stages);
+    identity_ = frame_->identity;
+    // The delivered RGBA8 buffer is uint8_t in RgbaImage but byte here.
+    delivered_rgba_.clear();
+    delivered_rgba_.reserve(frame_->delivered.pixels.size());
+    for (const auto value : frame_->delivered.pixels) {
+      delivered_rgba_.push_back(std::byte{value});
+    }
+    delivered_width_ = frame_->delivered.width;
+    delivered_height_ = frame_->delivered.height;
+  } else {
+    set_ = nullptr;
+    identity_ = pnga::trace_model::StaticImage{};
+    delivered_rgba_.clear();
+    delivered_width_ = 0;
+    delivered_height_ = 0;
+  }
+  x_ = 0;
+  y_ = 0;
+  stage_ = pnga::trace_model::Stage::kFiltered;
+  endResetModel();
+}
+
 void StageInspectorModel::clear() {
+  frame_.reset();
+  identity_ = pnga::trace_model::StaticImage{};
   beginResetModel();
   set_.reset();
   delivered_rgba_.clear();

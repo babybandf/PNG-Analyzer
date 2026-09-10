@@ -8,6 +8,7 @@
 // runs the pipeline (AGENTS.md).
 
 #include <pnga/analysis-engine/stage_analysis.h>
+#include <pnga/analysis-engine/frame_analysis.h>
 #include <pnga/trace-model/selection.h>
 
 #include <QAbstractTableModel>
@@ -46,9 +47,16 @@ class StageInspectorModel final : public QAbstractTableModel {
                                                 std::uint64_t y,
                                                 std::uint8_t channel) const;
 
+  // WP-APNG-INSPECT (contract C1/T08): atomically submits the analyzed
+  // frame's stages, delivered pixels and identity. Static
+  // setStageSet/setDeliveredPixels paths are unchanged.
+  void setFrameContext(
+      std::shared_ptr<const pnga::analysis_engine::FrameStageSet> frame);
+
   bool hasData() const noexcept {
     return set_ != nullptr && set_->success;
   }
+  pnga::trace_model::ImageIdentity identity() const { return identity_; }
   std::shared_ptr<const pnga::analysis_engine::StageSet> stageSet() const {
     return set_;
   }
@@ -74,6 +82,8 @@ class StageInspectorModel final : public QAbstractTableModel {
       std::uint64_t x, std::uint64_t y, std::uint64_t* pass_x) const;
 
   std::shared_ptr<const pnga::analysis_engine::StageSet> set_;
+  std::shared_ptr<const pnga::analysis_engine::FrameStageSet> frame_;
+  pnga::trace_model::ImageIdentity identity_ = pnga::trace_model::StaticImage{};
   std::vector<std::byte> delivered_rgba_;
   std::uint32_t delivered_width_ = 0;
   std::uint32_t delivered_height_ = 0;

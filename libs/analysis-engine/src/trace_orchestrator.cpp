@@ -3,11 +3,15 @@
 
 #include "pnga/analysis-engine/trace_orchestrator.h"
 
+#include "pnga/analysis-engine/analysis_target.h"
+
 #include "virtual_idat_source.h"
 
 #include <pnga/deflate-trace/token_decoder.h>
 #include <pnga/png-format/chunk_index.h>
 #include <pnga/png-format/virtual_idat_stream.h>
+
+#include <optional>
 
 #include <algorithm>
 #include <limits>
@@ -106,8 +110,58 @@ bool TraceOrchestrator::open(
     source_ = std::move(source);
     index_ = std::move(index);
     stream_ = std::move(stream);
+    target_stream_.reset();
+    target_key_ = pnga::trace_model::AnalysisKey{};
     block_index_ = std::move(block_index);
     fast_index_ = std::move(fast_index);
+    completed_.clear();
+    has_index_ = true;
+    last_error_.clear();
+    generation_ = next_generation;
+  }
+  scheduler_.setDocumentGeneration(next_generation);
+  return true;
+}
+
+bool TraceOrchestrator::open(std::shared_ptr<const AnalysisTarget> target,
+                             std::uint64_t max_index_output_bytes) {
+  if (target == nullptr || target->stream == nullptr ||
+      max_index_output_bytes == 0) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    last_error_ = "trace target or index budget is invalid";
+    return false;
+  }
+  if (scheduler_.queued_count() != 0 ||
+      scheduler_.running_reserved_bytes() != 0) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    last_error_ = "cannot replace document while trace replay is active";
+    return false;
+  }
+
+  // Never rescan the whole file for static IDATs: index the frame stream
+  // directly (it is its own byte source).
+  auto block_index =
+      pnga::deflate_index::index_blocks(*target->stream, max_index_output_bytes);
+  if (!block_index.success && block_index.blocks.empty()) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    last_error_ = block_index.error.empty() ? "trace block index failed"
+                                            : block_index.error;
+    return false;
+  }
+
+  const std::uint64_t next_generation = target->key.generation;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto fast_index = build_fast_compression_index(next_generation,
+                                                   block_index,
+                                                   *target->stream);
+    source_ = target->source;
+    target_stream_ = target->stream;
+    stream_.reset();
+    index_ = pnga::png_format::ChunkIndex{};
+    block_index_ = std::move(block_index);
+    fast_index_ = std::move(fast_index);
+    target_key_ = target->key;
     completed_.clear();
     has_index_ = true;
     last_error_.clear();
@@ -128,12 +182,15 @@ TraceTaskHandle TraceOrchestrator::submit(
   TraceTaskHandle out;
   std::shared_ptr<const pnga::io::IByteSource> source;
   pnga::png_format::VirtualIDATStream* stream = nullptr;
+  std::shared_ptr<const pnga::png_format::IVirtualCompressedStream>
+      target_stream;
   pnga::deflate_index::BlockIndexResult block_index;
   std::uint64_t job_id = 0;
   std::uint64_t generation = 0;
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (!has_index_ || source_ == nullptr || stream_ == nullptr) {
+    if (!has_index_ || source_ == nullptr ||
+        (stream_ == nullptr && target_stream_ == nullptr)) {
       out.status = TraceSubmitStatus::kNotIndexed;
       out.error = "trace document is not indexed";
       last_error_ = out.error;
@@ -142,6 +199,13 @@ TraceTaskHandle TraceOrchestrator::submit(
     if (request.generation != generation_) {
       out.status = TraceSubmitStatus::kStaleGeneration;
       out.error = "trace request generation is stale";
+      last_error_ = out.error;
+      return out;
+    }
+    if (target_stream_ != nullptr && request.selection.image.has_value() &&
+        !(request.selection.image->identity == target_key_.identity)) {
+      out.status = TraceSubmitStatus::kRejected;
+      out.error = "selection identity does not match the open target";
       last_error_ = out.error;
       return out;
     }
@@ -172,27 +236,42 @@ TraceTaskHandle TraceOrchestrator::submit(
     generation = generation_;
     source = source_;
     stream = stream_.get();
+    target_stream = target_stream_;
     block_index = block_index_;
   }
 
   const std::uint64_t reservation = request.trace_output_budget_bytes;
   const auto token = scheduler_.submit(
       job_id, generation, request.priority, reservation,
-      [this, request, source = std::move(source), stream, block_index,
-       job_id, generation](const CancellationToken& cancellation,
-                            JobResult& result) {
+      [this, request, source = std::move(source), stream,
+       target_stream = std::move(target_stream), block_index, job_id,
+       generation](const CancellationToken& cancellation, JobResult& result) {
         if (cancellation.cancelled()) {
           return;
         }
-        VirtualIdatSource logical(*stream, *source);
-        const auto trace = pnga::deflate_trace::decode_stored_and_fixed(
-            logical, decode_budget_for(request));
-        if (cancellation.cancelled()) {
-          return;
+        std::optional<TraceQueryResult> query;
+        if (target_stream != nullptr) {
+          const auto trace = pnga::deflate_trace::decode_stored_and_fixed(
+              *target_stream, decode_budget_for(request));
+          if (cancellation.cancelled()) {
+            return;
+          }
+          query = compose_trace_query(
+              generation, request.selection, block_index, trace,
+              *target_stream, request.inflated_begin, request.inflated_end,
+              request.max_tokens);
+        } else {
+          VirtualIdatSource logical(*stream, *source);
+          const auto trace = pnga::deflate_trace::decode_stored_and_fixed(
+              logical, decode_budget_for(request));
+          if (cancellation.cancelled()) {
+            return;
+          }
+          query = compose_trace_query(
+              generation, request.selection, block_index, trace, *stream,
+              *source, request.inflated_begin, request.inflated_end,
+              request.max_tokens);
         }
-        TraceQueryResult query = compose_trace_query(
-            generation, request.selection, block_index, trace, *stream, *source,
-            request.inflated_begin, request.inflated_end, request.max_tokens);
         if (cancellation.cancelled()) {
           return;
         }
@@ -202,7 +281,7 @@ TraceTaskHandle TraceOrchestrator::submit(
               !has_index_) {
             return;
           }
-          completed_[job_id] = std::move(query);
+          completed_[job_id] = std::move(*query);
         }
         result.success = true;
       });

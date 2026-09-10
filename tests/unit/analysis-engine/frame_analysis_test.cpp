@@ -1,4 +1,5 @@
 #include <pnga/analysis-engine/frame_analysis.h>
+#include <pnga/analysis-engine/analysis_target.h>
 
 #include <pnga/analysis-engine/job_scheduler.h>
 #include <pnga/io/byte_source.h>
@@ -11,6 +12,7 @@
 #include <memory>
 
 #include "apng_fixture.h"
+#include "apng_inspection_fixture.h"
 
 using pnga::analysis_engine::analyze_frame;
 using pnga::analysis_engine::FrameRequest;
@@ -449,4 +451,23 @@ TEST_CASE("Frame analysis rejects corrupt frame streams",
     REQUIRE(result.stop == FrameResult::Stop::kError);
     REQUIRE(result.frame == nullptr);
   }
+}
+
+TEST_CASE("Inspection fixture drives frame analysis and target factory identically",
+          "[apng-inspect]") {
+  const auto request = pnga_test::inspection_request();
+  const FrameResult analyzed = analyze_frame(request, nullptr);
+  REQUIRE(analyzed.stop == FrameResult::Stop::kReady);
+  REQUIRE(analyzed.frame != nullptr);
+  REQUIRE(analyzed.frame->control.width == 2);
+  REQUIRE(analyzed.frame->control.height == 3);
+  REQUIRE(analyzed.frame->control.x == 10);
+  REQUIRE(analyzed.frame->control.y == 20);
+
+  const auto target = pnga::analysis_engine::make_frame_target(request);
+  REQUIRE(target.target);
+  REQUIRE(target.target->header.width == analyzed.frame->stages.header.width);
+  REQUIRE(target.target->header.height ==
+          analyzed.frame->stages.header.height);
+  REQUIRE(target.target->key.generation == request.generation);
 }

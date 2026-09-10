@@ -12,7 +12,9 @@
 #include <pnga/deflate-index/block_index.h>
 #include <pnga/io/byte_source.h>
 #include <pnga/png-format/chunk_index.h>
+#include <pnga/png-format/virtual_compressed_stream.h>
 #include <pnga/png-format/virtual_idat_stream.h>
+#include <pnga/trace-model/inspection_context.h>
 
 #include <cstdint>
 #include <functional>
@@ -22,6 +24,8 @@
 #include <unordered_map>
 
 namespace pnga::analysis_engine {
+
+struct AnalysisTarget;
 
 enum class TraceSubmitStatus {
   kQueued = 0,
@@ -70,6 +74,13 @@ class TraceOrchestrator final {
   bool open(std::shared_ptr<const pnga::io::IByteSource> source,
             std::uint64_t max_index_output_bytes);
 
+  // APNG inspection entry (WP-APNG-INSPECT contract C2): indexes the frame
+  // stream of an immutable AnalysisTarget without rescanning the file for
+  // static IDATs. The document generation adopts target->key.generation;
+  // re-open and replay-active rules are unchanged.
+  bool open(std::shared_ptr<const AnalysisTarget> target,
+            std::uint64_t max_index_output_bytes);
+
   void setResultCallback(std::function<void(const TraceQueryResult&)> cb);
 
   TraceTaskHandle submit(const TraceOrchestrationRequest& request);
@@ -95,6 +106,9 @@ class TraceOrchestrator final {
   std::function<void(const TraceQueryResult&)> callback_;
   std::unordered_map<std::uint64_t, TraceQueryResult> completed_;
   std::shared_ptr<const pnga::io::IByteSource> source_;
+  std::shared_ptr<const pnga::png_format::IVirtualCompressedStream>
+      target_stream_;  // set by the AnalysisTarget open overload
+  pnga::trace_model::AnalysisKey target_key_;  // valid while target_stream_ set
   pnga::png_format::ChunkIndex index_;
   std::unique_ptr<pnga::png_format::VirtualIDATStream> stream_;
   pnga::deflate_index::BlockIndexResult block_index_;
